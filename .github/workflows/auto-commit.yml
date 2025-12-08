@@ -1,0 +1,39 @@
+name: Auto Commit Changes
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+  schedule:
+    # Runs every day at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  auto-commit:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+    
+    - name: Configure Git
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+    
+    - name: Check for changes
+      id: check
+      run: |
+        git diff --quiet || echo "has_changes=true" >> $GITHUB_OUTPUT
+        git diff --quiet || exit 1
+    
+    - name: Commit and push changes
+      if: steps.check.outputs.has_changes == 'true'
+      run: |
+        git add .
+        git commit -m "Auto-commit: Update project files [$(date +'%Y-%m-%d %H:%M:%S')]" || exit 0
+        git push
+

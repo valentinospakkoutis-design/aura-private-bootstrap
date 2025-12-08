@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "AURA",
+    "slug": "aura",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": "aura",
+    "splash": {
+      "backgroundColor": "#0a0a0a",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.valentinospakkoutisdesign.aura"
+    },
+    "android": {
+      "package": "com.valentinospakkoutisdesign.aura",
+      "backgroundColor": "#0a0a0a"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
