@@ -1,13 +1,19 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, EmailStr
 from typing import Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
+import secrets
+from urllib.parse import quote
 from brokers.binance import BinanceAPI
 from services.paper_trading import paper_trading_service
 from ai.precious_metals import precious_metals_predictor
+from ai.asset_predictor import asset_predictor, AssetType
+from ai.asset_predictor import asset_predictor, AssetType
 from services.cms_service import cms_service
 from services.voice_briefing import voice_briefing_service
 from ml.model_manager import model_manager
@@ -16,12 +22,20 @@ from services.live_trading import live_trading_service
 from services.analytics import analytics_service
 from services.scheduler import scheduler_service
 from services.notifications import notifications_service
+from ml.annotation_api import router as annotation_router
 
 app = FastAPI(
     title="AURA Backend API",
     description="Backend για το AURA - AI Trading Assistant",
     version="1.0.0"
 )
+
+# Include annotation router
+app.include_router(annotation_router)
+
+# Templates Configuration
+templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+templates = Jinja2Templates(directory=templates_dir)
 
 # CORS Configuration - Επιτρέπει requests από το mobile app
 app.add_middleware(
@@ -32,15 +46,115 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    """Root endpoint - Status check"""
-    return {
-        "status": "online",
-        "service": "AURA Backend API",
-        "version": "1.0.0",
-        "timestamp": datetime.now().isoformat()
+# User storage file
+USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")
+
+def load_users_db():
+    """Load users from JSON file"""
+    if os.path.exists(USERS_DB_FILE):
+        try:
+            with open(USERS_DB_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading users DB: {e}")
+            return {}
+    return {}
+
+def save_users_db(users_db):
+    """Save users to JSON file"""
+    try:
+        with open(USERS_DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users_db, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Error saving users DB: {e}")
+        return False
+
+# Load users on startup
+users_db = load_users_db()
+print(f"Loaded {len(users_db)} users from database")
+
+# Session management (in-memory for now, use Redis in production)
+sessions = {}  # Format: {session_id: {"email": "...", "expires": datetime}}
+
+def create_session(email: str) -> str:
+    """Create a new session and return session ID"""
+    session_id = secrets.token_urlsafe(32)
+    sessions[session_id] = {
+        "email": email,
+        "expires": datetime.now() + timedelta(hours=24)
     }
+    return session_id
+
+def get_session(session_id: Optional[str]) -> Optional[Dict]:
+    """Get session data if valid"""
+    if not session_id or session_id not in sessions:
+        return None
+    session = sessions[session_id]
+    if datetime.now() > session["expires"]:
+        del sessions[session_id]
+        return None
+    return session
+
+def delete_session(session_id: str):
+    """Delete a session"""
+    if session_id in sessions:
+        del sessions[session_id]
+
+@app.get("/", response_class=HTMLResponse)
+def read_root(request: Request, error: Optional[str] = None, success: Optional[str] = None):
+    """Root endpoint - Landing Page"""
+    # Check if user is already logged in
+    session_id = request.cookies.get("session_id")
+    session = get_session(session_id)
+    if session:
+        # User is logged in, redirect to dashboard
+        return RedirectResponse(url="/dashboard", status_code=303)
+    
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "error": error,
+            "success": success
+        }
+    )
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    """Dashboard page - requires authentication"""
+    session_id = request.cookies.get("session_id")
+    session = get_session(session_id)
+    
+    if not session:
+        # Not logged in, redirect to login
+        return RedirectResponse(url="/?error=" + quote("Παρακαλώ συνδεθείτε"), status_code=303)
+    
+    email = session["email"]
+    user = users_db.get(email)
+    if not user:
+        # User doesn't exist anymore
+        return RedirectResponse(url="/?error=" + quote("Ο χρήστης δεν βρέθηκε"), status_code=303)
+    
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "user_name": user["name"],
+            "user_email": email
+        }
+    )
+
+@app.get("/logout")
+def logout(request: Request):
+    """Logout endpoint"""
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        delete_session(session_id)
+    
+    response = RedirectResponse(url="/?success=" + quote("Αποσυνδεθήκατε επιτυχώς"), status_code=303)
+    response.delete_cookie(key="session_id")
+    return response
 
 @app.get("/health")
 def health_check():
@@ -52,6 +166,155 @@ def health_check():
         "database": "ready",
         "timestamp": datetime.now().isoformat()
     }
+
+@app.get("/debug/users")
+def debug_users():
+    """Debug endpoint - Shows registered users (remove in production!)"""
+    return {
+        "total_users": len(users_db),
+        "users": {email: {"name": data["name"], "password_length": len(data["password"])} 
+                  for email, data in users_db.items()}
+    }
+
+# Authentication Models
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    confirmPassword: str
+
+@app.post("/login")
+async def login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...)
+):
+    """Login endpoint"""
+    # Normalize email and password (lowercase, trim spaces)
+    email = email.lower().strip()
+    password = password.strip()
+    
+    # Debug: Print received data
+    print(f"=== LOGIN ATTEMPT ===")
+    print(f"Email (normalized): '{email}'")
+    print(f"Password length: {len(password)}")
+    print(f"Users in DB: {list(users_db.keys())}")
+    
+    # Check if user exists
+    if email not in users_db:
+        print(f"❌ User not found: '{email}'")
+        print(f"Available users: {list(users_db.keys())}")
+        error_msg = quote("Λάθος email ή κωδικός")
+        return RedirectResponse(
+            url=f"/?error={error_msg}",
+            status_code=303
+        )
+    
+    # Check password (in production, use hashed passwords)
+    stored_password = users_db[email]["password"]
+    stored_name = users_db[email]["name"]
+    
+    print(f"Stored password length: {len(stored_password)}")
+    print(f"Input password length: {len(password)}")
+    print(f"Passwords match: {stored_password == password}")
+    
+    if stored_password != password:
+        print(f"❌ Password mismatch for '{email}'")
+        print(f"Stored: '{stored_password}' (len={len(stored_password)})")
+        print(f"Input: '{password}' (len={len(password)})")
+        error_msg = quote("Λάθος κωδικός")
+        return RedirectResponse(
+            url=f"/?error={error_msg}",
+            status_code=303
+        )
+    
+    # Successful login - create session
+    print(f"✅ Login successful for '{email}' (Name: {stored_name})")
+    session_id = create_session(email)
+    
+    # Redirect to dashboard with session cookie
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        max_age=86400,  # 24 hours
+        httponly=True,
+        samesite="lax"
+    )
+    return response
+
+@app.post("/register")
+async def register(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirmPassword: str = Form(...)
+):
+    """Register endpoint"""
+    # Normalize email and password (lowercase, trim spaces)
+    email = email.lower().strip()
+    name = name.strip()
+    password = password.strip()
+    confirmPassword = confirmPassword.strip()
+    
+    # Debug: Print received data
+    print(f"=== REGISTER ATTEMPT ===")
+    print(f"Name: '{name}'")
+    print(f"Email (normalized): '{email}'")
+    print(f"Password length: {len(password)}")
+    print(f"Confirm password length: {len(confirmPassword)}")
+    
+    # Validate passwords match
+    if password != confirmPassword:
+        print(f"❌ Passwords don't match")
+        error_msg = quote("Οι κωδικοί δεν ταιριάζουν")
+        return RedirectResponse(
+            url=f"/?error={error_msg}",
+            status_code=303
+        )
+    
+    # Check if user already exists
+    if email in users_db:
+        print(f"❌ Email already exists: '{email}'")
+        error_msg = quote("Το email χρησιμοποιείται ήδη")
+        return RedirectResponse(
+            url=f"/?error={error_msg}",
+            status_code=303
+        )
+    
+    # Validate password strength (basic check)
+    if len(password) < 6:
+        print(f"❌ Password too short: {len(password)} characters")
+        error_msg = quote("Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες")
+        return RedirectResponse(
+            url=f"/?error={error_msg}",
+            status_code=303
+        )
+    
+    # Create user (in production, hash password and save to database)
+    users_db[email] = {
+        "name": name,
+        "password": password  # In production: hash this!
+    }
+    
+    # Save to file
+    if save_users_db(users_db):
+        print(f"✅ User registered successfully: '{email}' (Name: {name}, Password: '{password}' len={len(password)})")
+        print(f"Total users in DB: {len(users_db)}")
+        print(f"All users: {list(users_db.keys())}")
+    else:
+        print(f"⚠️ User registered but failed to save to file: '{email}'")
+    
+    success_msg = quote("Επιτυχής εγγραφή! Μπορείτε τώρα να συνδεθείτε")
+    return RedirectResponse(
+        url=f"/?success={success_msg}",
+        status_code=303
+    )
 
 @app.get("/api/quote-of-day")
 def get_quote_of_day():
@@ -329,26 +592,71 @@ def reset_paper_trading():
         "timestamp": datetime.now().isoformat()
     }
 
-# AI Engine Endpoints
+# AI Engine Endpoints - Unified Asset Predictor
 @app.get("/api/ai/predict/{symbol}")
 def get_prediction(symbol: str, days: int = 7):
-    """Επιστρέφει AI prediction για ένα metal"""
-    return precious_metals_predictor.predict_price(symbol.upper(), days)
+    """Επιστρέφει AI prediction για οποιοδήποτε asset (metals, stocks, crypto, derivatives)"""
+    return asset_predictor.predict_price(symbol.upper(), days)
 
 @app.get("/api/ai/predictions")
-def get_all_predictions(days: int = 7):
-    """Επιστρέφει predictions για όλα τα precious metals"""
-    return precious_metals_predictor.get_all_predictions(days)
+def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
+    """Επιστρέφει predictions για όλα τα assets ή filtered by type"""
+    asset_type_enum = None
+    if asset_type:
+        try:
+            asset_type_enum = AssetType(asset_type.lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
+    
+    return asset_predictor.get_all_predictions(days, asset_type_enum)
 
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
-    """Επιστρέφει trading signal για ένα metal"""
-    return precious_metals_predictor.get_trading_signal(symbol.upper())
+    """Επιστρέφει trading signal για οποιοδήποτε asset"""
+    return asset_predictor.get_trading_signal(symbol.upper())
 
 @app.get("/api/ai/signals")
-def get_all_signals():
-    """Επιστρέφει trading signals για όλα τα metals"""
-    return precious_metals_predictor.get_all_signals()
+def get_all_signals(asset_type: Optional[str] = None):
+    """Επιστρέφει trading signals για όλα τα assets ή filtered by type"""
+    asset_type_enum = None
+    if asset_type:
+        try:
+            asset_type_enum = AssetType(asset_type.lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
+    
+    return asset_predictor.get_all_signals(asset_type_enum)
+
+@app.get("/api/ai/assets")
+def list_assets(asset_type: Optional[str] = None):
+    """List all available assets, optionally filtered by type"""
+    asset_type_enum = None
+    if asset_type:
+        try:
+            asset_type_enum = AssetType(asset_type.lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
+    
+    return asset_predictor.list_assets(asset_type_enum)
+
+@app.get("/api/ai/assets/{symbol}")
+def get_asset_info(symbol: str):
+    """Get information about a specific asset"""
+    info = asset_predictor.get_asset_info(symbol.upper())
+    if not info:
+        raise HTTPException(status_code=404, detail=f"Asset not found: {symbol}")
+    return info
+
+# Legacy endpoints (for backward compatibility)
+@app.get("/api/ai/predict/metals/{symbol}")
+def get_metal_prediction(symbol: str, days: int = 7):
+    """Legacy endpoint - Επιστρέφει AI prediction για ένα metal"""
+    return precious_metals_predictor.predict_price(symbol.upper(), days)
+
+@app.get("/api/ai/predictions/metals")
+def get_metals_predictions(days: int = 7):
+    """Legacy endpoint - Επιστρέφει predictions για όλα τα precious metals"""
+    return precious_metals_predictor.get_all_predictions(days)
 
 @app.get("/api/ai/status")
 def get_ai_status():
@@ -496,6 +804,62 @@ def list_training_configs():
 def get_dataset_info(dataset_type: str):
     """Επιστρέφει πληροφορίες για dataset preparation"""
     return training_prep.prepare_dataset_info(dataset_type)
+
+@app.post("/api/ml/training/train")
+def train_model_endpoint(
+    model_type: str = "random_forest",
+    symbol: Optional[str] = None,
+    days: int = 365,
+    n_estimators: int = 100,
+    max_depth: int = 10
+):
+    """
+    Εκπαιδεύει ML model
+    
+    Args:
+        model_type: Type of model (random_forest, gradient_boosting)
+        symbol: Symbol to train (if None, trains all metals)
+        days: Days of training data
+        n_estimators: Number of estimators
+        max_depth: Max depth
+    """
+    try:
+        from ml.train_model import ModelTrainer
+        
+        trainer = ModelTrainer(models_dir=os.path.join(os.path.dirname(__file__), "models"))
+        
+        hyperparameters = {
+            'n_estimators': n_estimators,
+            'max_depth': max_depth
+        }
+        
+        if symbol:
+            # Train single symbol
+            base_prices = {
+                "XAUUSDT": 2050.0,
+                "XAGUSDT": 24.5,
+                "XPTUSDT": 950.0,
+                "XPDUSDT": 1200.0
+            }
+            base_price = base_prices.get(symbol, 100.0)
+            
+            result = trainer.train_model(
+                model_type=model_type,
+                symbol=symbol,
+                base_price=base_price,
+                days=days,
+                **hyperparameters
+            )
+            return result
+        else:
+            # Train all metals
+            results = trainer.train_all_metals(
+                model_type=model_type,
+                **hyperparameters
+            )
+            return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
 
 @app.get("/api/ml/status")
 def get_ml_status():

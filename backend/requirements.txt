@@ -1,6 +1,24 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
+pydantic[email]>=2.9.0
+email-validator>=2.0.0
 python-dotenv>=1.0.1
 httpx>=0.27.0
+python-multipart>=0.0.6
+jinja2>=3.1.0
+flask>=3.1.0
+pandas>=2.3.0
+numpy>=2.3.0
+scikit-learn>=1.8.0
+sqlalchemy>=2.0.0
+werkzeug>=3.1.0
+scipy>=1.10.0
+torch>=2.9.0
+torchvision>=0.24.0
+torchaudio>=2.9.0
+nltk>=3.9.0
+# Note: TensorFlow is not available for Python 3.14 yet (supports up to 3.12)
+# To use TensorFlow, downgrade to Python 3.12 or wait for TensorFlow 3.x support
+# tensorflow>=2.15.0
 

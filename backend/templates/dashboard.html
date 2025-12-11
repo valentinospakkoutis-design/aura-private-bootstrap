@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AURA - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(26, 26, 46, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px 40px;
+            border-bottom: 1px solid rgba(100, 255, 218, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 50%, #7b68ee 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 2px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-name {
+            color: #64ffda;
+            font-size: 1.1rem;
+        }
+
+        .logout-btn {
+            padding: 10px 20px;
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid rgba(244, 67, 54, 0.5);
+            border-radius: 8px;
+            color: #ff6b6b;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(244, 67, 54, 0.3);
+            border-color: rgba(244, 67, 54, 0.7);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 60px 40px;
+        }
+
+        .welcome-section {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .welcome-title {
+            font-size: 3rem;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 20px;
+        }
+
+        .welcome-subtitle {
+            font-size: 1.3rem;
+            color: #b0b0b0;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+
+        .stats-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: rgba(26, 26, 46, 0.6);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            color: #b0b0b0;
+            font-size: 0.95rem;
+        }
+
+        .dashboard-card {
+            background: rgba(26, 26, 46, 0.6);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(100, 255, 218, 0.4);
+            box-shadow: 0 25px 70px rgba(100, 255, 218, 0.2);
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            color: #64ffda;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-icon {
+            font-size: 1.8rem;
+        }
+
+        .card-description {
+            color: #b0b0b0;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .card-link {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            color: #0a0a0a;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .card-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(100, 255, 218, 0.4);
+        }
+
+        .coming-soon {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .coming-soon .card-link {
+            background: rgba(100, 255, 218, 0.3);
+            color: #64ffda;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 15px 20px;
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .logo {
+                font-size: 1.5rem;
+            }
+
+            .container {
+                padding: 40px 20px;
+            }
+
+            .welcome-title {
+                font-size: 2rem;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">AURA</div>
+        <div class="user-info">
+            <span class="user-name">Καλώς ήρθατε, {{ user_name }}</span>
+            <a href="/logout" class="logout-btn">Αποσύνδεση</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="welcome-section">
+            <h1 class="welcome-title">Price Prediction AI Dashboard</h1>
+            <p class="welcome-subtitle">Καλώς ήρθατε στο AURA - Το AI Trading Assistant σας</p>
+        </div>
+
+        <div class="stats-section">
+            <div class="stat-card">
+                <div class="stat-value">0</div>
+                <div class="stat-label">Active Trades</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">€0.00</div>
+                <div class="stat-label">Today P&L</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0%</div>
+                <div class="stat-label">ROI</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0%</div>
+                <div class="stat-label">Win Rate</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="dashboard-card">
+                <h2 class="card-title">
+                    <span class="card-icon">📊</span>
+                    AI Predictions
+                </h2>
+                <p class="card-description">
+                    Δείτε τις προβλέψεις τιμών για τα precious metals (χρυσός, άργυρος, πλατίνα, παλλάδιο)
+                </p>
+                <a href="/api/ai/predictions" class="card-link">Δείτε Προβλέψεις</a>
+            </div>
+
+            <div class="dashboard-card">
+                <h2 class="card-title">
+                    <span class="card-icon">💼</span>
+                    Paper Trading
+                </h2>
+                <p class="card-description">
+                    Δοκιμάστε trading strategies χωρίς ρίσκο με paper trading
+                </p>
+                <a href="/api/paper-trading/portfolio" class="card-link">Portfolio</a>
+            </div>
+
+            <div class="dashboard-card">
+                <h2 class="card-title">
+                    <span class="card-icon">📈</span>
+                    Analytics
+                </h2>
+                <p class="card-description">
+                    Αναλύστε την απόδοση των trades σας με detailed analytics
+                </p>
+                <a href="/api/analytics/performance" class="card-link">Analytics</a>
+            </div>
+
+            <div class="dashboard-card coming-soon">
+                <h2 class="card-title">
+                    <span class="card-icon">🔴</span>
+                    Live Trading
+                </h2>
+                <p class="card-description">
+                    Live trading με real money (Coming Soon)
+                </p>
+                <a href="#" class="card-link">Σύντομα</a>
+            </div>
+
+            <div class="dashboard-card coming-soon">
+                <h2 class="card-title">
+                    <span class="card-icon">🎙️</span>
+                    Voice Briefing
+                </h2>
+                <p class="card-description">
+                    Καθημερινό voice briefing με market updates (Coming Soon)
+                </p>
+                <a href="#" class="card-link">Σύντομα</a>
+            </div>
+
+            <div class="dashboard-card coming-soon">
+                <h2 class="card-title">
+                    <span class="card-icon">⚙️</span>
+                    Settings
+                </h2>
+                <p class="card-description">
+                    Ρυθμίσεις λογαριασμού και preferences (Coming Soon)
+                </p>
+                <a href="#" class="card-link">Σύντομα</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

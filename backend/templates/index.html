@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AURA - Price Prediction AI | AI Trading Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        /* Navigation Bar */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 15px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(100, 255, 218, 0.1);
+        }
+
+        .nav-logo {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 1px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: #b0b0b0;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+        }
+
+        .nav-link:hover {
+            color: #64ffda;
+        }
+
+        .nav-btn {
+            padding: 10px 24px;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            color: #0a0a0a;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .nav-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(100, 255, 218, 0.4);
+        }
+
+        /* Hero Section */
+        .hero {
+            margin-top: 80px;
+            padding: 100px 40px;
+            text-align: center;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(100, 255, 218, 0.1) 0%, transparent 70%);
+            animation: pulse 8s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+
+        .hero-content {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-title {
+            font-size: 4.5rem;
+            font-weight: 800;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 50%, #7b68ee 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }
+
+        .hero-subtitle {
+            font-size: 1.5rem;
+            color: #b0b0b0;
+            margin-bottom: 40px;
+            font-weight: 300;
+        }
+
+        .hero-cta {
+            display: inline-block;
+            padding: 18px 40px;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            color: #0a0a0a;
+            text-decoration: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            margin: 10px;
+        }
+
+        .hero-cta:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(100, 255, 218, 0.5);
+        }
+
+        .hero-cta.secondary {
+            background: transparent;
+            border: 2px solid #64ffda;
+            color: #64ffda;
+        }
+
+        .hero-cta.secondary:hover {
+            background: rgba(100, 255, 218, 0.1);
+        }
+
+        /* Main Content - Split Layout */
+        .main-content {
+            display: flex;
+            min-height: calc(100vh - 80px);
+            margin-top: 80px;
+        }
+
+        /* Left Side - Information */
+        .info-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 60px 80px;
+            background: linear-gradient(135deg, rgba(26, 26, 46, 0.9) 0%, rgba(22, 33, 62, 0.8) 100%);
+        }
+
+        .info-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 20px;
+        }
+
+        .info-description {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: #b0b0b0;
+            margin-bottom: 40px;
+        }
+
+        .features {
+            list-style: none;
+        }
+
+        .features li {
+            padding: 15px 0;
+            font-size: 1rem;
+            color: #d0d0d0;
+            display: flex;
+            align-items: center;
+        }
+
+        .features li::before {
+            content: '✓';
+            color: #64ffda;
+            font-weight: bold;
+            font-size: 1.5rem;
+            margin-right: 15px;
+            background: rgba(100, 255, 218, 0.1);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Right Side - Login/Register Form */
+        .form-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px 80px;
+            background: rgba(10, 10, 10, 0.7);
+            backdrop-filter: blur(10px);
+        }
+
+        .form-container {
+            width: 100%;
+            max-width: 450px;
+            background: rgba(26, 26, 46, 0.6);
+            border-radius: 20px;
+            padding: 50px 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5),
+                        0 0 0 1px rgba(100, 255, 218, 0.1);
+            border: 1px solid rgba(100, 255, 218, 0.2);
+        }
+
+        .form-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .form-title {
+            font-size: 2rem;
+            color: #64ffda;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .form-subtitle {
+            color: #888;
+            font-size: 0.95rem;
+        }
+
+        /* Flash Messages */
+        .flash-message {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            animation: slideIn 0.3s ease-out;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .flash-error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid rgba(244, 67, 54, 0.5);
+            color: #ff6b6b;
+        }
+
+        .flash-success {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid rgba(76, 175, 80, 0.5);
+            color: #4caf50;
+        }
+
+        .flash-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            margin-left: 15px;
+            opacity: 0.7;
+            transition: opacity 0.3s ease;
+        }
+
+        .flash-close:hover {
+            opacity: 1;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 5px;
+            border-radius: 10px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            color: #0a0a0a;
+            box-shadow: 0 4px 15px rgba(100, 255, 218, 0.3);
+        }
+
+        .tab:hover:not(.active) {
+            color: #64ffda;
+            background: rgba(100, 255, 218, 0.1);
+        }
+
+        .form-content {
+            display: none;
+        }
+
+        .form-content.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #b0b0b0;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            border-radius: 10px;
+            color: #e0e0e0;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #64ffda;
+            box-shadow: 0 0 0 3px rgba(100, 255, 218, 0.1);
+            background: rgba(0, 0, 0, 0.6);
+        }
+
+        .form-group input::placeholder {
+            color: #666;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            border: none;
+            border-radius: 10px;
+            color: #0a0a0a;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+            box-shadow: 0 4px 15px rgba(100, 255, 218, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(100, 255, 218, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .forgot-password a {
+            color: #64ffda;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s ease;
+        }
+
+        .forgot-password a:hover {
+            color: #4fc3f7;
+            text-decoration: underline;
+        }
+
+        /* Features Section */
+        .features-section {
+            padding: 100px 40px;
+            background: #0a0a0a;
+        }
+
+        .features-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #64ffda 0%, #4fc3f7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .section-subtitle {
+            text-align: center;
+            font-size: 1.2rem;
+            color: #b0b0b0;
+            margin-bottom: 60px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .feature-card {
+            background: rgba(26, 26, 46, 0.6);
+            border-radius: 20px;
+            padding: 40px;
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(100, 255, 218, 0.4);
+            box-shadow: 0 20px 60px rgba(100, 255, 218, 0.2);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+
+        .feature-title {
+            font-size: 1.5rem;
+            color: #64ffda;
+            margin-bottom: 15px;
+        }
+
+        .feature-description {
+            color: #b0b0b0;
+            line-height: 1.8;
+        }
+
+        /* Trust Section */
+        .trust-section {
+            padding: 80px 40px;
+            background: rgba(26, 26, 46, 0.3);
+            text-align: center;
+        }
+
+        .trust-badges {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 60px;
+            flex-wrap: wrap;
+        }
+
+        .trust-badge {
+            color: #64ffda;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .hero-title {
+                font-size: 3rem;
+            }
+
+            .info-section,
+            .form-section {
+                padding: 40px 40px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .navbar {
+                padding: 15px 20px;
+            }
+
+            .nav-links {
+                gap: 15px;
+            }
+
+            .nav-link {
+                display: none;
+            }
+
+            .hero {
+                padding: 60px 20px;
+            }
+
+            .hero-title {
+                font-size: 2.5rem;
+            }
+
+            .hero-subtitle {
+                font-size: 1.2rem;
+            }
+
+            .info-section,
+            .form-section {
+                padding: 30px 20px;
+            }
+
+            .form-container {
+                padding: 40px 30px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-logo">AURA</div>
+        <div class="nav-links">
+            <a href="#features" class="nav-link">Χαρακτηριστικά</a>
+            <a href="#about" class="nav-link">Σχετικά</a>
+            <a href="/" class="nav-btn">Ξεκινήστε</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">Yep, it's<br><strong>all in one app</strong></h1>
+            <p class="hero-subtitle">
+                Προβλέψεις τιμών με AI, Paper Trading, Analytics και Live Trading<br>
+                Όλα σε ένα εύκολο-to-use platform
+            </p>
+            <div>
+                <a href="#login" class="hero-cta">Ξεκινήστε Τώρα</a>
+                <a href="#features" class="hero-cta secondary">Μάθετε Περισσότερα</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content - Split Layout -->
+    <div class="main-content" id="login">
+        <!-- Left Side - Information -->
+        <div class="info-section">
+            <h2 class="info-title">Price Prediction AI</h2>
+            <p class="info-description">
+                Χρησιμοποιήστε τη δύναμη της Τεχνητής Νοημοσύνης για να προβλέψετε 
+                τις τιμές των αγαθών με ακρίβεια. Το AURA συνδυάζει προηγμένα 
+                μοντέλα machine learning με real-time market data για να σας δώσει 
+                τα καλύτερα insights για τις επενδυτικές σας αποφάσεις.
+            </p>
+            <ul class="features">
+                <li>Real-time Price Predictions</li>
+                <li>Advanced ML Algorithms</li>
+                <li>Market Analytics & Insights</li>
+                <li>Automated Trading Signals</li>
+            </ul>
+        </div>
+
+        <!-- Right Side - Login/Register Form -->
+        <div class="form-section">
+            <div class="form-container">
+                <div class="form-header">
+                    <h2 class="form-title">Καλώς ήρθατε</h2>
+                    <p class="form-subtitle">Συνδεθείτε ή δημιουργήστε λογαριασμό</p>
+                </div>
+
+                <!-- Flash Messages -->
+                {% if error %}
+                <div class="flash-message flash-error">
+                    <span>{{ error }}</span>
+                    <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+                </div>
+                {% endif %}
+                {% if success %}
+                <div class="flash-message flash-success">
+                    <span>{{ success }}</span>
+                    <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+                </div>
+                {% endif %}
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('login')">Σύνδεση</button>
+                    <button class="tab" onclick="switchTab('register')">Εγγραφή</button>
+                </div>
+
+                <!-- Login Form -->
+                <form id="loginForm" class="form-content active" method="POST" action="/login">
+                    <div class="form-group">
+                        <label for="loginEmail">Email</label>
+                        <input type="email" id="loginEmail" name="email" placeholder="your.email@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Κωδικός</label>
+                        <input type="password" id="loginPassword" name="password" placeholder="••••••••" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Σύνδεση</button>
+                    <div class="forgot-password">
+                        <a href="#">Ξεχάσατε τον κωδικό;</a>
+                    </div>
+                </form>
+
+                <!-- Register Form -->
+                <form id="registerForm" class="form-content" method="POST" action="/register">
+                    <div class="form-group">
+                        <label for="registerName">Όνομα</label>
+                        <input type="text" id="registerName" name="name" placeholder="Το όνομά σας" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerEmail">Email</label>
+                        <input type="email" id="registerEmail" name="email" placeholder="your.email@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPassword">Κωδικός</label>
+                        <input type="password" id="registerPassword" name="password" placeholder="••••••••" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmPassword">Επιβεβαίωση Κωδικού</label>
+                        <input type="password" id="confirmPassword" name="confirmPassword" placeholder="••••••••" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Εγγραφή</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Features Section -->
+    <section class="features-section" id="features">
+        <div class="features-container">
+            <h2 class="section-title">Diversify your portfolio</h2>
+            <p class="section-subtitle">
+                Προβλέψεις για precious metals, crypto, stocks και περισσότερα<br>
+                Όλα σε ένα εύκολο-to-use platform
+            </p>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3 class="feature-title">AI Predictions</h3>
+                    <p class="feature-description">
+                        Προβλέψεις τιμών με προηγμένα ML models για χρυσό, άργυρο, πλατίνα και παλλάδιο
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3 class="feature-title">Paper Trading</h3>
+                    <p class="feature-description">
+                        Δοκιμάστε trading strategies χωρίς ρίσκο με paper trading account
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <h3 class="feature-title">Analytics</h3>
+                    <p class="feature-description">
+                        Αναλύστε την απόδοση των trades σας με detailed analytics και insights
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔴</div>
+                    <h3 class="feature-title">Live Trading</h3>
+                    <p class="feature-description">
+                        Live trading με real money και risk management (Coming Soon)
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎙️</div>
+                    <h3 class="feature-title">Voice Briefing</h3>
+                    <p class="feature-description">
+                        Καθημερινό voice briefing με market updates και predictions (Coming Soon)
+                    </p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3 class="feature-title">Real-time Updates</h3>
+                    <p class="feature-description">
+                        Live ενημερώσεις τιμών και market data σε real-time
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Section -->
+    <section class="trust-section">
+        <div class="trust-badges">
+            <div class="trust-badge">🔒 Secure</div>
+            <div class="trust-badge">⚡ Fast</div>
+            <div class="trust-badge">🤖 AI-Powered</div>
+            <div class="trust-badge">📊 Professional</div>
+        </div>
+    </section>
+
+    <script>
+        function switchTab(tab) {
+            const tabs = document.querySelectorAll('.tab');
+            const forms = document.querySelectorAll('.form-content');
+            
+            tabs.forEach(t => t.classList.remove('active'));
+            forms.forEach(f => f.classList.remove('active'));
+            
+            if (tab === 'login') {
+                tabs[0].classList.add('active');
+                document.getElementById('loginForm').classList.add('active');
+            } else {
+                tabs[1].classList.add('active');
+                document.getElementById('registerForm').classList.add('active');
+            }
+        }
+
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Auto-hide flash messages
+        document.addEventListener('DOMContentLoaded', function() {
+            const flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(function(msg) {
+                setTimeout(function() {
+                    msg.style.opacity = '0';
+                    msg.style.transition = 'opacity 0.3s ease';
+                    setTimeout(function() {
+                        msg.remove();
+                    }, 300);
+                }, 5000);
+            });
+        });
+    </script>
+</body>
+</html>
