@@ -1,24 +1,154 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
+import api from '../mobile/src/services/api';
 
 export default function PaperTradingScreen() {
   const router = useRouter();
-  const [isActive, setIsActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [portfolio, setPortfolio] = useState(null);
+  const [statistics, setStatistics] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [brokers, setBrokers] = useState([]);
+  
+  // Order placement state
+  const [selectedBroker, setSelectedBroker] = useState('');
+  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
+  const [orderSide, setOrderSide] = useState('BUY');
+  const [orderQuantity, setOrderQuantity] = useState('');
+  const [currentPrice, setCurrentPrice] = useState(0);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
-  const handleStartTrading = () => {
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 5000); // Refresh every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadData = async () => {
+    try {
+      // Load broker status
+      const brokerStatus = await api.getBrokerStatus();
+      setBrokers(brokerStatus.brokers || []);
+      
+      if (brokerStatus.brokers && brokerStatus.brokers.length > 0) {
+        const firstBroker = brokerStatus.brokers[0].broker;
+        setSelectedBroker(firstBroker);
+        
+        // Load portfolio
+        const portfolioData = await api.get('/api/trading/portfolio');
+        setPortfolio(portfolioData);
+        
+        // Load statistics
+        const stats = await api.get('/api/paper-trading/statistics');
+        setStatistics(stats);
+        
+        // Load history
+        const historyData = await api.get('/api/trading/history?limit=20');
+        setHistory(historyData.trades || []);
+        
+        // Load current price
+        if (selectedSymbol) {
+          try {
+            const priceData = await api.getMarketPrice(firstBroker, selectedSymbol);
+            setCurrentPrice(priceData.price || 0);
+          } catch (e) {
+            console.error('Error loading price:', e);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
+
+  const handlePlaceOrder = async () => {
+    if (!selectedBroker) {
+      Alert.alert('Σφάλμα', 'Παρακαλώ συνδέστε πρώτα ένα broker');
+      return;
+    }
+
+    if (!orderQuantity || parseFloat(orderQuantity) <= 0) {
+      Alert.alert('Σφάλμα', 'Παρακαλώ εισάγετε έγκυρη ποσότητα');
+      return;
+    }
+
+    setPlacingOrder(true);
+    try {
+      const result = await api.placeOrder(
+        selectedBroker,
+        selectedSymbol,
+        orderSide,
+        parseFloat(orderQuantity),
+        'MARKET'
+      );
+
+      if (result.error) {
+        Alert.alert('Σφάλμα', result.error);
+      } else {
+        Alert.alert('Επιτυχία', `Order executed: ${orderSide} ${orderQuantity} ${selectedSymbol}`);
+        setOrderQuantity('');
+        loadData();
+      }
+    } catch (error) {
+      Alert.alert('Σφάλμα', error.message || 'Αποτυχία εκτέλεσης order');
+    } finally {
+      setPlacingOrder(false);
+    }
+  };
+
+  const handleReset = () => {
     Alert.alert(
-      '🚀 Paper Trading',
-      'Το Paper Trading θα ξεκινήσει σύντομα!\n\nΓια να ξεκινήσετε:\n• Συνδέστε brokers API keys\n• Ρυθμίστε προφίλ κινδύνου\n• Ενεργοποιήστε AI agent',
+      'Επαναφορά Account',
+      'Είστε σίγουροι ότι θέλετε να επαναφέρετε το paper trading account; Όλα τα trades θα διαγραφούν.',
       [
-        { text: 'Ρυθμίσεις', onPress: () => router.push('/settings') },
-        { text: 'OK', style: 'cancel' }
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Επαναφορά',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.post('/api/paper-trading/reset', {});
+              Alert.alert('Επιτυχία', 'Το account επαναφέρθηκε');
+              loadData();
+            } catch (error) {
+              Alert.alert('Σφάλμα', 'Αποτυχία επαναφοράς');
+            }
+          }
+        }
       ]
     );
   };
 
+  const formatCurrency = (value) => {
+    return `€${value.toFixed(2)}`;
+  };
+
+  const formatPercent = (value) => {
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
+  };
+
+  const getPnlColor = (value) => {
+    if (value > 0) return '#4CAF50';
+    if (value < 0) return '#ff6b6b';
+    return '#999';
+  };
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
@@ -28,55 +158,220 @@ export default function PaperTradingScreen() {
           <Text style={styles.title}>📊 Paper Trading</Text>
         </View>
 
-        {/* Status Card */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Κατάσταση</Text>
-            <View style={[styles.statusBadge, isActive && styles.statusBadgeActive]}>
-              <Text style={styles.statusText}>{isActive ? 'Ενεργό' : 'Ανενεργό'}</Text>
+        {/* Portfolio Summary */}
+        {portfolio && (
+          <View style={styles.portfolioCard}>
+            <Text style={styles.portfolioTitle}>💼 Portfolio</Text>
+            
+            <View style={styles.balanceRow}>
+              <Text style={styles.balanceLabel}>Συνολική Αξία</Text>
+              <Text style={styles.balanceValue}>
+                {formatCurrency(portfolio.total_value)}
+              </Text>
+            </View>
+
+            <View style={styles.balanceRow}>
+              <Text style={styles.balanceLabel}>Μετρητά</Text>
+              <Text style={styles.balanceValue}>
+                {formatCurrency(portfolio.cash)}
+              </Text>
+            </View>
+
+            <View style={styles.balanceRow}>
+              <Text style={styles.balanceLabel}>Αξία Portfolio</Text>
+              <Text style={styles.balanceValue}>
+                {formatCurrency(portfolio.portfolio_value)}
+              </Text>
+            </View>
+
+            <View style={styles.pnlRow}>
+              <Text style={styles.pnlLabel}>Συνολικό P/L</Text>
+              <Text style={[styles.pnlValue, { color: getPnlColor(portfolio.total_pnl) }]}>
+                {formatCurrency(portfolio.total_pnl)} ({formatPercent(portfolio.total_pnl_percent)})
+              </Text>
             </View>
           </View>
-          <Text style={styles.cardText}>
-            {isActive 
-              ? 'Το Paper Trading είναι ενεργό. Οι συναλλαγές είναι προσομοιωμένες.'
-              : 'Το Paper Trading δεν είναι ενεργό. Ξεκινήστε για να προσομοιώσετε συναλλαγές χωρίς κίνδυνο.'}
-          </Text>
-        </View>
+        )}
 
-        {/* Info Section */}
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>ℹ️ Τι είναι το Paper Trading;</Text>
-          <Text style={styles.infoText}>
-            Το Paper Trading σας επιτρέπει να προσομοιώσετε συναλλαγές χωρίς να χρησιμοποιήσετε πραγματικά χρήματα. 
-            Είναι ιδανικό για να μάθετε και να δοκιμάσετε στρατηγικές trading.
-          </Text>
-        </View>
+        {/* Statistics */}
+        {statistics && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📈 Στατιστικά</Text>
+            <View style={styles.statsGrid}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{statistics.total_trades}</Text>
+                <Text style={styles.statLabel}>Συνολικά Trades</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{statistics.active_positions}</Text>
+                <Text style={styles.statLabel}>Ενεργές Θέσεις</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{statistics.buy_trades}</Text>
+                <Text style={styles.statLabel}>Αγορές</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{statistics.sell_trades}</Text>
+                <Text style={styles.statLabel}>Πωλήσεις</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
-        {/* Requirements */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>📋 Απαιτήσεις:</Text>
-          <View style={styles.requirementItem}>
-            <Text style={styles.requirementText}>✅ Σύνδεση με broker (Binance, eToro, IB)</Text>
+        {/* Active Positions */}
+        {portfolio && portfolio.positions && portfolio.positions.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📊 Ενεργές Θέσεις</Text>
+            {portfolio.positions.map((position, index) => (
+              <View key={index} style={styles.positionItem}>
+                <View style={styles.positionHeader}>
+                  <Text style={styles.positionSymbol}>{position.symbol}</Text>
+                  <Text style={[styles.positionPnl, { color: getPnlColor(position.pnl) }]}>
+                    {formatCurrency(position.pnl)} ({formatPercent(position.pnl_percent)})
+                  </Text>
+                </View>
+                <View style={styles.positionDetails}>
+                  <Text style={styles.positionDetail}>
+                    Ποσότητα: {position.quantity.toFixed(4)}
+                  </Text>
+                  <Text style={styles.positionDetail}>
+                    Τιμή: {formatCurrency(position.current_price)}
+                  </Text>
+                  <Text style={styles.positionDetail}>
+                    Αξία: {formatCurrency(position.value)}
+                  </Text>
+                </View>
+              </View>
+            ))}
           </View>
-          <View style={styles.requirementItem}>
-            <Text style={styles.requirementText}>✅ Ρύθμιση προφίλ κινδύνου</Text>
-          </View>
-          <View style={styles.requirementItem}>
-            <Text style={styles.requirementText}>✅ Ενεργοποίηση AI agent</Text>
-          </View>
-        </View>
+        )}
 
-        {/* Action Button */}
-        <TouchableOpacity 
-          style={[styles.primaryButton, isActive && styles.primaryButtonActive]}
-          onPress={handleStartTrading}
+        {/* Order Placement */}
+        {brokers.length > 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>💰 Τοποθέτηση Order</Text>
+
+            {/* Symbol Selection */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Symbol</Text>
+              <TextInput
+                style={styles.input}
+                value={selectedSymbol}
+                onChangeText={setSelectedSymbol}
+                placeholder="BTCUSDT"
+                placeholderTextColor="#666"
+                autoCapitalize="characters"
+              />
+            </View>
+
+            {/* Side Selection */}
+            <View style={styles.sideSelector}>
+              <TouchableOpacity
+                style={[styles.sideButton, orderSide === 'BUY' && styles.sideButtonActive]}
+                onPress={() => setOrderSide('BUY')}
+              >
+                <Text style={[styles.sideButtonText, orderSide === 'BUY' && styles.sideButtonTextActive]}>
+                  🔵 BUY
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sideButton, orderSide === 'SELL' && styles.sideButtonActive]}
+                onPress={() => setOrderSide('SELL')}
+              >
+                <Text style={[styles.sideButtonText, orderSide === 'SELL' && styles.sideButtonTextActive]}>
+                  🔴 SELL
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Quantity Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Ποσότητα</Text>
+              <TextInput
+                style={styles.input}
+                value={orderQuantity}
+                onChangeText={setOrderQuantity}
+                placeholder="0.001"
+                placeholderTextColor="#666"
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            {/* Current Price */}
+            {currentPrice > 0 && (
+              <View style={styles.priceInfo}>
+                <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
+                <Text style={styles.priceValue}>{formatCurrency(currentPrice)}</Text>
+              </View>
+            )}
+
+            {/* Place Order Button */}
+            <TouchableOpacity
+              style={[styles.orderButton, placingOrder && styles.orderButtonDisabled]}
+              onPress={handlePlaceOrder}
+              disabled={placingOrder}
+            >
+              {placingOrder ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.orderButtonText}>
+                  {orderSide === 'BUY' ? '🛒 Αγορά' : '💰 Πώληση'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>⚠️ Χρειάζεται Broker</Text>
+            <Text style={styles.cardText}>
+              Για να ξεκινήσετε paper trading, πρέπει πρώτα να συνδέσετε ένα broker.
+            </Text>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => router.push('/brokers')}
+            >
+              <Text style={styles.secondaryButtonText}>Σύνδεση Broker</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Trade History */}
+        {history.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📜 Ιστορικό Trades</Text>
+            {history.slice(0, 10).map((trade, index) => (
+              <View key={index} style={styles.tradeItem}>
+                <View style={styles.tradeHeader}>
+                  <Text style={styles.tradeSymbol}>{trade.symbol}</Text>
+                  <Text style={[
+                    styles.tradeSide,
+                    trade.side === 'BUY' ? styles.tradeSideBuy : styles.tradeSideSell
+                  ]}>
+                    {trade.side}
+                  </Text>
+                </View>
+                <View style={styles.tradeDetails}>
+                  <Text style={styles.tradeDetail}>
+                    {trade.quantity.toFixed(4)} @ {formatCurrency(trade.price)}
+                  </Text>
+                  <Text style={styles.tradeTime}>
+                    {new Date(trade.executed_at).toLocaleString('el-GR')}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Actions */}
+        <TouchableOpacity
+          style={styles.resetButton}
+          onPress={handleReset}
         >
-          <Text style={styles.primaryButtonText}>
-            {isActive ? '⏸️ Διακοπή Paper Trading' : '🚀 Ξεκίνα Paper Trading'}
-          </Text>
+          <Text style={styles.resetButtonText}>🔄 Επαναφορά Account</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.secondaryButton}
           onPress={() => router.push('/settings')}
         >
@@ -85,7 +380,9 @@ export default function PaperTradingScreen() {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>💡 Συμβουλή: Ξεκινήστε με μικρά ποσά για να μάθετε</Text>
+          <Text style={styles.footerText}>
+            💡 Paper Trading: Όλες οι συναλλαγές είναι προσομοιωμένες
+          </Text>
         </View>
       </View>
     </ScrollView>
@@ -119,6 +416,51 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
+  portfolioCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+  },
+  portfolioTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 15,
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  balanceLabel: {
+    fontSize: 14,
+    color: '#999',
+  },
+  balanceValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  pnlRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#2a2a2a',
+  },
+  pnlLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  pnlValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   card: {
     backgroundColor: '#1a1a1a',
     borderRadius: 16,
@@ -127,76 +469,202 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a2a',
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
   cardTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 15,
   },
   cardText: {
     fontSize: 14,
     color: '#999',
     lineHeight: 20,
   },
-  statusBadge: {
-    backgroundColor: '#3a3a3a',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    width: '48%',
+    backgroundColor: '#2a2a2a',
     borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+    alignItems: 'center',
   },
-  statusBadgeActive: {
-    backgroundColor: '#4CAF50',
-  },
-  statusText: {
-    fontSize: 12,
+  statValue: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
+    marginBottom: 5,
   },
-  infoCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
+  statLabel: {
+    fontSize: 12,
+    color: '#999',
   },
-  infoTitle: {
+  positionItem: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+  },
+  positionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  positionSymbol: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 10,
   },
-  infoText: {
+  positionPnl: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  positionDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  positionDetail: {
+    fontSize: 12,
+    color: '#999',
+    marginRight: 15,
+  },
+  inputGroup: {
+    marginBottom: 15,
+  },
+  inputLabel: {
     fontSize: 14,
     color: '#999',
-    lineHeight: 20,
+    marginBottom: 8,
   },
-  requirementItem: {
-    marginBottom: 10,
+  input: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    padding: 14,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: '#3a3a3a',
   },
-  requirementText: {
+  sideSelector: {
+    flexDirection: 'row',
+    marginBottom: 15,
+    gap: 10,
+  },
+  sideButton: {
+    flex: 1,
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    padding: 15,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#3a3a3a',
+  },
+  sideButtonActive: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  sideButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#999',
+  },
+  sideButtonTextActive: {
+    color: '#fff',
+  },
+  priceInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+  },
+  priceLabel: {
     fontSize: 14,
     color: '#999',
   },
-  primaryButton: {
+  priceValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  orderButton: {
     backgroundColor: '#4CAF50',
     borderRadius: 12,
     padding: 18,
     alignItems: 'center',
-    marginBottom: 12,
   },
-  primaryButtonActive: {
-    backgroundColor: '#ff6b6b',
+  orderButtonDisabled: {
+    opacity: 0.5,
   },
-  primaryButtonText: {
+  orderButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  tradeItem: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+  },
+  tradeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tradeSymbol: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  tradeSide: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  tradeSideBuy: {
+    backgroundColor: '#4CAF50',
+    color: '#fff',
+  },
+  tradeSideSell: {
+    backgroundColor: '#ff6b6b',
+    color: '#fff',
+  },
+  tradeDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  tradeDetail: {
+    fontSize: 12,
+    color: '#999',
+  },
+  tradeTime: {
+    fontSize: 12,
+    color: '#666',
+  },
+  resetButton: {
+    backgroundColor: '#3a1a1a',
+    borderRadius: 12,
+    padding: 18,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#5a2a2a',
+  },
+  resetButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ff6b6b',
   },
   secondaryButton: {
     backgroundColor: '#2a2a2a',
@@ -222,5 +690,3 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 });
-
-

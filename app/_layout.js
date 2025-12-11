@@ -1,9 +1,10 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
 
 export default function RootLayout() {
   return (
-    <>
+    <ErrorBoundary>
       <Stack
         screenOptions={{
           headerStyle: {
@@ -39,9 +40,79 @@ export default function RootLayout() {
             headerShown: true,
           }} 
         />
+        <Stack.Screen 
+          name="paper-trading" 
+          options={{ 
+            title: 'Paper Trading',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="brokers" 
+          options={{ 
+            title: 'Brokers',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="ai-predictions" 
+          options={{ 
+            title: 'AI Predictions',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="admin-cms" 
+          options={{ 
+            title: 'CMS Admin',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="voice-briefing" 
+          options={{ 
+            title: 'Voice Briefing',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="ml-status" 
+          options={{ 
+            title: 'ML Status',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="live-trading" 
+          options={{ 
+            title: 'Live Trading',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="analytics" 
+          options={{ 
+            title: 'Analytics',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="scheduled-briefings" 
+          options={{ 
+            title: 'Scheduled Briefings',
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="notifications" 
+          options={{ 
+            title: 'Notifications',
+            headerShown: false,
+          }} 
+        />
       </Stack>
       <StatusBar style="light" />
-    </>
+    </ErrorBoundary>
   );
 }
 

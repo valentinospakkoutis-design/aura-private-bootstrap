@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "commit": "powershell -ExecutionPolicy Bypass -File ./scripts/auto-commit.ps1",
+    "commit:push": "powershell -ExecutionPolicy Bypass -File ./scripts/auto-commit.ps1 -Push"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
@@ -16,9 +18,11 @@
     "expo": "~52.0.0",
     "expo-av": "~15.0.1",
     "expo-constants": "~17.0.8",
+    "expo-crypto": "~14.0.2",
     "expo-gl": "~15.0.2",
     "expo-linking": "~7.0.5",
     "expo-router": "~4.0.21",
+    "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~2.0.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

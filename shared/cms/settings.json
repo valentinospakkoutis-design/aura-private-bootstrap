@@ -1,0 +1,10 @@
+{
+  "app_name": "AURA",
+  "app_tagline": "Το μόνο χρηματοοικονομικό ον που μαθαίνει εσένα καλύτερα από σένα.",
+  "maintenance_mode": false,
+  "features": {
+    "paper_trading": true,
+    "ai_predictions": true,
+    "voice_features": false
+  }
+}

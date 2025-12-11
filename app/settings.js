@@ -44,7 +44,10 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/brokers')}
+          >
             <Text style={styles.menuText}>Brokers API Keys</Text>
             <Text style={styles.menuArrow}>›</Text>
           </TouchableOpacity>
@@ -90,6 +93,62 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🤖 AI Engine</Text>
           
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/ai-predictions')}
+          >
+            <Text style={styles.menuText}>AI Predictions</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/admin-cms')}
+          >
+            <Text style={styles.menuText}>📝 CMS Admin</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/voice-briefing')}
+          >
+            <Text style={styles.menuText}>🎙️ Voice Briefing</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/ml-status')}
+          >
+            <Text style={styles.menuText}>🤖 ML Status</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/live-trading')}
+          >
+            <Text style={styles.menuText}>💰 Live Trading</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/scheduled-briefings')}
+          >
+            <Text style={styles.menuText}>⏰ Scheduled Briefings</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/notifications')}
+          >
+            <Text style={styles.menuText}>🔔 Notifications</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.menuItem}>
             <Text style={styles.menuText}>Στρατηγικές AI</Text>
             <Text style={styles.menuArrow}>›</Text>

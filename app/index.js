@@ -3,10 +3,12 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { useRouter } from 'expo-router';
 import DailyQuote from '../mobile/src/components/DailyQuote';
 import AuraOrb3D from '../mobile/src/components/AuraOrb3D';
+import api from '../mobile/src/services/api';
 
 export default function HomeScreen() {
   const router = useRouter();
   const [greeting, setGreeting] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -17,14 +19,43 @@ export default function HomeScreen() {
     } else {
       setGreeting('Καλησπέρα');
     }
+    
+    // Load unread notifications count
+    loadUnreadCount();
+    const interval = setInterval(loadUnreadCount, 30000); // Every 30 seconds
+    return () => clearInterval(interval);
   }, []);
+
+  const loadUnreadCount = async () => {
+    try {
+      const data = await api.get('/api/notifications?unread_only=true&limit=1');
+      setUnreadCount(data.unread_count || 0);
+    } catch (error) {
+      console.error('Error loading unread count:', error);
+    }
+  };
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
         {/* Header Section */}
         <View style={styles.header}>
-          <Text style={styles.greeting}>{greeting}! 👋</Text>
+          <View style={styles.headerTop}>
+            <Text style={styles.greeting}>{greeting}! 👋</Text>
+            <TouchableOpacity
+              style={styles.notificationButton}
+              onPress={() => router.push('/notifications')}
+            >
+              <Text style={styles.notificationIcon}>🔔</Text>
+              {unreadCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
           
           {/* 3D Orb */}
           <AuraOrb3D 
@@ -86,6 +117,26 @@ export default function HomeScreen() {
           <Text style={styles.secondaryButtonText}>👤 Προφίλ</Text>
         </TouchableOpacity>
 
+        {/* AI Predictions Quick View */}
+        <TouchableOpacity 
+          style={styles.aiCard}
+          onPress={() => router.push('/ai-predictions')}
+        >
+          <Text style={styles.aiCardTitle}>🤖 AI Predictions</Text>
+          <Text style={styles.aiCardText}>Δείτε προβλέψεις για χρυσό, άργυρο, πλατίνα, παλλάδιο</Text>
+          <Text style={styles.aiCardArrow}>→</Text>
+        </TouchableOpacity>
+
+        {/* Analytics Quick View */}
+        <TouchableOpacity 
+          style={styles.analyticsCard}
+          onPress={() => router.push('/analytics')}
+        >
+          <Text style={styles.analyticsCardTitle}>📊 Analytics</Text>
+          <Text style={styles.analyticsCardText}>Performance metrics & insights</Text>
+          <Text style={styles.analyticsCardArrow}>→</Text>
+        </TouchableOpacity>
+
         {/* Info Section */}
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>📚 Επόμενα Βήματα:</Text>
@@ -116,10 +167,43 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     alignItems: 'center',
   },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
   greeting: {
     fontSize: 24,
     color: '#999',
-    marginBottom: 10,
+  },
+  notificationButton: {
+    position: 'relative',
+    padding: 8,
+  },
+  notificationIcon: {
+    fontSize: 24,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#ff6b6b',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: '#0f0f0f',
+  },
+  notificationBadgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   title: {
     fontSize: 56,
@@ -218,6 +302,60 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  aiCard: {
+    backgroundColor: '#1a3a1a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  aiCardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginBottom: 5,
+  },
+  aiCardText: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+  aiCardArrow: {
+    fontSize: 24,
+    color: '#4CAF50',
+    marginLeft: 10,
+  },
+  analyticsCard: {
+    backgroundColor: '#1a2a3a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  analyticsCardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    marginBottom: 5,
+  },
+  analyticsCardText: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+  analyticsCardArrow: {
+    fontSize: 24,
+    color: '#2196F3',
+    marginLeft: 10,
   },
   infoSection: {
     backgroundColor: '#1a1a1a',
