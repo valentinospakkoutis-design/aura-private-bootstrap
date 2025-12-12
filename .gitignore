@@ -68,3 +68,6 @@ coverage/
 *.pem
 *.key
 
+# External projects
+mettal-app/
+
