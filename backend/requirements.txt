@@ -18,6 +18,15 @@ torch>=2.9.0
 torchvision>=0.24.0
 torchaudio>=2.9.0
 nltk>=3.9.0
+# Database
+psycopg2-binary>=2.9.9
+asyncpg>=0.29.0
+alembic>=1.13.0
+# Redis
+redis>=5.0.0
+hiredis>=2.3.0
+# Market Data
+yfinance>=0.2.40
 # Note: TensorFlow is not available for Python 3.14 yet (supports up to 3.12)
 # To use TensorFlow, downgrade to Python 3.12 or wait for TensorFlow 3.x support
 # tensorflow>=2.15.0

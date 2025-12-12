@@ -24,14 +24,51 @@ from services.scheduler import scheduler_service
 from services.notifications import notifications_service
 from ml.annotation_api import router as annotation_router
 
+# Database and Cache imports
+from database.connection import init_db, check_db_connection, close_db
+from cache.connection import get_redis, check_redis_connection
+
 app = FastAPI(
     title="AURA Backend API",
     description="Backend για το AURA - AI Trading Assistant",
     version="1.0.0"
 )
 
+# Startup event - Initialize database and cache
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database and cache on startup"""
+    print("[*] Initializing database...")
+    try:
+        if check_db_connection():
+            init_db()
+            print("[+] Database initialized")
+        else:
+            print("[!] Database not configured - continuing without database")
+    except Exception as e:
+        print(f"[!] Database initialization error: {e}")
+        print("[!] Continuing without database")
+    
+    print("[*] Checking Redis connection...")
+    if check_redis_connection():
+        print("[+] Redis connected")
+    else:
+        print("[!] Redis not configured - continuing without cache")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    close_db()
+    print("[+] Cleanup completed")
+
 # Include annotation router
 app.include_router(annotation_router)
+
+# Include mettal-app endpoints
+from api.mettal_endpoints import router as mettal_router
+app.include_router(mettal_router)
+print(f"[+] Loaded mettal endpoints: {len(mettal_router.routes)} routes")
 
 # Templates Configuration
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
