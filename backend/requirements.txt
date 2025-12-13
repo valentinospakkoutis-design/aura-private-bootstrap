@@ -27,6 +27,9 @@ redis>=5.0.0
 hiredis>=2.3.0
 # Market Data
 yfinance>=0.2.40
+# Security
+cryptography>=42.0.0
+bcrypt>=4.1.0
 # Note: TensorFlow is not available for Python 3.14 yet (supports up to 3.12)
 # To use TensorFlow, downgrade to Python 3.12 or wait for TensorFlow 3.x support
 # tensorflow>=2.15.0

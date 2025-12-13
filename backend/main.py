@@ -28,6 +28,11 @@ from ml.annotation_api import router as annotation_router
 from database.connection import init_db, check_db_connection, close_db
 from cache.connection import get_redis, check_redis_connection
 
+# Security and Error Handling
+from utils.error_handler import handle_error, AuraError, get_error_message
+from utils.rate_limiter import rate_limit_middleware, get_client_identifier
+from utils.security import security_manager
+
 app = FastAPI(
     title="AURA Backend API",
     description="Backend για το AURA - AI Trading Assistant",
@@ -82,6 +87,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate Limiting Middleware
+@app.middleware("http")
+async def rate_limit_middleware_wrapper(request: Request, call_next):
+    """Rate limiting middleware wrapper"""
+    try:
+        return await rate_limit_middleware(request, call_next)
+    except Exception as e:
+        # If rate limit middleware fails, continue without rate limiting
+        return await call_next(request)
 
 # User storage file
 USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")

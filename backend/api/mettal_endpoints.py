@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr
 # yfinance is now available via market_data module
 from market_data.yfinance_client import get_price as yf_get_price, get_historical_prices as yf_get_historical_prices
+# Error handling and security
+from utils.error_handler import handle_error, ValidationError, NotFoundError, get_error_message
+from utils.security import security_manager
 
 router = APIRouter(prefix="/api/v1", tags=["Mettal App APIs"])
 
