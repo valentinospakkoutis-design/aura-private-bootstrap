@@ -13,6 +13,8 @@ from market_data.yfinance_client import get_price as yf_get_price, get_historica
 # Error handling and security
 from utils.error_handler import handle_error, ValidationError, NotFoundError, get_error_message
 from utils.security import security_manager
+# JWT Authentication
+from auth.jwt_handler import create_access_token, create_refresh_token, verify_token, get_user_from_token, refresh_access_token
 
 router = APIRouter(prefix="/api/v1", tags=["Mettal App APIs"])
 
@@ -40,21 +42,58 @@ class RefreshTokenRequest(BaseModel):
 # Note: Θα χρειαστεί να προσθέσουμε JWT authentication system
 # Για τώρα, θα χρησιμοποιήσουμε το υπάρχον session system
 
-@router.post("/auth/register", response_model=dict, status_code=201)
+@router.post("/auth/register", response_model=Token, status_code=201)
 async def register(user_create: UserCreate):
     """
     Register a new user (JWT-based)
     
     Returns access token (15 min) and refresh token (7 days)
     """
-    # TODO: Implement JWT registration
-    # For now, redirect to existing /register endpoint
-    return {
-        "message": "Use /register endpoint for now. JWT auth coming soon.",
-        "access_token": "",
-        "refresh_token": "",
-        "token_type": "bearer"
+    from main import users_db, save_users_db
+    
+    # Check if user already exists
+    email_lower = user_create.email.lower().strip()
+    if email_lower in users_db:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "USER_EXISTS", "message": "User already exists"}
+        )
+    
+    # Validate password
+    if len(user_create.password) < 8:
+        raise ValidationError("Password must be at least 8 characters")
+    
+    # Hash password
+    password_hash = security_manager.hash_password(user_create.password)
+    
+    # Create user
+    user_id = len(users_db) + 1
+    users_db[email_lower] = {
+        "id": user_id,
+        "email": email_lower,
+        "password_hash": password_hash,
+        "full_name": user_create.full_name,
+        "created_at": datetime.now().isoformat()
     }
+    
+    # Save to database
+    save_users_db(users_db)
+    
+    # Create tokens
+    token_data = {
+        "sub": str(user_id),
+        "email": email_lower,
+        "full_name": user_create.full_name
+    }
+    
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+    
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
 
 @router.post("/auth/login", response_model=Token)
 async def login(user_login: UserLogin):
@@ -63,39 +102,125 @@ async def login(user_login: UserLogin):
     
     Returns access token (15 min) and refresh token (7 days)
     """
-    # TODO: Implement JWT login
-    return {
-        "message": "Use /login endpoint for now. JWT auth coming soon.",
-        "access_token": "",
-        "refresh_token": "",
-        "token_type": "bearer"
+    from main import users_db
+    
+    email_lower = user_login.email.lower().strip()
+    
+    # Check if user exists
+    if email_lower not in users_db:
+        raise AuthenticationError("Invalid email or password")
+    
+    user = users_db[email_lower]
+    
+    # Verify password - check both old format (plain) and new format (hashed)
+    password_valid = False
+    if "password_hash" in user:
+        password_valid = security_manager.verify_password(user_login.password, user["password_hash"])
+    elif "password" in user:
+        # Legacy: plain password (for migration)
+        password_valid = (user["password"] == user_login.password)
+        # Upgrade to hashed
+        if password_valid:
+            user["password_hash"] = security_manager.hash_password(user_login.password)
+            from main import save_users_db
+            save_users_db(users_db)
+    
+    if not password_valid:
+        raise AuthenticationError("Invalid email or password")
+    
+    # Create tokens
+    token_data = {
+        "sub": str(user.get("id", user.get("user_id", 0))),
+        "email": email_lower,
+        "full_name": user.get("full_name", user.get("name", ""))
     }
+    
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+    
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
 
 @router.post("/auth/refresh", response_model=Token)
 async def refresh_token_endpoint(refresh_request: RefreshTokenRequest):
     """
     Refresh an access token using a valid refresh token
     """
-    # TODO: Implement token refresh
-    raise HTTPException(status_code=501, detail="JWT refresh not implemented yet")
+    try:
+        # Verify refresh token
+        payload = verify_token(refresh_request.refresh_token, "refresh")
+        
+        # Get user data from token
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        full_name = payload.get("full_name")
+        
+        # Create new tokens
+        token_data = {
+            "sub": user_id,
+            "email": email,
+            "full_name": full_name
+        }
+        
+        new_access_token = create_access_token(token_data)
+        new_refresh_token = create_refresh_token(token_data)
+        
+        return Token(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            token_type="bearer"
+        )
+    except AuthenticationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "INVALID_REFRESH_TOKEN", "message": str(e)}
+        )
 
 @router.get("/auth/me", response_model=dict)
-async def get_current_user_info():
+async def get_current_user_info(request: Request):
     """
     Get current user information (requires authentication)
     
     Include in headers: Authorization: Bearer <access_token>
     """
-    # TODO: Implement JWT user info
-    raise HTTPException(status_code=501, detail="JWT auth not implemented yet")
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise AuthenticationError("Missing or invalid authorization header")
+    
+    token = auth_header.split(" ")[1]
+    
+    try:
+        user_info = get_user_from_token(token)
+        return {
+            "id": user_info["user_id"],
+            "email": user_info["email"],
+            "full_name": user_info.get("full_name")
+        }
+    except AuthenticationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "INVALID_TOKEN", "message": str(e)}
+        )
 
 @router.post("/auth/logout")
-async def logout():
+async def logout(request: Request):
     """
-    Logout user by revoking their access token
+    Logout user (invalidate tokens)
+    
+    Note: With JWT, tokens are stateless. In production, you might want to
+    maintain a blacklist of invalidated tokens in Redis.
     """
-    # TODO: Implement JWT logout
-    return {"message": "Use /logout endpoint for now"}
+    # In a stateless JWT system, logout is handled client-side by removing tokens
+    # For production, you could implement token blacklisting in Redis
+    
+    return {
+        "message": "Logged out successfully",
+        "note": "Please remove tokens from client storage"
+    }
 
 # ============================================
 # 2FA ENDPOINTS
