@@ -110,12 +110,15 @@ def get_user_from_token(token: str) -> Dict:
     Returns:
         User information dict
     """
-    payload = verify_token(token, "access")
-    return {
-        "user_id": payload.get("sub"),
-        "email": payload.get("email"),
-        "full_name": payload.get("full_name")
-    }
+    try:
+        payload = verify_token(token, "access")
+        return {
+            "user_id": payload.get("sub"),
+            "email": payload.get("email"),
+            "full_name": payload.get("full_name")
+        }
+    except Exception as e:
+        raise AuthenticationError(f"Failed to get user from token: {str(e)}")
 
 
 def refresh_access_token(refresh_token: str) -> str:

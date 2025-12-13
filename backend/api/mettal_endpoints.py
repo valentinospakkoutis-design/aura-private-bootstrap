@@ -15,6 +15,8 @@ from utils.error_handler import handle_error, ValidationError, NotFoundError, ge
 from utils.security import security_manager
 # JWT Authentication
 from auth.jwt_handler import create_access_token, create_refresh_token, verify_token, get_user_from_token, refresh_access_token
+# 2FA
+from auth.two_factor import generate_2fa_secret, generate_qr_code, generate_backup_codes, verify_2fa_token, verify_backup_code
 
 router = APIRouter(prefix="/api/v1", tags=["Mettal App APIs"])
 
@@ -250,20 +252,111 @@ async def enable_2fa():
     raise HTTPException(status_code=501, detail="2FA not implemented yet")
 
 @router.post("/auth/2fa/verify")
-async def verify_2fa_setup(request: Verify2FARequest):
+async def verify_2fa_setup(verify_request: Verify2FARequest, request: Request):
     """
     Verify 2FA setup by providing your first TOTP token
+    
+    After verification, 2FA will be enabled for your account
     """
-    # TODO: Implement 2FA verification
-    raise HTTPException(status_code=501, detail="2FA not implemented yet")
+    # Get current user from token
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise AuthenticationError("Missing or invalid authorization header")
+    
+    token = auth_header.split(" ")[1]
+    user_info = get_user_from_token(token)
+    email = user_info["email"]
+    
+    # Verify token
+    if not verify_2fa_token(verify_request.secret, verify_request.token):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_TOKEN", "message": "Invalid 2FA token"}
+        )
+    
+    # Enable 2FA in user database
+    from main import users_db, save_users_db
+    if email in users_db:
+        users_db[email]["2fa_secret"] = verify_request.secret
+        users_db[email]["2fa_enabled"] = True
+        save_users_db(users_db)
+    
+    return {
+        "message": "2FA enabled successfully",
+        "enabled": True
+    }
 
 @router.post("/auth/login/2fa", response_model=Token)
 async def login_with_2fa(login_request: Login2FARequest):
     """
     Login with email, password, AND 2FA token
     """
-    # TODO: Implement 2FA login
-    raise HTTPException(status_code=501, detail="2FA login not implemented yet")
+    from main import users_db
+    
+    email_lower = login_request.email.lower().strip()
+    
+    # Check if user exists
+    if email_lower not in users_db:
+        raise AuthenticationError("Invalid email or password")
+    
+    user = users_db[email_lower]
+    
+    # Verify password
+    password_valid = False
+    if "password_hash" in user:
+        password_valid = security_manager.verify_password(login_request.password, user["password_hash"])
+    elif "password" in user:
+        password_valid = (user["password"] == login_request.password)
+    
+    if not password_valid:
+        raise AuthenticationError("Invalid email or password")
+    
+    # Check if 2FA is enabled
+    if not user.get("2fa_enabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "2FA_NOT_ENABLED", "message": "2FA is not enabled for this account"}
+        )
+    
+    # Verify 2FA token
+    secret = user.get("2fa_secret")
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "2FA_NOT_CONFIGURED", "message": "2FA secret not found"}
+        )
+    
+    # Try TOTP token first
+    if verify_2fa_token(secret, login_request.totp_token):
+        # Valid TOTP token
+        pass
+    else:
+        # Try backup code
+        backup_codes = user.get("2fa_backup_codes", [])
+        is_valid, remaining = verify_backup_code(backup_codes, login_request.totp_token)
+        if is_valid:
+            # Update backup codes
+            user["2fa_backup_codes"] = remaining
+            from main import save_users_db
+            save_users_db(users_db)
+        else:
+            raise AuthenticationError("Invalid 2FA token")
+    
+    # Create tokens
+    token_data = {
+        "sub": str(user.get("id", user.get("user_id", 0))),
+        "email": email_lower,
+        "full_name": user.get("full_name", user.get("name", ""))
+    }
+    
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+    
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
 
 # ============================================
 # ASSET ENDPOINTS
@@ -485,7 +578,7 @@ async def predict(asset_id: str):
         asset_id=asset_id.upper(),
         current_price=prediction["current_price"],
         predictions=predictions,
-        sentiment=None,  # TODO: Add sentiment analysis
+        sentiment=None,  # Will be added if news available
         timestamp=datetime.now()
     )
 
@@ -667,12 +760,10 @@ async def get_asset_accuracy(asset_id: str):
     """
     Get accuracy statistics for specific asset (requires authentication)
     """
-    # TODO: Implement asset-specific accuracy
-    return {
-        "asset_id": asset_id,
-        "message": "Accuracy tracking not implemented yet",
-        "total_predictions": 0
-    }
+    from services.accuracy_tracker import accuracy_tracker
+    
+    accuracy_stats = accuracy_tracker.get_accuracy(asset_id.upper())
+    return accuracy_stats
 
 # ============================================
 # NEWS ENDPOINTS
@@ -683,11 +774,17 @@ async def get_news(asset_id: Optional[str] = None, limit: int = 10):
     """
     Get latest financial news (requires authentication)
     """
-    # TODO: Implement news collection
+    from services.news_collector import news_collector
+    
+    if asset_id:
+        articles = news_collector.get_asset_news(asset_id.upper(), limit)
+    else:
+        articles = news_collector.collect_news(limit=limit)
+    
     return {
-        "articles": [],
-        "count": 0,
-        "message": "News collection not implemented yet"
+        "articles": articles,
+        "count": len(articles),
+        "timestamp": datetime.now().isoformat()
     }
 
 # ============================================
@@ -695,15 +792,38 @@ async def get_news(asset_id: Optional[str] = None, limit: int = 10):
 # ============================================
 
 @router.get("/csrf-token")
-async def get_csrf_token():
+async def get_csrf_token(request: Request):
     """
     Get CSRF token for protected requests (requires authentication)
+    
+    CSRF tokens are session-based and should be included in X-CSRF-Token header
+    for state-changing requests (POST, PUT, DELETE).
     """
-    # TODO: Implement CSRF protection
+    # Get user from JWT token (if provided)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            user_info = get_user_from_token(token)
+            user_id = user_info.get("user_id")
+        except:
+            user_id = None
+    else:
+        user_id = None
+    
+    # Generate CSRF token (can be session-based or user-based)
     import secrets
-    token = secrets.token_urlsafe(32)
+    csrf_token = secrets.token_urlsafe(32)
+    
+    # Store token in cache (Redis) or session for validation
+    # For now, return token (in production, store with expiration)
+    from cache.connection import cache_set
+    cache_key = f"csrf:{user_id or 'anonymous'}:{csrf_token}"
+    cache_set(cache_key, "valid", expire=3600)  # 1 hour expiration
+    
     return {
-        "csrf_token": token,
+        "csrf_token": csrf_token,
+        "expires_in": 3600,
         "message": "Include this token in X-CSRF-Token header for protected requests"
     }
 
