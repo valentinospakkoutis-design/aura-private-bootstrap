@@ -1,79 +1,116 @@
-import { useState, useEffect } from 'react';
+// Custom hook for API calls with caching and error handling
+import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 
 /**
- * Custom hook για API calls με automatic loading και error handling
+ * Custom hook for API calls with automatic caching, loading states, and error handling
+ * 
+ * @param {Function} apiCall - Function that returns a promise (e.g., () => api.get('/endpoint'))
+ * @param {Object} options - Configuration options
+ * @param {boolean} options.enabled - Whether to run the API call automatically (default: true)
+ * @param {boolean} options.useCache - Whether to use cache (default: true)
+ * @param {number} options.retries - Number of retries (default: 3)
+ * @param {Array} options.dependencies - Dependencies array for useEffect (default: [])
+ * 
+ * @returns {Object} { data, loading, error, refetch }
  */
-export function useApi(apiFunction, dependencies = []) {
+export function useApi(apiCall, options = {}) {
+  const {
+    enabled = true,
+    useCache = true,
+    retries = 3,
+    dependencies = []
+  } = options;
+
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const fetchData = useCallback(async () => {
+    if (!enabled) return;
 
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await apiFunction();
-        
-        if (mounted) {
-          setData(result);
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err.message || 'Σφάλμα σύνδεσης');
-          console.error('API Error:', err);
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchData();
-
-    return () => {
-      mounted = false;
-    };
-  }, dependencies);
-
-  const refetch = async () => {
-    setLoading(true);
-    setError(null);
     try {
-      const result = await apiFunction();
+      setLoading(true);
+      setError(null);
+      
+      const result = await apiCall();
       setData(result);
     } catch (err) {
-      setError(err.message || 'Σφάλμα σύνδεσης');
+      setError(err);
+      console.error('useApi error:', err);
     } finally {
       setLoading(false);
     }
+  }, [apiCall, enabled]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData, ...dependencies]);
+
+  return {
+    data,
+    loading,
+    error,
+    refetch: fetchData
   };
-
-  return { data, loading, error, refetch };
 }
 
 /**
- * Hook για System Status
+ * Hook for API mutations (POST, PUT, DELETE)
+ * 
+ * @param {Function} apiCall - Function that returns a promise
+ * @param {Object} options - Configuration options
+ * 
+ * @returns {Array} [mutate, { loading, error, data }]
  */
-export function useSystemStatus() {
-  return useApi(() => api.getSystemStatus());
+export function useApiMutation(apiCall, options = {}) {
+  const { onSuccess, onError } = options;
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const mutate = useCallback(async (...args) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const result = await apiCall(...args);
+      setData(result);
+      
+      if (onSuccess) {
+        onSuccess(result);
+      }
+      
+      return result;
+    } catch (err) {
+      setError(err);
+      console.error('useApiMutation error:', err);
+      
+      if (onError) {
+        onError(err);
+      }
+      
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [apiCall, onSuccess, onError]);
+
+  return [mutate, { loading, error, data }];
 }
 
 /**
- * Hook για Trading Stats
- */
-export function useStats() {
-  return useApi(() => api.getStats());
-}
-
-/**
- * Hook για Quote of Day
+ * Hook for fetching quote of the day
+ * 
+ * @returns {Object} { data, loading, error, refetch }
  */
 export function useQuoteOfDay() {
-  return useApi(() => api.getQuoteOfDay());
+  return useApi(
+    () => api.getQuoteOfDay(),
+    {
+      useCache: true,
+      retries: 2,
+      dependencies: []
+    }
+  );
 }
-

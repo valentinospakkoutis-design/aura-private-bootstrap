@@ -1,0 +1,40 @@
+═══════════════════════════════════════════════════════
+  AURA APK BUILD - QUICK START
+═══════════════════════════════════════════════════════
+
+⚠️  IMPORTANT: Login is INTERACTIVE
+   You must run these commands in YOUR terminal
+
+═══════════════════════════════════════════════════════
+
+STEP 1: Login (Run in your terminal)
+─────────────────────────────────────
+  eas login
+
+  Enter your Expo email and password
+  (Create account at: https://expo.dev/signup)
+
+═══════════════════════════════════════════════════════
+
+STEP 2: Build APK (After login)
+────────────────────────────────
+  npm run build:android:preview
+
+  Wait ~10-15 minutes for build to complete
+
+═══════════════════════════════════════════════════════
+
+STEP 3: Download APK
+─────────────────────
+  npm run build:download
+
+  Or visit: https://expo.dev
+
+═══════════════════════════════════════════════════════
+
+All files are configured and ready! ✅
+
+Just need to login manually (interactive process).
+
+═══════════════════════════════════════════════════════
+

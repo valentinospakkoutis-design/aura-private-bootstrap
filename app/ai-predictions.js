@@ -13,10 +13,69 @@ export default function AIPredictionsScreen() {
   const [selectedMetal, setSelectedMetal] = useState('XAUUSDT');
 
   useEffect(() => {
+    loadAvailableAssets();
     loadData();
     const interval = setInterval(loadData, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, []);
+
+  const loadAvailableAssets = async () => {
+    try {
+      // Try to get available symbols from backend
+      const response = await api.get('/api/ai/assets');
+      
+      if (response && response.assets) {
+        // Convert backend assets to frontend format
+        const formattedAssets = Object.entries(response.assets).map(([symbol, info]) => {
+          // Determine icon and category based on asset type
+          let icon = '📊';
+          let category = 'other';
+          
+          if (info.type === 'PRECIOUS_METAL') {
+            category = 'precious_metals';
+            const iconMap = {
+              'XAUUSDT': '🥇', 'XAGUSDT': '🥈', 'XPTUSDT': '💎', 'XPDUSDT': '✨'
+            };
+            icon = iconMap[symbol] || '🥇';
+          } else if (info.type === 'CRYPTO') {
+            category = 'crypto';
+            const iconMap = {
+              'BTCUSDT': '₿', 'ETHUSDT': 'Ξ', 'BNBUSDT': '🔷', 'SOLUSDT': '◎',
+              'ADAUSDT': '₳', 'XRPUSDT': '💧', 'DOTUSDT': '⚫', 'MATICUSDT': '🔷',
+              'LINKUSDT': '🔗', 'AVAXUSDT': '🔺'
+            };
+            icon = iconMap[symbol] || '₿';
+          } else if (info.type === 'STOCK') {
+            category = 'stocks';
+            const iconMap = {
+              'AAPL': '🍎', 'MSFT': '🪟', 'GOOGL': '🔍', 'AMZN': '📦',
+              'TSLA': '🚗', 'META': '📘', 'NVDA': '🎮', 'JPM': '🏦', 'GS': '💼'
+            };
+            icon = iconMap[symbol] || '📈';
+          } else if (info.type === 'DERIVATIVE') {
+            category = 'derivatives';
+            icon = '📜';
+          }
+          
+          return {
+            symbol: symbol,
+            name: info.name || symbol,
+            icon: icon,
+            category: category
+          };
+        });
+        
+        setAvailableAssets(formattedAssets);
+      } else {
+        // Fallback to hardcoded list
+        setAvailableAssets(allAssets);
+      }
+    } catch (error) {
+      console.error('Error loading available assets:', error);
+      // Use allAssets as fallback
+      setAvailableAssets(allAssets);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -73,12 +132,60 @@ export default function AIPredictionsScreen() {
     return '#999';
   };
 
-  const metals = [
-    { symbol: 'XAUUSDT', name: 'Χρυσός', icon: '🥇' },
-    { symbol: 'XAGUSDT', name: 'Άργυρος', icon: '🥈' },
-    { symbol: 'XPTUSDT', name: 'Πλατίνα', icon: '💎' },
-    { symbol: 'XPDUSDT', name: 'Παλλάδιο', icon: '✨' },
+  // All available assets for predictions
+  const [availableAssets, setAvailableAssets] = useState([]);
+  
+  // Default metals (fallback)
+  const defaultMetals = [
+    { symbol: 'XAUUSDT', name: 'Χρυσός', icon: '🥇', category: 'precious_metals' },
+    { symbol: 'XAGUSDT', name: 'Άργυρος', icon: '🥈', category: 'precious_metals' },
+    { symbol: 'XPTUSDT', name: 'Πλατίνα', icon: '💎', category: 'precious_metals' },
+    { symbol: 'XPDUSDT', name: 'Παλλάδιο', icon: '✨', category: 'precious_metals' },
   ];
+
+  // Extended assets list with all categories
+  const allAssets = [
+    // Precious Metals
+    { symbol: 'XAUUSDT', name: 'Χρυσός', icon: '🥇', category: 'precious_metals' },
+    { symbol: 'XAGUSDT', name: 'Άργυρος', icon: '🥈', category: 'precious_metals' },
+    { symbol: 'XPTUSDT', name: 'Πλατίνα', icon: '💎', category: 'precious_metals' },
+    { symbol: 'XPDUSDT', name: 'Παλλάδιο', icon: '✨', category: 'precious_metals' },
+    
+    // Major Cryptocurrencies
+    { symbol: 'BTCUSDT', name: 'Bitcoin', icon: '₿', category: 'crypto' },
+    { symbol: 'ETHUSDT', name: 'Ethereum', icon: 'Ξ', category: 'crypto' },
+    { symbol: 'BNBUSDT', name: 'Binance Coin', icon: '🔷', category: 'crypto' },
+    { symbol: 'SOLUSDT', name: 'Solana', icon: '◎', category: 'crypto' },
+    { symbol: 'ADAUSDT', name: 'Cardano', icon: '₳', category: 'crypto' },
+    { symbol: 'XRPUSDT', name: 'Ripple', icon: '💧', category: 'crypto' },
+    { symbol: 'DOTUSDT', name: 'Polkadot', icon: '⚫', category: 'crypto' },
+    { symbol: 'MATICUSDT', name: 'Polygon', icon: '🔷', category: 'crypto' },
+    { symbol: 'LINKUSDT', name: 'Chainlink', icon: '🔗', category: 'crypto' },
+    { symbol: 'AVAXUSDT', name: 'Avalanche', icon: '🔺', category: 'crypto' },
+    
+    // Major Stocks
+    { symbol: 'AAPL', name: 'Apple', icon: '🍎', category: 'stocks' },
+    { symbol: 'MSFT', name: 'Microsoft', icon: '🪟', category: 'stocks' },
+    { symbol: 'GOOGL', name: 'Alphabet', icon: '🔍', category: 'stocks' },
+    { symbol: 'AMZN', name: 'Amazon', icon: '📦', category: 'stocks' },
+    { symbol: 'TSLA', name: 'Tesla', icon: '🚗', category: 'stocks' },
+    { symbol: 'META', name: 'Meta', icon: '📘', category: 'stocks' },
+    { symbol: 'NVDA', name: 'NVIDIA', icon: '🎮', category: 'stocks' },
+    { symbol: 'JPM', name: 'JPMorgan', icon: '🏦', category: 'stocks' },
+    { symbol: 'GS', name: 'Goldman Sachs', icon: '💼', category: 'stocks' },
+    
+    // ETFs
+    { symbol: 'SPY', name: 'S&P 500 ETF', icon: '📈', category: 'etf' },
+    { symbol: 'QQQ', name: 'NASDAQ ETF', icon: '📊', category: 'etf' },
+    { symbol: 'VTI', name: 'Total Market ETF', icon: '🌐', category: 'etf' },
+    
+    // Derivatives
+    { symbol: 'GC1!', name: 'Gold Futures', icon: '📜', category: 'derivatives' },
+    { symbol: 'SI1!', name: 'Silver Futures', icon: '📜', category: 'derivatives' },
+    { symbol: 'ES1!', name: 'S&P 500 Futures', icon: '📜', category: 'derivatives' },
+  ];
+
+  const metals = availableAssets.length > 0 ? availableAssets : allAssets;
 
   if (loading && !predictions) {
     return (
@@ -244,28 +351,133 @@ export default function AIPredictionsScreen() {
           </View>
         )}
 
-        {/* Metal Selection */}
+        {/* Asset Selection - Grouped by Category */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>🔍 Επιλογή Metal</Text>
-          <View style={styles.metalSelector}>
-            {metals.map((metal) => (
-              <TouchableOpacity
-                key={metal.symbol}
-                style={[
-                  styles.metalOption,
-                  selectedMetal === metal.symbol && styles.metalOptionActive
-                ]}
-                onPress={() => setSelectedMetal(metal.symbol)}
-              >
-                <Text style={styles.metalIcon}>{metal.icon}</Text>
-                <Text style={[
-                  styles.metalName,
-                  selectedMetal === metal.symbol && styles.metalNameActive
-                ]}>
-                  {metal.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <Text style={styles.cardTitle}>🔍 Επιλογή Προϊόντος</Text>
+          
+          {/* Precious Metals */}
+          <View style={styles.categorySection}>
+            <Text style={styles.categoryTitle}>🥇 Πολύτιμα Μέταλλα</Text>
+            <View style={styles.metalSelector}>
+              {metals.filter(m => m.category === 'precious_metals').map((metal) => (
+                <TouchableOpacity
+                  key={metal.symbol}
+                  style={[
+                    styles.metalOption,
+                    selectedMetal === metal.symbol && styles.metalOptionActive
+                  ]}
+                  onPress={() => setSelectedMetal(metal.symbol)}
+                >
+                  <Text style={styles.metalIcon}>{metal.icon}</Text>
+                  <Text style={[
+                    styles.metalName,
+                    selectedMetal === metal.symbol && styles.metalNameActive
+                  ]}>
+                    {metal.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Cryptocurrencies */}
+          <View style={styles.categorySection}>
+            <Text style={styles.categoryTitle}>₿ Κρυπτονομίσματα</Text>
+            <View style={styles.metalSelector}>
+              {metals.filter(m => m.category === 'crypto').map((metal) => (
+                <TouchableOpacity
+                  key={metal.symbol}
+                  style={[
+                    styles.metalOption,
+                    selectedMetal === metal.symbol && styles.metalOptionActive
+                  ]}
+                  onPress={() => setSelectedMetal(metal.symbol)}
+                >
+                  <Text style={styles.metalIcon}>{metal.icon}</Text>
+                  <Text style={[
+                    styles.metalName,
+                    selectedMetal === metal.symbol && styles.metalNameActive
+                  ]}>
+                    {metal.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Stocks */}
+          <View style={styles.categorySection}>
+            <Text style={styles.categoryTitle}>📈 Μετοχές</Text>
+            <View style={styles.metalSelector}>
+              {metals.filter(m => m.category === 'stocks').map((metal) => (
+                <TouchableOpacity
+                  key={metal.symbol}
+                  style={[
+                    styles.metalOption,
+                    selectedMetal === metal.symbol && styles.metalOptionActive
+                  ]}
+                  onPress={() => setSelectedMetal(metal.symbol)}
+                >
+                  <Text style={styles.metalIcon}>{metal.icon}</Text>
+                  <Text style={[
+                    styles.metalName,
+                    selectedMetal === metal.symbol && styles.metalNameActive
+                  ]}>
+                    {metal.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* ETFs */}
+          <View style={styles.categorySection}>
+            <Text style={styles.categoryTitle}>📊 ETFs</Text>
+            <View style={styles.metalSelector}>
+              {metals.filter(m => m.category === 'etf').map((metal) => (
+                <TouchableOpacity
+                  key={metal.symbol}
+                  style={[
+                    styles.metalOption,
+                    selectedMetal === metal.symbol && styles.metalOptionActive
+                  ]}
+                  onPress={() => setSelectedMetal(metal.symbol)}
+                >
+                  <Text style={styles.metalIcon}>{metal.icon}</Text>
+                  <Text style={[
+                    styles.metalName,
+                    selectedMetal === metal.symbol && styles.metalNameActive
+                  ]}>
+                    {metal.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Derivatives */}
+          <View style={styles.categorySection}>
+            <Text style={styles.categoryTitle}>📜 Παράγωγα</Text>
+            <View style={styles.metalSelector}>
+              {metals.filter(m => m.category === 'derivatives').map((metal) => (
+                <TouchableOpacity
+                  key={metal.symbol}
+                  style={[
+                    styles.metalOption,
+                    selectedMetal === metal.symbol && styles.metalOptionActive
+                  ]}
+                  onPress={() => setSelectedMetal(metal.symbol)}
+                >
+                  <Text style={styles.metalIcon}>{metal.icon}</Text>
+                  <Text style={[
+                    styles.metalName,
+                    selectedMetal === metal.symbol && styles.metalNameActive
+                  ]}>
+                    {metal.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -589,6 +801,15 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  categorySection: {
+    marginBottom: 20,
+  },
+  categoryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 10,
   },
 });
 

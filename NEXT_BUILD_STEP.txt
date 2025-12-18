@@ -1,0 +1,28 @@
+═══════════════════════════════════════════════════════
+  NEXT STEP: Setup Credentials
+═══════════════════════════════════════════════════════
+
+✅ Logged in: valentinoscy81
+✅ EAS Project: Created
+✅ Config: Fixed
+⏳ Credentials: Need setup
+
+═══════════════════════════════════════════════════════
+
+RUN THIS COMMAND IN YOUR TERMINAL:
+─────────────────────────────────────
+  eas credentials
+
+Then select:
+  1. Platform: Android
+  2. Action: Setup credentials  
+  3. Keystore: Generate new
+
+═══════════════════════════════════════════════════════
+
+AFTER CREDENTIALS SETUP:
+─────────────────────────
+  npm run build:android:preview
+
+═══════════════════════════════════════════════════════
+

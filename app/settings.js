@@ -1,11 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTheme } from '../mobile/src/context/ThemeContext';
+import ThemeToggle from '../mobile/src/components/ThemeToggle';
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { colors, isDark } = useTheme();
   const [notifications, setNotifications] = React.useState(true);
-  const [darkMode, setDarkMode] = React.useState(true);
   const [autoTrade, setAutoTrade] = React.useState(false);
 
   return (
@@ -72,14 +74,8 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View style={styles.menuItem}>
-            <Text style={styles.menuText}>Dark Mode</Text>
-            <Switch
-              value={darkMode}
-              onValueChange={setDarkMode}
-              trackColor={{ false: '#3a3a3a', true: '#4CAF50' }}
-              thumbColor={darkMode ? '#fff' : '#f4f3f4'}
-            />
+          <View style={[styles.menuItem, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <ThemeToggle />
           </View>
 
           <TouchableOpacity style={styles.menuItem}>
@@ -199,7 +195,6 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f0f',
   },
   content: {
     padding: 20,

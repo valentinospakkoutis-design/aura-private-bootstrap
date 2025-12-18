@@ -1,11 +1,24 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { View } from 'react-native';
+import { useEffect } from 'react';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
+import OfflineBanner from '../mobile/src/components/OfflineBanner';
+import { ThemeProvider } from '../mobile/src/context/ThemeContext';
+import { initMonitoring } from '../mobile/src/services/monitoring';
 
 export default function RootLayout() {
+  useEffect(() => {
+    // Initialize monitoring on app start
+    initMonitoring();
+  }, []);
+
   return (
-    <ErrorBoundary>
-      <Stack
+    <ThemeProvider>
+      <ErrorBoundary>
+        <View style={{ flex: 1 }}>
+          <OfflineBanner />
+          <Stack
         screenOptions={{
           headerStyle: {
             backgroundColor: '#1a1a1a',
@@ -110,9 +123,11 @@ export default function RootLayout() {
             headerShown: false,
           }} 
         />
-      </Stack>
-      <StatusBar style="light" />
-    </ErrorBoundary>
+          </Stack>
+          <StatusBar style="light" />
+        </View>
+      </ErrorBoundary>
+    </ThemeProvider>
   );
 }
 

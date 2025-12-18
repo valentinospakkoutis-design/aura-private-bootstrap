@@ -8,20 +8,27 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "commit": "powershell -ExecutionPolicy Bypass -File ./scripts/auto-commit.ps1",
-    "commit:push": "powershell -ExecutionPolicy Bypass -File ./scripts/auto-commit.ps1 -Push"
+    "commit:push": "powershell -ExecutionPolicy Bypass -File ./scripts/auto-commit.ps1 -Push",
+    "analyze": "npx expo export --platform web && npx source-map-explorer dist/*.js --html bundle-analysis.html",
+    "build:android:preview": "eas build --platform android --profile preview",
+    "build:android:production": "eas build --platform android --profile production",
+    "build:android:dev": "eas build --platform android --profile development",
+    "build:status": "eas build:list",
+    "build:download": "eas build:download"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
     "@react-three/drei": "^9.114.3",
     "@react-three/fiber": "^8.17.10",
     "@tamagui/core": "^1.112.23",
-    "expo": "~52.0.0",
+    "expo": "~52.0.48",
     "expo-av": "~15.0.1",
     "expo-constants": "~17.0.8",
     "expo-crypto": "~14.0.2",
     "expo-gl": "~15.0.2",
+    "expo-haptics": "~14.0.1",
     "expo-linking": "~7.0.5",
-    "expo-router": "~4.0.21",
+    "expo-router": "~4.0.22",
     "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~2.0.0",
     "react": "18.3.1",
@@ -37,6 +44,20 @@
     "@types/react": "~18.3.12",
     "@types/three": "^0.169.0",
     "typescript": "^5.3.0"
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "expo-av",
+          "@react-three/drei",
+          "@react-three/fiber",
+          "@tamagui/core",
+          "three"
+        ],
+        "listUnknownPackages": false
+      }
+    }
   },
   "private": true
 }

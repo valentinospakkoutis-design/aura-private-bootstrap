@@ -3,12 +3,21 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { useRouter } from 'expo-router';
 import DailyQuote from '../mobile/src/components/DailyQuote';
 import AuraOrb3D from '../mobile/src/components/AuraOrb3D';
+import LoadingState from '../mobile/src/components/LoadingState';
+import NetworkErrorHandler from '../mobile/src/components/NetworkErrorHandler';
+import { AnimatedFadeIn, AnimatedSlideUp } from '../mobile/src/components/AnimatedView';
+import { useScreenTracking } from '../mobile/src/hooks/useAnalytics';
 import api from '../mobile/src/services/api';
 
 export default function HomeScreen() {
   const router = useRouter();
   const [greeting, setGreeting] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  // Track screen view
+  useScreenTracking('Home');
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -28,20 +37,43 @@ export default function HomeScreen() {
 
   const loadUnreadCount = async () => {
     try {
+      setLoading(true);
+      setError(null);
       const data = await api.get('/api/notifications?unread_only=true&limit=1');
       setUnreadCount(data.unread_count || 0);
-    } catch (error) {
-      console.error('Error loading unread count:', error);
+    } catch (err) {
+      console.error('Error loading unread count:', err);
+      setError(err);
+      // Don't show error for background refresh, only for initial load
+      if (loading) {
+        setError(err);
+      }
+    } finally {
+      setLoading(false);
     }
   };
+
+  if (loading && !unreadCount) {
+    return <LoadingState message="Φόρτωση δεδομένων..." />;
+  }
+
+  if (error && loading) {
+    return (
+      <NetworkErrorHandler 
+        error={error}
+        onRetry={loadUnreadCount}
+      />
+    );
+  }
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
         {/* Header Section */}
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <Text style={styles.greeting}>{greeting}! 👋</Text>
+        <AnimatedFadeIn duration={400}>
+          <View style={styles.header}>
+            <View style={styles.headerTop}>
+              <Text style={styles.greeting}>{greeting}! 👋</Text>
             <TouchableOpacity
               style={styles.notificationButton}
               onPress={() => router.push('/notifications')}
@@ -65,26 +97,32 @@ export default function HomeScreen() {
             style={{ marginVertical: 20 }}
           />
           
-          <Text style={styles.title}>AURA</Text>
-          <Text style={styles.subtitle}>Το χρηματοοικονομικό σου ον</Text>
-        </View>
+            <Text style={styles.title}>AURA</Text>
+            <Text style={styles.subtitle}>Το χρηματοοικονομικό σου ον</Text>
+          </View>
+        </AnimatedFadeIn>
 
         {/* Status Card */}
-        <View style={styles.card}>
+        <AnimatedSlideUp delay={100}>
+          <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Κατάσταση Συστήματος</Text>
             <View style={styles.statusDot} />
           </View>
           <Text style={styles.cardSubtitle}>✅ Σύστημα Ενεργό</Text>
           <Text style={styles.cardText}>✅ Backend Έτοιμο για σύνδεση</Text>
-          <Text style={styles.cardText}>✅ AI Engine Αναμονή</Text>
-        </View>
+            <Text style={styles.cardText}>✅ AI Engine Αναμονή</Text>
+          </View>
+        </AnimatedSlideUp>
 
         {/* Quote of the Day */}
-        <DailyQuote style={{ marginBottom: 20 }} />
+        <AnimatedSlideUp delay={200}>
+          <DailyQuote style={{ marginBottom: 20 }} />
+        </AnimatedSlideUp>
 
         {/* Quick Stats */}
-        <View style={styles.statsContainer}>
+        <AnimatedSlideUp delay={300}>
+          <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>0</Text>
             <Text style={styles.statLabel}>Ενεργά Trades</Text>
@@ -94,9 +132,11 @@ export default function HomeScreen() {
             <Text style={styles.statLabel}>Σημερινό P/L</Text>
           </View>
         </View>
+        </AnimatedSlideUp>
 
         {/* Action Buttons */}
-        <TouchableOpacity 
+        <AnimatedSlideUp delay={400}>
+          <TouchableOpacity 
           style={styles.primaryButton}
           onPress={() => router.push('/paper-trading')}
         >
@@ -114,42 +154,51 @@ export default function HomeScreen() {
           style={styles.secondaryButton}
           onPress={() => router.push('/profile')}
         >
-          <Text style={styles.secondaryButtonText}>👤 Προφίλ</Text>
-        </TouchableOpacity>
+            <Text style={styles.secondaryButtonText}>👤 Προφίλ</Text>
+          </TouchableOpacity>
+        </AnimatedSlideUp>
 
         {/* AI Predictions Quick View */}
-        <TouchableOpacity 
+        <AnimatedSlideUp delay={500}>
+          <TouchableOpacity 
           style={styles.aiCard}
           onPress={() => router.push('/ai-predictions')}
         >
           <Text style={styles.aiCardTitle}>🤖 AI Predictions</Text>
           <Text style={styles.aiCardText}>Δείτε προβλέψεις για χρυσό, άργυρο, πλατίνα, παλλάδιο</Text>
-          <Text style={styles.aiCardArrow}>→</Text>
-        </TouchableOpacity>
+            <Text style={styles.aiCardArrow}>→</Text>
+          </TouchableOpacity>
+        </AnimatedSlideUp>
 
         {/* Analytics Quick View */}
-        <TouchableOpacity 
+        <AnimatedSlideUp delay={600}>
+          <TouchableOpacity 
           style={styles.analyticsCard}
           onPress={() => router.push('/analytics')}
         >
           <Text style={styles.analyticsCardTitle}>📊 Analytics</Text>
           <Text style={styles.analyticsCardText}>Performance metrics & insights</Text>
-          <Text style={styles.analyticsCardArrow}>→</Text>
-        </TouchableOpacity>
+            <Text style={styles.analyticsCardArrow}>→</Text>
+          </TouchableOpacity>
+        </AnimatedSlideUp>
 
         {/* Info Section */}
-        <View style={styles.infoSection}>
+        <AnimatedSlideUp delay={700}>
+          <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>📚 Επόμενα Βήματα:</Text>
           <Text style={styles.infoText}>• Σύνδεση με brokers (Binance, eToro)</Text>
           <Text style={styles.infoText}>• Ρύθμιση προφίλ κινδύνου</Text>
           <Text style={styles.infoText}>• Επιλογή στρατηγικών trading</Text>
-          <Text style={styles.infoText}>• Ενεργοποίηση AI agent</Text>
-        </View>
+            <Text style={styles.infoText}>• Ενεργοποίηση AI agent</Text>
+          </View>
+        </AnimatedSlideUp>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>AURA v1.0.0</Text>
-          <Text style={styles.footerSubtext}>Made with 💎 in Cyprus</Text>
-        </View>
+        <AnimatedFadeIn delay={800}>
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>AURA v1.0.0</Text>
+            <Text style={styles.footerSubtext}>Made with 💎 in Cyprus</Text>
+          </View>
+        </AnimatedFadeIn>
       </View>
     </ScrollView>
   );

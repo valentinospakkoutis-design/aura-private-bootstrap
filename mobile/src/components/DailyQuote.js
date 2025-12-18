@@ -5,6 +5,17 @@ import { useQuoteOfDay } from '../hooks/useApi';
 export default function DailyQuote({ style }) {
   const { data, loading, error } = useQuoteOfDay();
 
+  // Debug logging (only in development)
+  const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
+  if (isDev) {
+    if (error) {
+      console.log('DailyQuote Error:', error);
+    }
+    if (data) {
+      console.log('DailyQuote Data:', data);
+    }
+  }
+
   if (loading) {
     return (
       <View style={[styles.card, style, styles.loadingContainer]}>
@@ -14,28 +25,30 @@ export default function DailyQuote({ style }) {
     );
   }
 
-  if (error) {
-    // Fallback quote if API fails
-    const fallbackQuote = {
-      el: "Η υπομονή είναι το κλειδί του παραδείσου. Και του πλούτου.",
-      en: "Patience is the key to paradise. And to wealth."
-    };
-    
-    return (
-      <View style={[styles.card, style]}>
-        <View style={styles.header}>
-          <Text style={styles.title}>💎 Γνωμικό της Ημέρας</Text>
-        </View>
-        <Text style={styles.quote}>{fallbackQuote.el}</Text>
-        <Text style={styles.author}>— Ελληνική Παροιμία</Text>
-      </View>
-    );
+  // Fallback quote if API fails or no data
+  const fallbackQuote = {
+    el: "Η υπομονή είναι το κλειδί του παραδείσου. Και του πλούτου.",
+    en: "Patience is the key to paradise. And to wealth.",
+    author: "Ελληνική Παροιμία"
+  };
+
+  // Determine which quote to use
+  let quote = null;
+  
+  if (data?.quote) {
+    // API returned quote
+    quote = data.quote;
+  } else if (data && !data.quote && data.el) {
+    // Direct quote object (fallback structure)
+    quote = data;
+  } else if (error || !data) {
+    // Use fallback on error or no data
+    quote = fallbackQuote;
   }
 
-  const quote = data?.quote;
-  
+  // If still no quote, use fallback
   if (!quote) {
-    return null;
+    quote = fallbackQuote;
   }
 
   return (
@@ -43,8 +56,8 @@ export default function DailyQuote({ style }) {
       <View style={styles.header}>
         <Text style={styles.title}>💎 Γνωμικό της Ημέρας</Text>
       </View>
-      <Text style={styles.quote}>{quote.el}</Text>
-      <Text style={styles.author}>— Ελληνική Παροιμία</Text>
+      <Text style={styles.quote}>{quote.el || quote.en || 'No quote available'}</Text>
+      <Text style={styles.author}>— {quote.author || 'Ελληνική Παροιμία'}</Text>
     </View>
   );
 }

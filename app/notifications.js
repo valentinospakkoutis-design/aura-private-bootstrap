@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import api from '../mobile/src/services/api';
+import LoadingState from '../mobile/src/components/LoadingState';
+import EmptyState from '../mobile/src/components/EmptyState';
+import NetworkErrorHandler from '../mobile/src/components/NetworkErrorHandler';
 
 export default function NotificationsScreen() {
   const router = useRouter();
@@ -11,6 +14,7 @@ export default function NotificationsScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [stats, setStats] = useState(null);
   const [filter, setFilter] = useState('all'); // all, unread, trade_executed, price_alert, ai_signal
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -21,6 +25,7 @@ export default function NotificationsScreen() {
   const loadData = async () => {
     try {
       setLoading(true);
+      setError(null);
       
       // Load notifications
       const unreadOnly = filter === 'unread';
@@ -35,8 +40,13 @@ export default function NotificationsScreen() {
       // Load stats
       const statsData = await api.get('/api/notifications/stats');
       setStats(statsData);
-    } catch (error) {
-      console.error('Error loading notifications:', error);
+    } catch (err) {
+      console.error('Error loading notifications:', err);
+      setError(err);
+      const userMessage = err.userMessage || err.message || 'Σφάλμα φόρτωσης ειδοποιήσεων';
+      if (!refreshing) {
+        Alert.alert('Σφάλμα', userMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -50,10 +60,12 @@ export default function NotificationsScreen() {
 
   const handleMarkAsRead = async (notificationId) => {
     try {
-      await api.put(`/api/notifications/${notificationId}/read`);
+      await api.put(`/api/notifications/${notificationId}/read`, {}, { clearCacheOnSuccess: true });
       loadData();
-    } catch (error) {
-      console.error('Error marking as read:', error);
+    } catch (err) {
+      console.error('Error marking as read:', err);
+      const userMessage = err.userMessage || 'Αποτυχία ενημέρωσης';
+      Alert.alert('Σφάλμα', userMessage);
     }
   };
 
@@ -137,13 +149,15 @@ export default function NotificationsScreen() {
   };
 
   if (loading && !notifications.length) {
+    return <LoadingState message="Φόρτωση ειδοποιήσεων..." />;
+  }
+
+  if (error && !refreshing && !notifications.length) {
     return (
-      <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Φόρτωση Notifications...</Text>
-        </View>
-      </View>
+      <NetworkErrorHandler 
+        error={error}
+        onRetry={loadData}
+      />
     );
   }
 
@@ -236,12 +250,13 @@ export default function NotificationsScreen() {
 
         {/* Notifications List */}
         {notifications.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No notifications</Text>
-            <Text style={styles.emptySubtext}>
-              {filter === 'unread' ? 'No unread notifications' : 'You're all caught up!'}
-            </Text>
-          </View>
+          <EmptyState
+            emoji={filter === 'unread' ? '✅' : '📭'}
+            title={filter === 'unread' ? 'Δεν υπάρχουν μη διαβασμένες' : 'Δεν υπάρχουν ειδοποιήσεις'}
+            message={filter === 'unread' 
+              ? 'Όλες οι ειδοποιήσεις είναι διαβασμένες!'
+              : 'Όταν λάβετε νέες ειδοποιήσεις, θα εμφανιστούν εδώ.'}
+          />
         ) : (
           notifications.map((notification) => (
             <TouchableOpacity

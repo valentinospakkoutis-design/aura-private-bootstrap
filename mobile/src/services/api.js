@@ -1,28 +1,132 @@
 // AURA API Service
 // Handles all communication with backend
+// Enhanced with retry logic, error handling, and caching
 
-// Smart API URL detection
-// For web: use localhost, for mobile device: use local IP
-const getApiBaseUrl = () => {
-  if (!__DEV__) {
-    return 'https://your-production-url.com';  // Production
-  }
-  
-  // Check if running on web (browser)
-  if (typeof window !== 'undefined' && window.location) {
-    return 'http://localhost:8000';  // Web browser
-  }
-  
-  // For mobile device, use local IP (update this if your IP changes)
-  // Find your IP with: ipconfig (Windows) or ifconfig (Mac/Linux)
-  return 'http://192.168.178.97:8000';  // Mobile device on same WiFi
+import { API_BASE_URL, config } from '../config/environment';
+
+// Simple in-memory cache
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Greek error messages
+const ERROR_MESSAGES = {
+  NETWORK_ERROR: 'Δεν υπάρχει σύνδεση στο διαδίκτυο. Ελέγξτε τη σύνδεσή σας.',
+  TIMEOUT: 'Η αίτηση ξεπέρασε το χρονικό όριο. Δοκιμάστε ξανά.',
+  SERVER_ERROR: 'Σφάλμα διακομιστή. Παρακαλώ δοκιμάστε αργότερα.',
+  NOT_FOUND: 'Δεν βρέθηκε το αντικείμενο.',
+  UNAUTHORIZED: 'Δεν έχετε εξουσιοδότηση. Παρακαλώ συνδεθείτε ξανά.',
+  FORBIDDEN: 'Δεν έχετε πρόσβαση σε αυτόν τον πόρο.',
+  BAD_REQUEST: 'Μη έγκυρη αίτηση. Ελέγξτε τα δεδομένα σας.',
+  UNKNOWN: 'Συνέβη ένα σφάλμα. Παρακαλώ δοκιμάστε ξανά.'
 };
-
-const API_BASE_URL = getApiBaseUrl();
 
 class ApiService {
   constructor() {
     this.baseUrl = API_BASE_URL;
+    this.defaultRetries = 3;
+    this.defaultRetryDelay = 1000; // 1 second
+  }
+
+  /**
+   * Check if device is online
+   */
+  async isOnline() {
+    try {
+      const response = await fetch(`${this.baseUrl}/health`, {
+        method: 'HEAD',
+        cache: 'no-cache',
+        signal: AbortSignal.timeout(3000)
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get user-friendly error message
+   */
+  getErrorMessage(error, defaultMessage = ERROR_MESSAGES.UNKNOWN) {
+    if (!error) return defaultMessage;
+    
+    // Network errors
+    if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+      return ERROR_MESSAGES.TIMEOUT;
+    }
+    
+    if (error.message?.includes('Failed to fetch') || error.message?.includes('Network')) {
+      return ERROR_MESSAGES.NETWORK_ERROR;
+    }
+    
+    // HTTP status codes
+    if (error.message?.includes('status: 401')) {
+      return ERROR_MESSAGES.UNAUTHORIZED;
+    }
+    
+    if (error.message?.includes('status: 403')) {
+      return ERROR_MESSAGES.FORBIDDEN;
+    }
+    
+    if (error.message?.includes('status: 404')) {
+      return ERROR_MESSAGES.NOT_FOUND;
+    }
+    
+    if (error.message?.includes('status: 400')) {
+      return ERROR_MESSAGES.BAD_REQUEST;
+    }
+    
+    if (error.message?.includes('status: 5')) {
+      return ERROR_MESSAGES.SERVER_ERROR;
+    }
+    
+    // Try to extract message from error response
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+    
+    if (error.message && error.message !== 'HTTP error!') {
+      return error.message;
+    }
+    
+    return defaultMessage;
+  }
+
+  /**
+   * Sleep utility for retry delays
+   */
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Retry wrapper for API calls
+   */
+  async withRetry(fn, retries = this.defaultRetries, delay = this.defaultRetryDelay) {
+    let lastError;
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        
+        // Don't retry on 4xx errors (client errors)
+        if (error.message?.includes('status: 4')) {
+          throw error;
+        }
+        
+        // Don't retry on last attempt
+        if (attempt === retries) {
+          break;
+        }
+        
+        // Exponential backoff
+        const backoffDelay = delay * Math.pow(2, attempt);
+        await this.sleep(backoffDelay);
+      }
+    }
+    
+    throw lastError;
   }
 
   async fetchWithTimeout(url, options = {}, timeout = 10000) {
@@ -38,64 +142,192 @@ class ApiService {
       return response;
     } catch (error) {
       clearTimeout(id);
-      throw error;
+      // Enhance error with more context
+      const enhancedError = new Error(error.message || 'Network request failed');
+      enhancedError.name = error.name;
+      enhancedError.originalError = error;
+      throw enhancedError;
     }
   }
 
-  async get(endpoint) {
-    try {
-      const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      return await response.json();
-    } catch (error) {
-      console.error(`API GET Error [${endpoint}]:`, error);
-      throw error;
+  /**
+   * Get cached data if available and not expired
+   */
+  getCached(key) {
+    const cached = cache.get(key);
+    if (!cached) return null;
+    
+    if (Date.now() - cached.timestamp > CACHE_TTL) {
+      cache.delete(key);
+      return null;
+    }
+    
+    return cached.data;
+  }
+
+  /**
+   * Set cache data
+   */
+  setCache(key, data) {
+    cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Clear cache
+   */
+  clearCache(key = null) {
+    if (key) {
+      cache.delete(key);
+    } else {
+      cache.clear();
     }
   }
 
-  async post(endpoint, data) {
-    try {
-      const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+  async get(endpoint, options = {}) {
+    const { useCache = true, retries = this.defaultRetries } = options;
+    const cacheKey = `GET:${endpoint}`;
+    
+    // Check cache first
+    if (useCache) {
+      const cached = this.getCached(cacheKey);
+      if (cached !== null) {
+        return cached;
       }
-      
-      return await response.json();
-    } catch (error) {
-      console.error(`API POST Error [${endpoint}]:`, error);
-      throw error;
     }
+    
+    return this.withRetry(async () => {
+      try {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`);
+        
+        if (!response.ok) {
+          const error = new Error(`HTTP error! status: ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        
+        const data = await response.json();
+        
+        // Cache successful responses
+        if (useCache) {
+          this.setCache(cacheKey, data);
+        }
+        
+        return data;
+      } catch (error) {
+        console.error(`API GET Error [${endpoint}]:`, error);
+        error.endpoint = endpoint;
+        error.userMessage = this.getErrorMessage(error);
+        throw error;
+      }
+    }, retries);
   }
 
-  async delete(endpoint) {
-    try {
-      const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+  async post(endpoint, data, options = {}) {
+    const { retries = this.defaultRetries, clearCacheOnSuccess = false } = options;
+    
+    return this.withRetry(async () => {
+      try {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data),
+        });
+        
+        if (!response.ok) {
+          const error = new Error(`HTTP error! status: ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        
+        const result = await response.json();
+        
+        // Clear cache if needed (e.g., after creating/updating data)
+        if (clearCacheOnSuccess) {
+          this.clearCache();
+        }
+        
+        return result;
+      } catch (error) {
+        console.error(`API POST Error [${endpoint}]:`, error);
+        error.endpoint = endpoint;
+        error.userMessage = this.getErrorMessage(error);
+        throw error;
       }
-      
-      return await response.json();
-    } catch (error) {
-      console.error(`API DELETE Error [${endpoint}]:`, error);
-      throw error;
-    }
+    }, retries);
+  }
+
+  async put(endpoint, data, options = {}) {
+    const { retries = this.defaultRetries, clearCacheOnSuccess = false } = options;
+    
+    return this.withRetry(async () => {
+      try {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data),
+        });
+        
+        if (!response.ok) {
+          const error = new Error(`HTTP error! status: ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        
+        const result = await response.json();
+        
+        if (clearCacheOnSuccess) {
+          this.clearCache();
+        }
+        
+        return result;
+      } catch (error) {
+        console.error(`API PUT Error [${endpoint}]:`, error);
+        error.endpoint = endpoint;
+        error.userMessage = this.getErrorMessage(error);
+        throw error;
+      }
+    }, retries);
+  }
+
+  async delete(endpoint, options = {}) {
+    const { retries = this.defaultRetries, clearCacheOnSuccess = false } = options;
+    
+    return this.withRetry(async () => {
+      try {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}${endpoint}`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          const error = new Error(`HTTP error! status: ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        
+        const result = await response.json();
+        
+        if (clearCacheOnSuccess) {
+          this.clearCache();
+        }
+        
+        return result;
+      } catch (error) {
+        console.error(`API DELETE Error [${endpoint}]:`, error);
+        error.endpoint = endpoint;
+        error.userMessage = this.getErrorMessage(error);
+        throw error;
+      }
+    }, retries);
   }
 
   // Health Check
