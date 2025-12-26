@@ -59,6 +59,12 @@ exit code: 127
 - Ορίζει Python version 3.11.0
 - Βοηθάει το Nixpacks να επιλέξει το σωστό Python version
 
+**4. Δημιούργησα `backend/nixpacks.toml`:**
+- Ορίζει ρητά Python 3.11 και pip
+- Ορίζει το install command
+- Ορίζει το start command
+- Αυτό εξασφαλίζει ότι το Python είναι installed σωστά
+
 ---
 
 ## 📝 Configuration Files
@@ -99,6 +105,19 @@ exit code: 127
 python-3.11.0
 ```
 // ✅ Specifies Python version for Nixpacks
+
+### **Backend `nixpacks.toml`** (New)
+```toml
+[phases.setup]
+nixPkgs = ["python311", "pip"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "python3 -m uvicorn main:app --host 0.0.0.0 --port $PORT"
+```
+// ✅ Explicitly defines Python 3.11, pip, and commands for Nixpacks
 
 ---
 
