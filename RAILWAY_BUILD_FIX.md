@@ -1,8 +1,8 @@
-# 🔧 Railway Build Fix - pip: command not found
+# 🔧 Railway Build Fix - pip & uvicorn: command not found
 
-## ❌ Το Πρόβλημα
+## ❌ Τα Προβλήματα
 
-Το Railway build απέτυχε με error:
+### **Error 1: pip: command not found** ✅ FIXED
 ```
 /bin/bash: line 1: pip: command not found
 exit code: 127
@@ -13,14 +13,33 @@ exit code: 127
 - Το Nixpacks (Railway's builder) δεν έχει `pip` installed by default
 - Το Nixpacks κάνει **auto-detect** Python projects και εγκαθιστά dependencies αυτόματα
 
+**Fix:**
+- Αφαίρεσα το `buildCommand` - το Nixpacks κάνει auto-detect
+
+### **Error 2: uvicorn: command not found** ✅ FIXED
+```
+/bin/bash: line 1: uvicorn: command not found
+```
+
+**Αιτία:**
+- Το `uvicorn` δεν είναι στο PATH ακόμα και αν είναι installed
+- Χρειάζεται `python -m uvicorn` αντί για `uvicorn` απευθείας
+
+**Fix:**
+- Άλλαξα `uvicorn` σε `python -m uvicorn` σε όλα τα `railway.json` files
+
 ---
 
 ## ✅ Η Λύση
 
-**Αφαίρεσα το `buildCommand`** από το `railway.json`:
+**1. Αφαίρεσα το `buildCommand`:**
 - Το Nixpacks θα **auto-detect** το Python project
 - Θα βρει το `requirements.txt` στο `backend/` folder
 - Θα εγκαταστήσει dependencies **αυτόματα** με το σωστό pip version
+
+**2. Άλλαξα το `startCommand`:**
+- `uvicorn` → `python -m uvicorn`
+- Αυτό εξασφαλίζει ότι το uvicorn τρέχει με το σωστό Python environment
 
 ---
 
@@ -35,14 +54,15 @@ exit code: 127
     // ✅ Removed buildCommand - Nixpacks auto-detects
   },
   "deploy": {
-    "startCommand": "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT",
+    "startCommand": "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT",
+    // ✅ Changed: uvicorn → python -m uvicorn
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
 }
 ```
 
-### **Backend `railway.json`** (Already correct)
+### **Backend `railway.json`** (Updated)
 ```json
 {
   "$schema": "https://railway.app/railway.schema.json",
@@ -50,7 +70,8 @@ exit code: 127
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    "startCommand": "python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
+    // ✅ Changed: uvicorn → python -m uvicorn
   }
 }
 ```
