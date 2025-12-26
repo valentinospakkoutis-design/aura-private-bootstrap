@@ -39,13 +39,13 @@ const ENVIRONMENTS = {
   },
   production: {
     // ⚠️ IMPORTANT: Production API URL
-    // Priority 1: From eas.json EXPO_PUBLIC_API_URL (recommended)
-    // Priority 2: From Constants.expoConfig.extra.apiUrl
-    // Priority 3: Fallback to production URL
+    // Priority 1: From Constants.expoConfig.extra.apiUrl (from app.config.js, which reads from eas.json)
+    // Priority 2: Fallback to production URL
+    // Note: process.env.EXPO_PUBLIC_API_URL is NOT available at runtime, only at build time
+    // The value is passed through app.config.js -> Constants.expoConfig.extra.apiUrl
     // See: APK_FIX_GUIDE.md for detailed instructions
     apiUrl: Constants.expoConfig?.extra?.apiUrl || 
-            process.env.EXPO_PUBLIC_API_URL || 
-            'https://api.aura.com', // Production API URL (update if needed)
+            'https://api.aura.com', // ⚠️ PLACEHOLDER - Update with real production URL
     apiTimeout: 20000,
     enableLogging: false,
     enableCache: true,
@@ -67,20 +67,25 @@ export const config = {
 
 // Smart API URL detection (backward compatible)
 export const getApiBaseUrl = () => {
-  // Priority 1: Use environment config from app.config.js
-  if (config.apiUrl) {
+  // Priority 1: Use environment config (already includes Constants.expoConfig.extra.apiUrl)
+  if (config.apiUrl && config.apiUrl !== 'https://api.aura.com') {
     return config.apiUrl;
   }
   
-  // Priority 2: Check Constants.expoConfig.extra.apiUrl (from app.config.js)
+  // Priority 2: Check Constants.expoConfig.extra.apiUrl directly (from app.config.js)
   const extraApiUrl = Constants.expoConfig?.extra?.apiUrl;
-  if (extraApiUrl) {
+  if (extraApiUrl && extraApiUrl !== 'https://api.aura.com') {
     return extraApiUrl;
   }
   
   // Priority 3: Production fallback (for standalone builds)
+  // ⚠️ WARNING: This is a placeholder - update with real production URL
   if (config.isProduction) {
-    return 'https://api.aura.com'; // Update with your production API URL
+    // If we're in production but no valid URL is set, warn but still return placeholder
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('⚠️ Production API URL is placeholder. Update EXPO_PUBLIC_API_URL in eas.json');
+    }
+    return 'https://api.aura.com'; // ⚠️ PLACEHOLDER - Update with real production URL
   }
   
   // Priority 4: Development fallback
@@ -94,7 +99,7 @@ export const getApiBaseUrl = () => {
     return 'http://192.168.178.97:8000'; // Local development IP
   }
   
-  // Final fallback: Production URL
+  // Final fallback: Production URL (placeholder)
   return 'https://api.aura.com';
 };
 
