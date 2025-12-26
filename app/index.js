@@ -5,6 +5,7 @@ import DailyQuote from '../mobile/src/components/DailyQuote';
 import AuraOrb3D from '../mobile/src/components/AuraOrb3D';
 import LoadingState from '../mobile/src/components/LoadingState';
 import NetworkErrorHandler from '../mobile/src/components/NetworkErrorHandler';
+import DebugInfo from '../mobile/src/components/DebugInfo';
 import { AnimatedFadeIn, AnimatedSlideUp } from '../mobile/src/components/AnimatedView';
 import { useScreenTracking } from '../mobile/src/hooks/useAnalytics';
 import api from '../mobile/src/services/api';
@@ -15,6 +16,7 @@ export default function HomeScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showDebug, setShowDebug] = useState(false);
   
   // Track screen view
   useScreenTracking('Home');
@@ -59,15 +61,23 @@ export default function HomeScreen() {
 
   if (error && loading) {
     return (
-      <NetworkErrorHandler 
-        error={error}
-        onRetry={loadUnreadCount}
-      />
+      <>
+        <NetworkErrorHandler 
+          error={error}
+          onRetry={loadUnreadCount}
+          onShowDebug={() => setShowDebug(true)}
+        />
+        <DebugInfo 
+          visible={showDebug}
+          onClose={() => setShowDebug(false)}
+        />
+      </>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <>
+      <ScrollView style={styles.container}>
       <View style={styles.content}>
         {/* Header Section */}
         <AnimatedFadeIn duration={400}>
@@ -197,10 +207,21 @@ export default function HomeScreen() {
           <View style={styles.footer}>
             <Text style={styles.footerText}>AURA v1.0.0</Text>
             <Text style={styles.footerSubtext}>Made with 💎 in Cyprus</Text>
+            <TouchableOpacity 
+              onPress={() => setShowDebug(true)}
+              style={styles.debugLink}
+            >
+              <Text style={styles.debugLinkText}>🔍 Debug Info</Text>
+            </TouchableOpacity>
           </View>
         </AnimatedFadeIn>
       </View>
     </ScrollView>
+    <DebugInfo 
+      visible={showDebug}
+      onClose={() => setShowDebug(false)}
+    />
+    </>
   );
 }
 
@@ -439,6 +460,15 @@ const styles = StyleSheet.create({
   footerSubtext: {
     fontSize: 12,
     color: '#444',
+  },
+  debugLink: {
+    marginTop: 12,
+    padding: 8,
+  },
+  debugLinkText: {
+    fontSize: 12,
+    color: '#666',
+    textDecorationLine: 'underline',
   },
 });
 

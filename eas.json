@@ -20,7 +20,26 @@
     "production": {
       "distribution": "store",
       "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENVIRONMENT": "production",
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "",
+        "EXPO_PUBLIC_ENABLE_ANALYTICS": "true",
+        "EXPO_PUBLIC_ENABLE_CRASH_REPORTING": "true"
+      },
+      "channel": "production"
+    },
+    "standalone": {
+      "distribution": "internal",
+      "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENVIRONMENT": "production",
+        "NODE_ENV": "production"
       }
     }
   },

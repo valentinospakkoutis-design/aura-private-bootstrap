@@ -38,7 +38,13 @@ const ENVIRONMENTS = {
     cacheTTL: 5 * 60 * 1000,
   },
   production: {
-    apiUrl: 'https://api.aura.com', // Production server
+    // ⚠️ IMPORTANT: Update this with your production API URL
+    // Option 1: Set EXPO_PUBLIC_API_URL in eas.json (recommended)
+    // Option 2: Replace the fallback URL below with your production URL
+    // See: APK_FIX_GUIDE.md for detailed instructions
+    apiUrl: Constants.expoConfig?.extra?.apiUrl || 
+            process.env.EXPO_PUBLIC_API_URL || 
+            'http://192.168.178.97:8000', // ⚠️ TEMPORARY: Local IP - works only on same WiFi
     apiTimeout: 20000,
     enableLogging: false,
     enableCache: true,
@@ -60,23 +66,35 @@ export const config = {
 
 // Smart API URL detection (backward compatible)
 export const getApiBaseUrl = () => {
-  // Use environment config if available
+  // Priority 1: Use environment config from app.config.js
   if (config.apiUrl) {
     return config.apiUrl;
   }
   
-  // Fallback to old logic
-  if (!__DEV__) {
-    return 'https://your-production-url.com';
+  // Priority 2: Check Constants.expoConfig.extra.apiUrl (from app.config.js)
+  const extraApiUrl = Constants.expoConfig?.extra?.apiUrl;
+  if (extraApiUrl) {
+    return extraApiUrl;
   }
   
+  // Priority 3: Production fallback (for standalone builds)
+  if (config.isProduction) {
+    return 'https://api.aura.com'; // Update with your production API URL
+  }
+  
+  // Priority 4: Development fallback
   // Check if running on web (browser)
   if (typeof window !== 'undefined' && window.location) {
     return 'http://localhost:8000';
   }
   
-  // For mobile device, use local IP
-  return 'http://192.168.178.97:8000';
+  // Priority 5: Mobile development (only if in development mode)
+  if (config.isDevelopment) {
+    return 'http://192.168.178.97:8000'; // Local development IP
+  }
+  
+  // Final fallback: Production URL
+  return 'https://api.aura.com';
 };
 
 // Export API base URL
