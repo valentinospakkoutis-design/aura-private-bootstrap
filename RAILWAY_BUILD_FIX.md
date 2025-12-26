@@ -26,7 +26,20 @@ exit code: 127
 - Χρειάζεται `python -m uvicorn` αντί για `uvicorn` απευθείας
 
 **Fix:**
-- Άλλαξα `uvicorn` σε `python -m uvicorn` σε όλα τα `railway.json` files
+- Άλλαξα `uvicorn` σε `python3 -m uvicorn` σε όλα τα `railway.json` files
+
+### **Error 3: python: command not found** ✅ FIXED
+```
+/bin/bash: line 1: python: command not found
+```
+
+**Αιτία:**
+- Στο Railway/Nixpacks, το `python` δεν είναι πάντα διαθέσιμο
+- Χρειάζεται `python3` αντί για `python`
+
+**Fix:**
+- Άλλαξα `python` σε `python3` σε όλα τα `railway.json` files
+- Δημιούργησα `backend/runtime.txt` με Python 3.11.0
 
 ---
 
@@ -38,8 +51,13 @@ exit code: 127
 - Θα εγκαταστήσει dependencies **αυτόματα** με το σωστό pip version
 
 **2. Άλλαξα το `startCommand`:**
-- `uvicorn` → `python -m uvicorn`
+- `uvicorn` → `python3 -m uvicorn`
+- `python` → `python3` (για Railway/Nixpacks compatibility)
 - Αυτό εξασφαλίζει ότι το uvicorn τρέχει με το σωστό Python environment
+
+**3. Δημιούργησα `runtime.txt`:**
+- Ορίζει Python version 3.11.0
+- Βοηθάει το Nixpacks να επιλέξει το σωστό Python version
 
 ---
 
@@ -54,8 +72,8 @@ exit code: 127
     // ✅ Removed buildCommand - Nixpacks auto-detects
   },
   "deploy": {
-    "startCommand": "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT",
-    // ✅ Changed: uvicorn → python -m uvicorn
+    "startCommand": "cd backend && python3 -m uvicorn main:app --host 0.0.0.0 --port $PORT",
+    // ✅ Changed: python → python3, uvicorn → python3 -m uvicorn
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
@@ -70,11 +88,17 @@ exit code: 127
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
-    // ✅ Changed: uvicorn → python -m uvicorn
+    "startCommand": "python3 -m uvicorn main:app --host 0.0.0.0 --port $PORT"
+    // ✅ Changed: python → python3, uvicorn → python3 -m uvicorn
   }
 }
 ```
+
+### **Backend `runtime.txt`** (New)
+```
+python-3.11.0
+```
+// ✅ Specifies Python version for Nixpacks
 
 ---
 
