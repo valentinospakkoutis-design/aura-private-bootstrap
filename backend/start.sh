@@ -112,4 +112,8 @@ if ! $PYTHON_CMD -m uvicorn --help &> /dev/null 2>&1; then
 fi
 
 # Start uvicorn
-exec $PYTHON_CMD -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Railway provides PORT environment variable - use it!
+# If PORT is not set, default to 8000
+RAILWAY_PORT=${PORT:-8000}
+echo "Starting Uvicorn on port: $RAILWAY_PORT"
+exec $PYTHON_CMD -m uvicorn main:app --host 0.0.0.0 --port $RAILWAY_PORT
