@@ -94,6 +94,31 @@ $PYTHON_CMD --version
 echo "Python path: $(which $PYTHON_CMD 2>/dev/null || echo $PYTHON_CMD)"
 echo ""
 
+# Check for virtual environment (Nixpacks creates /opt/venv)
+if [ -d "/opt/venv" ]; then
+    echo "Found virtual environment at /opt/venv"
+    export PATH="/opt/venv/bin:$PATH"
+    if [ -f "/opt/venv/bin/python3" ]; then
+        PYTHON_CMD="/opt/venv/bin/python3"
+        echo "Using Python from venv: $PYTHON_CMD"
+        $PYTHON_CMD --version
+    fi
+fi
+
+# Check if uvicorn is available
+if ! $PYTHON_CMD -m uvicorn --help &> /dev/null 2>&1; then
+    echo "ERROR: uvicorn not found in Python environment"
+    echo "Checking installed packages..."
+    $PYTHON_CMD -m pip list 2>&1 | grep -i uvicorn || echo "uvicorn not in pip list"
+    echo ""
+    echo "Trying to find uvicorn in PATH..."
+    which uvicorn || echo "uvicorn not in PATH"
+    echo ""
+    echo "Checking /opt/venv/bin..."
+    ls -la /opt/venv/bin/ 2>&1 | head -10
+    exit 1
+fi
+
 # Start uvicorn
 exec $PYTHON_CMD -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 
