@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "chmod +x start.sh && ./start.sh"
+    "startCommand": "chmod +x start.sh && bash start.sh"
   }
 }
 
