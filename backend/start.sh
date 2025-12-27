@@ -1,138 +1,115 @@
 #!/bin/bash
 # Startup script for Railway deployment
-# Finds Python and starts uvicorn
+# Auto-detects backend directory and finds Python
 
 set -e  # Exit on error
 
-echo "=== Finding Python ==="
+echo "=== Railway Backend Startup ==="
+echo "Current directory: $(pwd)"
+echo "Listing files:"
+ls -la
+echo ""
 
-# Check for /opt/venv first (Nixpacks virtual environment)
+# Auto-detect backend directory
+if [ ! -f "main.py" ]; then
+    if [ -d "backend" ] && [ -f "backend/main.py" ]; then
+        echo "⚠ Not in backend directory, changing to backend..."
+        cd backend
+        echo "Now in: $(pwd)"
+        echo "Listing backend files:"
+        ls -la
+        echo ""
+    else
+        echo "ERROR: main.py not found in current directory or backend/"
+        echo "Current directory contents:"
+        ls -la
+        exit 1
+    fi
+fi
+
+# Check for Nixpacks virtual environment (created during build)
 if [ -d "/opt/venv" ] && [ -f "/opt/venv/bin/python3" ]; then
     echo "✓ Found Nixpacks virtual environment at /opt/venv"
     export PATH="/opt/venv/bin:$PATH"
     PYTHON_CMD="/opt/venv/bin/python3"
-    echo "Using Python from venv: $PYTHON_CMD"
+    echo "Using Python: $PYTHON_CMD"
     $PYTHON_CMD --version
     echo ""
     echo "=== Starting Uvicorn ==="
     exec $PYTHON_CMD -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
 fi
 
-# Source Nix environment (Nixpacks uses Nix)
+# If /opt/venv not found, try to find Python in Nix store
+echo "⚠ /opt/venv not found, searching for Python..."
+
+# Source Nix environment
 export PATH="/nix/var/nix/profiles/default/bin:$PATH"
 if [ -f /nix/var/nix/profiles/default/etc/profile.d/nix.sh ]; then
     source /nix/var/nix/profiles/default/etc/profile.d/nix.sh
 fi
-if [ -f ~/.nix-profile/etc/profile.d/nix.sh ]; then
-    source ~/.nix-profile/etc/profile.d/nix.sh
-fi
 
-# Add common Nix paths
-export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
-
-echo "PATH: $PATH"
-
-# Try to find Python in Nix store first (Nixpacks)
-# Nixpacks installs Python in /nix/store with pattern like:
-# /nix/store/...-python3-3.11.x/bin/python3
+# Try to find Python in Nix store
 PYTHON_CMD=""
+echo "Searching /nix/store for Python..."
+PYTHON_CANDIDATES=$(find /nix/store -type f -name "python3" -executable 2>/dev/null | head -5)
 
-echo "Searching for Python in /nix/store..."
-# Find python3 in Nix store (most specific)
-PYTHON_CANDIDATES=$(find /nix/store -type f -name "python3" -executable 2>/dev/null | grep -E "python3.*bin/python3$" | head -5)
-echo "Found Python candidates:"
-if [ -z "$PYTHON_CANDIDATES" ]; then
-    echo "(none found)"
-else
-    echo "$PYTHON_CANDIDATES"
+if [ -n "$PYTHON_CANDIDATES" ]; then
+    for candidate in $PYTHON_CANDIDATES; do
+        if $candidate --version &> /dev/null 2>&1; then
+            PYTHON_CMD="$candidate"
+            echo "✓ Found Python: $PYTHON_CMD"
+            $PYTHON_CMD --version
+            break
+        fi
+    done
 fi
 
-# Try each candidate
-for candidate in $PYTHON_CANDIDATES; do
-    if [ -n "$candidate" ] && $candidate --version &> /dev/null 2>&1; then
-        PYTHON_CMD="$candidate"
-        echo "✓ Found working Python: $PYTHON_CMD"
-        break
-    fi
-done
-
-# If not found, try broader search
-if [ -z "$PYTHON_CMD" ]; then
-    echo "Trying broader search..."
-    PYTHON_CMD=$(find /nix/store -type f -name "python3" -executable 2>/dev/null | head -1)
-    if [ -n "$PYTHON_CMD" ] && $PYTHON_CMD --version &> /dev/null 2>&1; then
-        echo "✓ Found Python: $PYTHON_CMD"
-    else
-        PYTHON_CMD=""
-    fi
-fi
-
-# Try standard locations
+# If still not found, try standard locations
 if [ -z "$PYTHON_CMD" ]; then
     echo "Trying standard locations..."
-    if command -v python3 &> /dev/null && python3 --version &> /dev/null 2>&1; then
+    if command -v python3 &> /dev/null; then
         PYTHON_CMD=python3
         echo "✓ Found python3 in PATH"
-    elif command -v python &> /dev/null && python --version &> /dev/null 2>&1; then
+    elif command -v python &> /dev/null; then
         PYTHON_CMD=python
         echo "✓ Found python in PATH"
-    elif [ -x /usr/bin/python3 ] && /usr/bin/python3 --version &> /dev/null 2>&1; then
-        PYTHON_CMD=/usr/bin/python3
-        echo "✓ Found /usr/bin/python3"
-    elif [ -x /usr/local/bin/python3 ] && /usr/local/bin/python3 --version &> /dev/null 2>&1; then
-        PYTHON_CMD=/usr/local/bin/python3
-        echo "✓ Found /usr/local/bin/python3"
     fi
 fi
 
-# If still not found, try uvicorn directly
+# Final check
 if [ -z "$PYTHON_CMD" ] || ! $PYTHON_CMD --version &> /dev/null 2>&1; then
-    echo "Python not found, trying uvicorn directly..."
-    if command -v uvicorn &> /dev/null; then
-        exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
-    else
-        echo "=== ERROR: Python not found ==="
-        echo "PATH: $PATH"
-        echo ""
-        echo "Searching /nix/store for Python..."
-        find /nix/store -name "python*" -type f 2>/dev/null | head -10
-        echo ""
-        echo "Checking if /nix/store exists..."
-        ls -la /nix/store 2>&1 | head -5
-        exit 1
-    fi
+    echo ""
+    echo "=== ERROR: Python not found ==="
+    echo "This usually means Railway's Root Directory is not set to 'backend'"
+    echo ""
+    echo "SOLUTION:"
+    echo "1. Go to Railway Dashboard → Project → Settings"
+    echo "2. Find 'Root Directory' field"
+    echo "3. Enter: backend"
+    echo "4. Click Save"
+    echo "5. Railway will auto-redeploy"
+    echo ""
+    echo "Current PATH: $PATH"
+    echo "Current directory: $(pwd)"
+    exit 1
 fi
 
 echo ""
 echo "=== Starting Uvicorn ==="
 echo "Using Python: $PYTHON_CMD"
 $PYTHON_CMD --version
-echo "Python path: $(which $PYTHON_CMD 2>/dev/null || echo $PYTHON_CMD)"
-echo ""
-
-# Check for virtual environment again (in case we found Python elsewhere)
-if [ -d "/opt/venv" ] && [ -f "/opt/venv/bin/python3" ]; then
-    echo "Found virtual environment at /opt/venv, switching to it"
-    export PATH="/opt/venv/bin:$PATH"
-    PYTHON_CMD="/opt/venv/bin/python3"
-    echo "Using Python from venv: $PYTHON_CMD"
-    $PYTHON_CMD --version
-fi
 
 # Check if uvicorn is available
 if ! $PYTHON_CMD -m uvicorn --help &> /dev/null 2>&1; then
-    echo "ERROR: uvicorn not found in Python environment"
-    echo "Checking installed packages..."
-    $PYTHON_CMD -m pip list 2>&1 | grep -i uvicorn || echo "uvicorn not in pip list"
     echo ""
-    echo "Trying to find uvicorn in PATH..."
-    which uvicorn || echo "uvicorn not in PATH"
+    echo "ERROR: uvicorn not found"
+    echo "This means Python dependencies were not installed"
+    echo "Check that Railway's Root Directory is set to 'backend'"
     echo ""
-    echo "Checking /opt/venv/bin..."
-    ls -la /opt/venv/bin/ 2>&1 | head -10
+    echo "Installed packages:"
+    $PYTHON_CMD -m pip list 2>&1 | head -20
     exit 1
 fi
 
 # Start uvicorn
 exec $PYTHON_CMD -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
-
