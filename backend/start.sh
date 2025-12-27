@@ -41,7 +41,11 @@ echo "Searching for Python in /nix/store..."
 # Find python3 in Nix store (most specific)
 PYTHON_CANDIDATES=$(find /nix/store -type f -name "python3" -executable 2>/dev/null | grep -E "python3.*bin/python3$" | head -5)
 echo "Found Python candidates:"
-echo "$PYTHON_CANDIDATES"
+if [ -z "$PYTHON_CANDIDATES" ]; then
+    echo "(none found)"
+else
+    echo "$PYTHON_CANDIDATES"
+fi
 
 # Try each candidate
 for candidate in $PYTHON_CANDIDATES; do
