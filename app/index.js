@@ -33,21 +33,32 @@ export default function HomeScreen() {
       }
       
       // Load unread notifications count (with delay to avoid blocking startup)
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         loadUnreadCount();
       }, 500); // Small delay to let app render first
       
-      const interval = setInterval(loadUnreadCount, 30000); // Every 30 seconds
-      return () => clearInterval(interval);
+      const interval = setInterval(() => {
+        loadUnreadCount();
+      }, 30000); // Every 30 seconds
+      
+      return () => {
+        clearTimeout(timeoutId);
+        clearInterval(interval);
+      };
     } catch (error) {
       console.error('Error in HomeScreen useEffect:', error);
       // Don't crash - just set default values
       setGreeting('Καλημέρα');
       setLoading(false);
     }
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
   const loadUnreadCount = async () => {
+    // Prevent multiple simultaneous calls
+    if (loading) {
+      return;
+    }
+    
     try {
       setLoading(true);
       setError(null);
@@ -59,12 +70,6 @@ export default function HomeScreen() {
       // Don't crash the app - just set error state
       setError(err);
       setUnreadCount(0); // Default to 0 if error
-      setLoading(false);
-      // Don't show error for background refresh, only for initial load
-      if (loading) {
-        setError(err);
-      }
-    } finally {
       setLoading(false);
     }
   };
