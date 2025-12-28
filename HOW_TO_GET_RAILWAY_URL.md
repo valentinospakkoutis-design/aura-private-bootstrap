@@ -1,146 +1,87 @@
-# 🔗 How to Get Railway URL - Step by Step
+# 🌐 Πώς να Βρεις το Railway URL
 
-## 📋 Step-by-Step Guide
+## 📍 Location 1: Settings → Networking
 
-### **Method 1: From Networking Settings** (Easiest)
-
-1. **Go to Railway Dashboard**
-   - Open: https://railway.app
-   - Login if needed
-
-2. **Select Your Project**
-   - Click on project: `diplomatic-peace` (or your project name)
-   - Or click on service: `aura-private-bootstrap`
-
-3. **Go to Settings**
-   - Click **"Settings"** tab (top navigation)
-
-4. **Go to Networking**
-   - In Settings, click **"Networking"** tab
-
-5. **Find Public Domain**
-   - Look for **"Public Domain"** section
-   - You'll see a URL like:
-     ```
-     https://aura-private-bootstrap-production.up.railway.app
-     ```
-   - Or:
-     ```
-     https://aura-backend.railway.app
-     ```
-
-6. **Copy the URL**
-   - Click the **copy icon** (📋) next to the URL
-   - Or select and copy manually
+1. **Railway Dashboard** → Project → **Settings**
+2. Κάνε click στο **"Networking"** tab (αριστερά)
+3. Βρες το **"Public Domain"** section
+4. Θα δεις το URL, π.χ.:
+   ```
+   aura-private-bootstrap-production.up.railway.app
+   ```
 
 ---
 
-### **Method 2: From Service Overview** (Alternative)
+## 📍 Location 2: Service Overview
 
-1. **Go to Railway Dashboard**
-   - Open: https://railway.app
-
-2. **Select Service**
-   - Click on service: `aura-private-bootstrap`
-
-3. **Check Service Header**
-   - At the top, you might see the URL
-   - Or click **"Settings"** → **"Networking"**
+1. **Railway Dashboard** → Project
+2. Κάνε click στο service **"aura-private-bootstrap"**
+3. Στο **top header**, δίπλα στο όνομα, θα δεις το URL
+4. Ή στο **"Details"** tab, θα δεις το **"Public Domain"**
 
 ---
 
-### **Method 3: From Deployments** (If URL is shown)
+## 📍 Location 3: Deployments Tab
 
-1. **Go to Railway Dashboard**
-   - Open: https://railway.app
-
-2. **Select Service**
-   - Click on service: `aura-private-bootstrap`
-
-3. **Go to Deployments**
-   - Click **"Deployments"** tab
-
-4. **Check Active Deployment**
-   - Look at the **"ACTIVE"** deployment
-   - Sometimes the URL is shown there
+1. **Railway Dashboard** → Project → **Deployments**
+2. Κάνε click στο **latest deployment**
+3. Στο **"Details"** section, θα δεις το **"Public Domain"**
 
 ---
 
-## 🔍 What the URL Looks Like
+## ✅ Το URL που χρειάζεσαι
 
-**Railway URLs typically look like:**
+Το URL θα είναι κάτι σαν:
 ```
 https://aura-private-bootstrap-production.up.railway.app
 ```
 
-**Or with custom domain:**
+**Σημαντικό:** Χρησιμοποίησε το **full URL με `https://`** στο `eas.json`!
+
+---
+
+## 🔧 Πού να το βάλεις
+
+Μετά που θα πάρεις το Railway URL, θα το βάλεις στο:
+
+**File:** `eas.json`
+**Section:** `production` profile
+**Field:** `EXPO_PUBLIC_API_URL`
+
+```json
+{
+  "build": {
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://aura-private-bootstrap-production.up.railway.app"
+      }
+    }
+  }
+}
 ```
-https://aura-backend.railway.app
-```
-
-**Format:**
-- Starts with `https://`
-- Contains your service/project name
-- Ends with `.railway.app` or custom domain
 
 ---
 
-## ⚠️ If You Don't See a URL
+## 🎯 Quick Steps
 
-### **Option 1: Generate Public Domain**
-
-1. **Go to Settings** → **Networking**
-2. **Click "Generate Domain"** button
-3. Railway will create a public URL
-4. Copy the generated URL
-
-### **Option 2: Check if Service is Exposed**
-
-1. **Go to Settings** → **Networking**
-2. **Check "Public" toggle**
-3. Make sure it's **enabled** (green/on)
-4. If disabled, enable it
-5. Railway will generate a URL
+1. ✅ Railway Dashboard → Settings → Networking
+2. ✅ Copy το **Public Domain** URL
+3. ✅ Update το `eas.json` με το URL
+4. ✅ Κάνε rebuild του APK
 
 ---
 
-## 🧪 Test the URL
+## ⚠️ Important
 
-After you get the URL, test it:
-
-1. **Open in browser:**
-   ```
-   https://your-railway-url.railway.app/health
-   ```
-
-2. **Expected response:**
-   ```json
-   {"status": "ok"}
-   ```
-
-3. **If you see this, the URL is correct!** ✅
+- Χρησιμοποίησε **`https://`** (όχι `http://`)
+- Μην βάλεις trailing slash (`/`) στο τέλος
+- Το URL πρέπει να είναι **publicly accessible** (δηλαδή το Railway service να είναι **Online**)
 
 ---
 
-## 📝 Quick Checklist
+## 🆘 Αν Δεν Βλέπεις URL
 
-- [ ] Logged into Railway Dashboard
-- [ ] Selected `aura-private-bootstrap` service
-- [ ] Went to Settings → Networking
-- [ ] Found Public Domain URL
-- [ ] Copied the URL
-- [ ] Tested URL in browser (should return `{"status": "ok"}`)
-
----
-
-## 🎯 Next Steps After Getting URL
-
-1. **Copy the URL**
-2. **Test it** in browser: `https://your-url.railway.app/health`
-3. **Update `eas.json`** with the URL
-4. **Rebuild APK**
-
----
-
-*Made with 💎 in Cyprus*
-
+Αν δεν βλέπεις Public Domain:
+1. Ελέγξε ότι το service είναι **Online** (όχι Crashed)
+2. Ελέγξε το **Networking** tab → μπορεί να χρειάζεται να κάνεις click **"Generate Domain"**
+3. Αν δεν υπάρχει, κάνε click **"Generate Domain"** ή **"Add Domain"**

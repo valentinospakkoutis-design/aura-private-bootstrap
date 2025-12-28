@@ -9,8 +9,13 @@ import { initMonitoring } from '../mobile/src/services/monitoring';
 
 export default function RootLayout() {
   useEffect(() => {
-    // Initialize monitoring on app start
-    initMonitoring();
+    // Initialize monitoring on app start (with error handling)
+    try {
+      initMonitoring();
+    } catch (error) {
+      console.error('Failed to initialize monitoring:', error);
+      // Don't crash the app if monitoring fails
+    }
   }, []);
 
   return (

@@ -22,19 +22,29 @@ export default function HomeScreen() {
   useScreenTracking('Home');
 
   useEffect(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) {
+    try {
+      const hour = new Date().getHours();
+      if (hour < 12) {
+        setGreeting('Καλημέρα');
+      } else if (hour < 18) {
+        setGreeting('Καλό απόγευμα');
+      } else {
+        setGreeting('Καλησπέρα');
+      }
+      
+      // Load unread notifications count (with delay to avoid blocking startup)
+      setTimeout(() => {
+        loadUnreadCount();
+      }, 500); // Small delay to let app render first
+      
+      const interval = setInterval(loadUnreadCount, 30000); // Every 30 seconds
+      return () => clearInterval(interval);
+    } catch (error) {
+      console.error('Error in HomeScreen useEffect:', error);
+      // Don't crash - just set default values
       setGreeting('Καλημέρα');
-    } else if (hour < 18) {
-      setGreeting('Καλό απόγευμα');
-    } else {
-      setGreeting('Καλησπέρα');
+      setLoading(false);
     }
-    
-    // Load unread notifications count
-    loadUnreadCount();
-    const interval = setInterval(loadUnreadCount, 30000); // Every 30 seconds
-    return () => clearInterval(interval);
   }, []);
 
   const loadUnreadCount = async () => {
@@ -43,9 +53,13 @@ export default function HomeScreen() {
       setError(null);
       const data = await api.get('/api/notifications?unread_only=true&limit=1');
       setUnreadCount(data.unread_count || 0);
+      setLoading(false);
     } catch (err) {
       console.error('Error loading unread count:', err);
+      // Don't crash the app - just set error state
       setError(err);
+      setUnreadCount(0); // Default to 0 if error
+      setLoading(false);
       // Don't show error for background refresh, only for initial load
       if (loading) {
         setError(err);
@@ -55,25 +69,14 @@ export default function HomeScreen() {
     }
   };
 
-  if (loading && !unreadCount) {
+  // Don't block app startup - show content even if loading
+  // Only show loading if we're still loading AND have no data
+  if (loading && !unreadCount && !error) {
     return <LoadingState message="Φόρτωση δεδομένων..." />;
   }
 
-  if (error && loading) {
-    return (
-      <>
-        <NetworkErrorHandler 
-          error={error}
-          onRetry={loadUnreadCount}
-          onShowDebug={() => setShowDebug(true)}
-        />
-        <DebugInfo 
-          visible={showDebug}
-          onClose={() => setShowDebug(false)}
-        />
-      </>
-    );
-  }
+  // Show error but don't block the app
+  // The app should still render even if there's an error
 
   return (
     <>
