@@ -14,12 +14,16 @@ export default function HomeScreen() {
   const router = useRouter();
   const [greeting, setGreeting] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false - don't block render
   const [error, setError] = useState(null);
   const [showDebug, setShowDebug] = useState(false);
   
-  // Track screen view
-  useScreenTracking('Home');
+  // Track screen view (with error handling)
+  try {
+    useScreenTracking('Home');
+  } catch (err) {
+    console.error('Error in useScreenTracking:', err);
+  }
 
   useEffect(() => {
     try {
@@ -35,7 +39,7 @@ export default function HomeScreen() {
       // Load unread notifications count (with delay to avoid blocking startup)
       const timeoutId = setTimeout(() => {
         loadUnreadCount();
-      }, 500); // Small delay to let app render first
+      }, 1000); // Longer delay to let app render first
       
       const interval = setInterval(() => {
         loadUnreadCount();
@@ -74,14 +78,8 @@ export default function HomeScreen() {
     }
   };
 
-  // Don't block app startup - show content even if loading
-  // Only show loading if we're still loading AND have no data
-  if (loading && !unreadCount && !error) {
-    return <LoadingState message="Φόρτωση δεδομένων..." />;
-  }
-
-  // Show error but don't block the app
-  // The app should still render even if there's an error
+  // Always render - never block the app
+  // Show loading indicator but don't prevent render
 
   return (
     <>
