@@ -42,9 +42,9 @@ export class NumberFormatter {
   }
 
   // Add + or - prefix for profit/loss
-  static toProfitLoss(amount: number, decimals: number = 2): string {
+  static toProfitLoss(amount: number): string {
     const prefix = amount >= 0 ? '+' : '';
-    return `${prefix}${amount.toFixed(decimals)}`;
+    return `${prefix}${this.toCurrency(amount)}`;
   }
 
   // Format percentage with + or - prefix
@@ -57,6 +57,21 @@ export class NumberFormatter {
   static toProfitLossCurrency(amount: number, currency: string = 'USD'): string {
     const prefix = amount >= 0 ? '+' : '';
     return `${prefix}${this.toCurrency(Math.abs(amount), currency)}`;
+  }
+
+  // Clamp number between min and max
+  static clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  // Round to specific decimal places
+  static round(value: number, decimals: number = 2): number {
+    return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  }
+
+  // Check if number is valid
+  static isValid(value: any): boolean {
+    return typeof value === 'number' && !isNaN(value) && isFinite(value);
   }
 }
 
