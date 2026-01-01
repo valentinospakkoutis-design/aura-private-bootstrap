@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import DailyQuote from '../mobile/src/components/DailyQuote';
-import AuraOrb3D from '../mobile/src/components/AuraOrb3D';
+import AuraOrb from '../mobile/src/components/AuraOrb';
 import LoadingState from '../mobile/src/components/LoadingState';
 import NetworkErrorHandler from '../mobile/src/components/NetworkErrorHandler';
 import DebugInfo from '../mobile/src/components/DebugInfo';
@@ -106,11 +106,13 @@ export default function HomeScreen() {
           </View>
           
           {/* 3D Orb */}
-          <AuraOrb3D 
-            size={200} 
-            color="#4CAF50" 
-            speed={0.5}
+          <AuraOrb 
+            state="calm"
+            showParticles={true}
+            showStars={true}
+            size={200}
             style={{ marginVertical: 20 }}
+            onTouch={() => router.push('/ai-predictions')}
           />
           
             <Text style={styles.title}>AURA</Text>
