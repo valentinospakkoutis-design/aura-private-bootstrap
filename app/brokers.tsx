@@ -177,19 +177,23 @@ export default function BrokersScreen() {
   const handleDisconnectBroker = useCallback((broker: any) => {
     showModal(
       'Αποσύνδεση Broker',
-      `Είσαι σίγουρος ότι θέλεις να αποσυνδέσεις τον ${broker.name};`,
+      `Είσαι σίγουρος ότι θέλεις να αποσυνδέσεις το ${broker.name};`,
       async () => {
         try {
+          // Delete from API
           await api.disconnectBroker(broker.id);
-          
-          // Clean up stored credentials
+
+          // Delete stored credentials
           await SecureStore.deleteItemAsync(`${broker.id}_api_key`).catch(() => {});
           await SecureStore.deleteItemAsync(`${broker.id}_api_secret`).catch(() => {});
 
+          // Remove from store
           removeBroker(broker.id);
+
           showToast(`${broker.name} αποσυνδέθηκε`, 'success');
           await loadBrokers();
         } catch (err) {
+          console.error('Failed to disconnect broker:', err);
           showToast('Αποτυχία αποσύνδεσης', 'error');
         }
       }
@@ -211,128 +215,154 @@ export default function BrokersScreen() {
     return <LoadingSpinner fullScreen message="Φόρτωση brokers..." />;
   }
 
-  const brokersWithStatus = getBrokersWithStatus();
-  const hasConnectedBrokers = brokersWithStatus.some(b => b.connected);
-
-  if (!hasConnectedBrokers && brokersWithStatus.length === 0) {
-    return <NoBrokerConnected />;
-  }
+  const connectedBrokers = brokers.filter((b) => b.connected);
+  const hasConnectedBrokers = connectedBrokers.length > 0;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Info Card */}
-      <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>🔌 Σύνδεση Brokers</Text>
-        <Text style={styles.infoText}>
-          Σύνδεσε τους brokers σου για να επιτρέψεις στο AURA να εκτελεί trades. Τα API keys σου αποθηκεύονται ασφαλώς.
-        </Text>
+      {/* Connected Brokers */}
+      {hasConnectedBrokers && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>✅ Συνδεδεμένα Brokers</Text>
+          {connectedBrokers.map((broker) => (
+            <View key={broker.id} style={styles.brokerCard}>
+              <View style={styles.brokerHeader}>
+                <View style={styles.brokerInfo}>
+                  <Text style={styles.brokerLogo}>
+                    {AVAILABLE_BROKERS.find((b) => b.id === broker.id)?.logo || '🔷'}
+                  </Text>
+                  <View style={styles.brokerDetails}>
+                    <Text style={styles.brokerName}>{broker.name}</Text>
+                    <Text style={styles.brokerStatus}>🟢 Συνδεδεμένο</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.disconnectButton}
+                  onPress={() => handleDisconnectBroker(broker)}
+                >
+                  <Text style={styles.disconnectText}>Αποσύνδεση</Text>
+                </TouchableOpacity>
+              </View>
+              {broker.apiKey && (
+                <Text style={styles.apiKeyPreview}>API Key: {broker.apiKey}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Available Brokers */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📋 Διαθέσιμα Brokers</Text>
+        {AVAILABLE_BROKERS.map((broker) => {
+          const isConnected = brokers.some((b) => b.id === broker.id && b.connected);
+          
+          return (
+            <TouchableOpacity
+              key={broker.id}
+              style={[
+                styles.brokerCard,
+                !broker.supported && styles.brokerCardDisabled,
+                isConnected && styles.brokerCardConnected,
+              ]}
+              onPress={() => !isConnected && handleOpenConnectModal(broker)}
+              disabled={isConnected || !broker.supported}
+              activeOpacity={0.7}
+            >
+              <View style={styles.brokerHeader}>
+                <View style={styles.brokerInfo}>
+                  <Text style={styles.brokerLogo}>{broker.logo}</Text>
+                  <View style={styles.brokerDetails}>
+                    <Text style={styles.brokerName}>{broker.name}</Text>
+                    <Text style={styles.brokerDescription}>{broker.description}</Text>
+                  </View>
+                </View>
+                {isConnected ? (
+                  <View style={styles.connectedBadge}>
+                    <Text style={styles.connectedText}>✓</Text>
+                  </View>
+                ) : broker.supported ? (
+                  <Text style={styles.arrow}>→</Text>
+                ) : (
+                  <View style={styles.comingSoonBadge}>
+                    <Text style={styles.comingSoonText}>Σύντομα</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      {/* Brokers List */}
-      <Text style={styles.sectionTitle}>Διαθέσιμοι Brokers</Text>
-      {brokersWithStatus.map((broker) => (
-        <View key={broker.id} style={styles.brokerCard}>
-          <View style={styles.brokerHeader}>
-            <View style={styles.brokerInfo}>
-              <Text style={styles.brokerLogo}>{broker.logo}</Text>
-              <View style={styles.brokerDetails}>
-                <Text style={styles.brokerName}>{broker.name}</Text>
-                <Text style={styles.brokerDescription}>{broker.description}</Text>
-              </View>
-            </View>
-            {broker.connected ? (
-              <View style={styles.connectedBadge}>
-                <Text style={styles.connectedText}>✓ Συνδεδεμένο</Text>
-              </View>
-            ) : (
-              <View style={styles.notSupportedBadge}>
-                <Text style={styles.notSupportedText}>
-                  {broker.supported ? 'Διαθέσιμο' : 'Σύντομα'}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.brokerActions}>
-            {broker.connected ? (
-              <Button
-                title="Αποσύνδεση"
-                onPress={() => handleDisconnectBroker(broker)}
-                variant="danger"
-                size="medium"
-                fullWidth
-              />
-            ) : (
-              <Button
-                title={broker.supported ? "Σύνδεση" : "Σύντομα"}
-                onPress={() => handleOpenConnectModal(broker)}
-                variant="primary"
-                size="medium"
-                fullWidth
-                disabled={!broker.supported}
-              />
-            )}
-          </View>
-        </View>
-      ))}
+      {/* Info Card */}
+      <View style={styles.infoCard}>
+        <Text style={styles.infoTitle}>🔒 Ασφάλεια</Text>
+        <Text style={styles.infoText}>
+          • Τα API credentials αποθηκεύονται με κρυπτογράφηση{'\n'}
+          • Δεν αποθηκεύουμε ποτέ τους κωδικούς σου{'\n'}
+          • Χρησιμοποιούμε μόνο read-only permissions όπου είναι δυνατόν{'\n'}
+          • Μπορείς να αποσυνδέσεις ανά πάσα στιγμή
+        </Text>
+      </View>
 
       {/* Connect Modal */}
       <Modal
         visible={showConnectModal}
-        title={`Σύνδεση ${selectedBroker?.name}`}
+        title={`Σύνδεση με ${selectedBroker?.name}`}
         onClose={handleCloseConnectModal}
       >
         <View style={styles.modalContent}>
           <Text style={styles.modalDescription}>
-            Εισάγετε τα API credentials σας. Θα αποθηκευτούν ασφαλώς στο device σας.
+            Για να συνδέσεις το {selectedBroker?.name}, χρειάζεσαι τα API credentials από το broker σου.
           </Text>
 
+          {/* API Key Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>API Key</Text>
+            <Text style={styles.inputLabel}>API Key *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter API Key"
-              placeholderTextColor={theme.colors.text.tertiary}
               value={apiKey}
               onChangeText={setApiKey}
+              placeholder="Εισήγαγε το API Key"
+              placeholderTextColor={theme.colors.text.secondary}
               autoCapitalize="none"
               autoCorrect={false}
-              secureTextEntry={false}
+              secureTextEntry
             />
           </View>
 
+          {/* API Secret Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>API Secret</Text>
+            <Text style={styles.inputLabel}>API Secret *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter API Secret"
-              placeholderTextColor={theme.colors.text.tertiary}
               value={apiSecret}
               onChangeText={setApiSecret}
+              placeholder="Εισήγαγε το API Secret"
+              placeholderTextColor={theme.colors.text.secondary}
               autoCapitalize="none"
               autoCorrect={false}
-              secureTextEntry={true}
+              secureTextEntry
             />
           </View>
 
-          <View style={styles.modalActions}>
-            <Button
-              title="Ακύρωση"
-              onPress={handleCloseConnectModal}
-              variant="ghost"
-              size="medium"
-              style={styles.modalButton}
-            />
-            <Button
-              title="Σύνδεση"
-              onPress={handleConnectBroker}
-              variant="primary"
-              size="medium"
-              fullWidth
-              loading={isConnecting || connecting}
-              disabled={isConnecting || connecting}
-            />
+          {/* Warning */}
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>
+              ⚠️ Βεβαιώσου ότι το API Key έχει μόνο trading permissions (όχι withdrawal).
+            </Text>
           </View>
+
+          {/* Connect Button */}
+          <Button
+            title="Σύνδεση"
+            onPress={handleConnectBroker}
+            variant="primary"
+            size="large"
+            fullWidth
+            loading={isConnecting}
+            disabled={isConnecting || !apiKey.trim() || !apiSecret.trim()}
+          />
         </View>
       </Modal>
     </ScrollView>
@@ -346,25 +376,10 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: theme.spacing.md,
+    paddingBottom: theme.spacing.xl * 2,
   },
-  infoCard: {
-    backgroundColor: theme.colors.brand.primary + '10',
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.brand.primary + '30',
-  },
-  infoTitle: {
-    fontSize: theme.typography.sizes.lg,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.sm,
-  },
-  infoText: {
-    fontSize: theme.typography.sizes.md,
-    color: theme.colors.text.secondary,
-    lineHeight: 22,
+  section: {
+    marginBottom: theme.spacing.xl,
   },
   sectionTitle: {
     fontSize: theme.typography.sizes.lg,
@@ -383,11 +398,17 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  brokerCardDisabled: {
+    opacity: 0.6,
+  },
+  brokerCardConnected: {
+    borderWidth: 2,
+    borderColor: theme.colors.semantic.success,
+  },
   brokerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: theme.spacing.md,
+    alignItems: 'center',
   },
   brokerInfo: {
     flexDirection: 'row',
@@ -395,7 +416,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   brokerLogo: {
-    fontSize: 32,
+    fontSize: 40,
     marginRight: theme.spacing.md,
   },
   brokerDetails: {
@@ -411,39 +432,85 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
   },
-  connectedBadge: {
-    backgroundColor: theme.colors.semantic.success + '20',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.medium,
-  },
-  connectedText: {
+  brokerStatus: {
     fontSize: theme.typography.sizes.sm,
-    fontWeight: '600',
     color: theme.colors.semantic.success,
+    fontWeight: '600',
   },
-  notSupportedBadge: {
-    backgroundColor: theme.colors.ui.border,
+  apiKeyPreview: {
+    fontSize: theme.typography.sizes.sm,
+    fontFamily: theme.typography.fontFamily.mono,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.ui.border,
+  },
+  disconnectButton: {
+    backgroundColor: theme.colors.semantic.error + '20',
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
+    paddingVertical: theme.spacing.sm,
     borderRadius: theme.borderRadius.medium,
   },
-  notSupportedText: {
+  disconnectText: {
     fontSize: theme.typography.sizes.sm,
     fontWeight: '600',
+    color: theme.colors.semantic.error,
+  },
+  arrow: {
+    fontSize: 18,
     color: theme.colors.text.secondary,
   },
-  brokerActions: {
-    marginTop: theme.spacing.sm,
+  connectedBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.semantic.success,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  connectedText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  comingSoonBadge: {
+    backgroundColor: theme.colors.ui.border,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.small,
+  },
+  comingSoonText: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.secondary,
+    fontWeight: '600',
+  },
+  infoCard: {
+    backgroundColor: theme.colors.brand.primary + '10',
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.brand.primary + '30',
+  },
+  infoTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.sm,
+  },
+  infoText: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.text.secondary,
+    lineHeight: 22,
   },
   modalContent: {
-    gap: theme.spacing.md,
+    marginTop: theme.spacing.md,
   },
   modalDescription: {
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.secondary,
     lineHeight: 22,
-    marginBottom: theme.spacing.sm,
+    marginBottom: theme.spacing.lg,
   },
   inputContainer: {
     marginBottom: theme.spacing.md,
@@ -456,20 +523,26 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: theme.colors.ui.background,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
     borderRadius: theme.borderRadius.medium,
     padding: theme.spacing.md,
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.primary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  warningBox: {
+    backgroundColor: theme.colors.semantic.warning + '20',
     borderWidth: 1,
-    borderColor: theme.colors.ui.border,
+    borderColor: theme.colors.semantic.warning,
+    borderRadius: theme.borderRadius.medium,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
-  modalActions: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.md,
-  },
-  modalButton: {
-    flex: 1,
+  warningText: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.semantic.warning,
+    lineHeight: 20,
   },
 });
 
