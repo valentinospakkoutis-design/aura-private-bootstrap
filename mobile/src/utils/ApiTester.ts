@@ -1,10 +1,11 @@
 import { api } from '../services/apiClient';
+import { getApiBaseUrl } from '../config/environment';
 
 export class ApiTester {
   static async testConnection(): Promise<boolean> {
     try {
-      // Test basic connectivity - get baseURL from axios instance
-      const baseURL = (api as any).client?.defaults?.baseURL || 'http://localhost:8000';
+      // Test basic connectivity - use getApiBaseUrl() to get the base URL
+      const baseURL = getApiBaseUrl();
       const response = await fetch(`${baseURL}/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
