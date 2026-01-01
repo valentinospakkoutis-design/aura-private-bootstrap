@@ -14,6 +14,11 @@ export const theme = {
       warning: '#FFA726',
       info: '#2196F3',
     },
+    market: {
+      bullish: '#00FF88',
+      bearish: '#FF3366',
+      neutral: '#999999',
+    },
     ui: {
       background: '#0f0f0f',
       surface: '#1a1a1a',
