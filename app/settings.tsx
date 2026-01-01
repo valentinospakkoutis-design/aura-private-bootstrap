@@ -281,8 +281,8 @@ export default function SettingsScreen() {
 
         <View style={styles.settingItem}>
           <View style={styles.settingLeft}>
-            <Text style={styles.settingLabel}>Biometrics</Text>
-            <Text style={styles.settingDescription}>Χρήση Face ID / Touch ID για login</Text>
+            <Text style={styles.settingLabel}>Biometric Login</Text>
+            <Text style={styles.settingDescription}>Face ID / Touch ID</Text>
           </View>
           <Switch
             value={biometricsEnabled}
@@ -294,29 +294,27 @@ export default function SettingsScreen() {
             thumbColor="#FFFFFF"
           />
         </View>
+
+        <TouchableOpacity 
+          style={styles.settingItem}
+          onPress={() => router.push('/change-password')}
+        >
+          <View style={styles.settingLeft}>
+            <Text style={styles.settingLabel}>Αλλαγή Κωδικού</Text>
+          </View>
+          <Text style={styles.arrow}>→</Text>
+        </TouchableOpacity>
       </View>
 
       {/* About */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>ℹ️ Σχετικά</Text>
-
-        <TouchableOpacity 
-          style={styles.settingItem}
-          onPress={() => router.push('/help')}
-        >
-          <View style={styles.settingLeft}>
-            <Text style={styles.settingLabel}>Βοήθεια & Υποστήριξη</Text>
-          </View>
-          <Text style={styles.arrow}>→</Text>
-        </TouchableOpacity>
+        <Text style={styles.sectionTitle}>ℹ️ Πληροφορίες</Text>
 
         <TouchableOpacity 
           style={styles.settingItem}
           onPress={() => router.push('/terms')}
         >
-          <View style={styles.settingLeft}>
-            <Text style={styles.settingLabel}>Όροι Χρήσης</Text>
-          </View>
+          <Text style={styles.settingLabel}>Όροι Χρήσης</Text>
           <Text style={styles.arrow}>→</Text>
         </TouchableOpacity>
 
@@ -324,23 +322,27 @@ export default function SettingsScreen() {
           style={styles.settingItem}
           onPress={() => router.push('/privacy')}
         >
-          <View style={styles.settingLeft}>
-            <Text style={styles.settingLabel}>Πολιτική Απορρήτου</Text>
-          </View>
+          <Text style={styles.settingLabel}>Πολιτική Απορρήτου</Text>
+          <Text style={styles.arrow}>→</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.settingItem}
+          onPress={() => router.push('/help')}
+        >
+          <Text style={styles.settingLabel}>Βοήθεια & Support</Text>
           <Text style={styles.arrow}>→</Text>
         </TouchableOpacity>
 
         <View style={styles.settingItem}>
-          <View style={styles.settingLeft}>
-            <Text style={styles.settingLabel}>Έκδοση</Text>
-            <Text style={styles.settingValue}>v1.0.0</Text>
-          </View>
+          <Text style={styles.settingLabel}>Έκδοση</Text>
+          <Text style={styles.settingValue}>1.0.0 (Beta)</Text>
         </View>
       </View>
 
       {/* Danger Zone */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>⚠️ Ζώνη Κινδύνου</Text>
+      <View style={styles.dangerSection}>
+        <Text style={styles.dangerTitle}>⚠️ Danger Zone</Text>
 
         <Button
           title="Αποσύνδεση"
@@ -357,7 +359,6 @@ export default function SettingsScreen() {
           variant="danger"
           size="medium"
           fullWidth
-          style={styles.dangerButton}
         />
       </View>
 
@@ -365,30 +366,50 @@ export default function SettingsScreen() {
       <Modal
         visible={showRiskModal}
         title="Επιλογή Risk Profile"
-        message="Επίλεξε το risk profile που ταιριάζει καλύτερα με την προτίμησή σου:"
         onClose={() => setShowRiskModal(false)}
       >
         <View style={styles.riskOptions}>
-          {(['conservative', 'moderate', 'aggressive'] as RiskProfile[]).map((profile) => (
-            <TouchableOpacity
-              key={profile}
-              style={[
-                styles.riskOption,
-                selectedRiskProfile === profile && styles.riskOptionSelected
-              ]}
-              onPress={() => handleUpdateRiskProfile(profile)}
-            >
-              <Text style={[
-                styles.riskOptionTitle,
-                selectedRiskProfile === profile && styles.riskOptionTitleSelected
-              ]}>
-                {profile.charAt(0).toUpperCase() + profile.slice(1)}
-              </Text>
-              <Text style={styles.riskOptionDescription}>
-                {getRiskProfileDescription(profile)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={[
+              styles.riskOption,
+              selectedRiskProfile === 'conservative' && styles.riskOptionSelected,
+            ]}
+            onPress={() => handleUpdateRiskProfile('conservative')}
+            disabled={updatingRisk}
+          >
+            <Text style={styles.riskOptionTitle}>🛡️ Conservative</Text>
+            <Text style={styles.riskOptionDescription}>
+              Χαμηλός κίνδυνος, σταθερά κέρδη. Ιδανικό για αρχάριους.
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.riskOption,
+              selectedRiskProfile === 'moderate' && styles.riskOptionSelected,
+            ]}
+            onPress={() => handleUpdateRiskProfile('moderate')}
+            disabled={updatingRisk}
+          >
+            <Text style={styles.riskOptionTitle}>⚖️ Moderate</Text>
+            <Text style={styles.riskOptionDescription}>
+              Ισορροπημένος κίνδυνος/απόδοση. Συνιστάται για τους περισσότερους.
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.riskOption,
+              selectedRiskProfile === 'aggressive' && styles.riskOptionSelected,
+            ]}
+            onPress={() => handleUpdateRiskProfile('aggressive')}
+            disabled={updatingRisk}
+          >
+            <Text style={styles.riskOptionTitle}>🚀 Aggressive</Text>
+            <Text style={styles.riskOptionDescription}>
+              Υψηλός κίνδυνος, μεγάλα κέρδη. Μόνο για έμπειρους traders.
+            </Text>
+          </TouchableOpacity>
         </View>
       </Modal>
     </ScrollView>
@@ -402,6 +423,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: theme.spacing.md,
+    paddingBottom: theme.spacing.xl * 2,
   },
   section: {
     marginBottom: theme.spacing.xl,
@@ -417,12 +439,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.medium,
-    padding: theme.spacing.md,
+    padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.large,
     marginBottom: theme.spacing.sm,
   },
   settingLeft: {
     flex: 1,
+    marginRight: theme.spacing.md,
   },
   settingLabel: {
     fontSize: theme.typography.sizes.md,
@@ -440,39 +463,51 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.xs,
   },
   arrow: {
-    fontSize: theme.typography.sizes.lg,
+    fontSize: 18,
     color: theme.colors.text.secondary,
-    marginLeft: theme.spacing.sm,
+  },
+  dangerSection: {
+    marginTop: theme.spacing.xl,
+    padding: theme.spacing.lg,
+    backgroundColor: theme.colors.semantic.error + '10',
+    borderRadius: theme.borderRadius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.semantic.error + '30',
+  },
+  dangerTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '700',
+    color: theme.colors.semantic.error,
+    marginBottom: theme.spacing.md,
   },
   dangerButton: {
     marginBottom: theme.spacing.sm,
   },
   riskOptions: {
-    gap: theme.spacing.sm,
+    gap: theme.spacing.md,
+    marginTop: theme.spacing.md,
   },
   riskOption: {
-    backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.medium,
-    padding: theme.spacing.md,
+    padding: theme.spacing.lg,
+    backgroundColor: theme.colors.ui.background,
+    borderRadius: theme.borderRadius.large,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: theme.colors.ui.border,
   },
   riskOptionSelected: {
     borderColor: theme.colors.brand.primary,
     backgroundColor: theme.colors.brand.primary + '10',
   },
   riskOptionTitle: {
-    fontSize: theme.typography.sizes.md,
-    fontWeight: '600',
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.xs,
-  },
-  riskOptionTitleSelected: {
-    color: theme.colors.brand.primary,
   },
   riskOptionDescription: {
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
+    lineHeight: 20,
   },
 });
 
