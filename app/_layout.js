@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
 import OfflineBanner from '../mobile/src/components/OfflineBanner';
 import { ThemeProvider } from '../mobile/src/context/ThemeContext';
+import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
 import { initMonitoring } from '../mobile/src/services/monitoring';
 
 export default function RootLayout() {
@@ -20,10 +21,11 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <ErrorBoundary>
-        <View style={{ flex: 1 }}>
-          <OfflineBanner />
-          <Stack
+      <GlobalProvider>
+        <ErrorBoundary>
+          <View style={{ flex: 1 }}>
+            <OfflineBanner />
+            <Stack
         screenOptions={{
           headerStyle: {
             backgroundColor: '#1a1a1a',
@@ -132,6 +134,7 @@ export default function RootLayout() {
           <StatusBar style="light" />
         </View>
       </ErrorBoundary>
+      </GlobalProvider>
     </ThemeProvider>
   );
 }
