@@ -106,14 +106,14 @@ export default function HomeScreen() {
           </View>
           
           {/* 3D Orb */}
-          <AuraOrb 
-            state="calm"
-            showParticles={true}
-            showStars={true}
-            size={200}
-            style={{ marginVertical: 20 }}
-            onTouch={() => router.push('/ai-predictions')}
-          />
+          <View style={{ marginVertical: 20, height: 200, width: '100%' }}>
+            <AuraOrb 
+              state="calm"
+              showParticles={true}
+              showStars={true}
+              onTouch={() => router.push('/ai-predictions')}
+            />
+          </View>
           
             <Text style={styles.title}>AURA</Text>
             <Text style={styles.subtitle}>Το χρηματοοικονομικό σου ον</Text>

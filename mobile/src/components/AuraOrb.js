@@ -48,7 +48,7 @@ const ORB_STATES = {
 // Animated Orb Core
 function AnimatedOrb({ state = 'calm', onTouch }) {
   const meshRef = useRef();
-  const config = ORB_STATES[state] || ORB_STATES.calm;
+  const config = ORB_STATES[state];
 
   useFrame(({ clock }) => {
     if (meshRef.current) {
@@ -63,11 +63,7 @@ function AnimatedOrb({ state = 'calm', onTouch }) {
   });
 
   const handlePress = () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (error) {
-      console.warn('Haptics not available:', error);
-    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onTouch?.();
   };
 
@@ -122,14 +118,12 @@ export default function AuraOrb({
   state = 'calm', 
   showParticles = true,
   showStars = true,
-  onTouch,
-  size = width,
-  style
+  onTouch 
 }) {
-  const config = ORB_STATES[state] || ORB_STATES.calm;
+  const config = ORB_STATES[state];
 
   return (
-    <View style={[styles.container, { width: size, height: size }, style]}>
+    <View style={styles.container}>
       <Canvas
         camera={{ position: [0, 0, 3], fov: 75 }}
         gl={{ alpha: true, antialias: true }}
@@ -158,9 +152,8 @@ export default function AuraOrb({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: width,
+    height: height * 0.5,
+    backgroundColor: 'transparent'
   }
 });
-
