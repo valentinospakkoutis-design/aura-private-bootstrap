@@ -6,11 +6,9 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
 export default function OfflineBanner() {
-  const { isOnline, isChecking, checkConnection } = useNetworkStatus({
-    checkInterval: 3000
-  });
+  const { isOnline } = useNetworkStatus();
 
-  if (isOnline || isChecking) {
+  if (isOnline) {
     return null;
   }
 
@@ -19,7 +17,10 @@ export default function OfflineBanner() {
       <Text style={styles.text}>📡 Χωρίς σύνδεση στο διαδίκτυο</Text>
       <TouchableOpacity
         style={styles.button}
-        onPress={checkConnection}
+        onPress={() => {
+          // Network status will update automatically via NetInfo listener
+          // No need for manual refresh
+        }}
       >
         <Text style={styles.buttonText}>Ελέγξτε ξανά</Text>
       </TouchableOpacity>
