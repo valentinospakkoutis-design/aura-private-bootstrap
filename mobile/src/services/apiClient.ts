@@ -74,8 +74,9 @@ class ApiClient {
   async logout() {
     try {
       await SecureStore.deleteItemAsync('auth_token');
+      logger.info('User logged out');
     } catch (error) {
-      console.warn('Error deleting auth token:', error);
+      logger.warn('Error deleting auth token:', error);
     }
   }
 
