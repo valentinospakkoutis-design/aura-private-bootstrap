@@ -140,6 +140,13 @@ export default function RootLayout() {
                 headerShown: false,
               }} 
             />
+            <Stack.Screen 
+              name="dev-test" 
+              options={{ 
+                title: '🧪 Dev Test',
+                headerBackTitle: 'Πίσω',
+              }} 
+            />
           </Stack>
         </GlobalProvider>
       </ErrorBoundary>
