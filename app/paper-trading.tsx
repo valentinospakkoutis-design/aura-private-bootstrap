@@ -384,12 +384,12 @@ const styles = StyleSheet.create({
   },
   tradeBadge: {
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.medium,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.large,
   },
   tradeAction: {
     fontSize: theme.typography.sizes.sm,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   tradeBody: {
     marginBottom: theme.spacing.md,
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   priceLabel: {
-    fontSize: theme.typography.sizes.sm,
+    fontSize: theme.typography.sizes.md,
     color: theme.colors.text.secondary,
   },
   priceValue: {
@@ -411,10 +411,10 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
   },
   profitContainer: {
+    backgroundColor: theme.colors.ui.background,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.medium,
     marginBottom: theme.spacing.md,
-    paddingTop: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.ui.border,
   },
   profitRow: {
     flexDirection: 'row',
@@ -422,41 +422,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   profitLabel: {
-    fontSize: theme.typography.sizes.sm,
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '600',
     color: theme.colors.text.secondary,
   },
   profitValue: {
-    fontSize: theme.typography.sizes.md,
+    fontSize: theme.typography.sizes.lg,
     fontFamily: theme.typography.fontFamily.mono,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   statusContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.ui.border,
   },
   statusBadge: {
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.small,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.large,
   },
   statusText: {
-    fontSize: theme.typography.sizes.xs,
+    fontSize: theme.typography.sizes.sm,
     fontWeight: '600',
   },
   closeButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.medium,
     backgroundColor: theme.colors.semantic.error + '20',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.medium,
   },
   closeButtonText: {
     fontSize: theme.typography.sizes.sm,
-    color: theme.colors.semantic.error,
     fontWeight: '600',
+    color: theme.colors.semantic.error,
   },
   bottomPadding: {
     height: theme.spacing.xl,
