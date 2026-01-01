@@ -36,6 +36,7 @@ export const theme = {
     fontFamily: {
       primary: 'System',
       secondary: 'System',
+      mono: 'monospace',
     },
     sizes: {
       xs: 10,
