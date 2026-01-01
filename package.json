@@ -24,6 +24,7 @@
     "@react-three/drei": "^9.114.3",
     "@react-three/fiber": "^8.17.10",
     "@tamagui/core": "^1.112.23",
+    "axios": "^1.13.2",
     "expo": "~52.0.48",
     "expo-av": "~15.0.1",
     "expo-blur": "~14.0.3",
@@ -43,11 +44,13 @@
     "react-native-safe-area-context": "^4.12.0",
     "react-native-screens": "~4.4.0",
     "react-native-web": "~0.19.13",
-    "three": "^0.169.0"
+    "three": "^0.169.0",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@types/react": "~18.3.12",
+    "@types/react-native": "^0.72.8",
     "@types/three": "^0.169.0"
   },
   "expo": {
