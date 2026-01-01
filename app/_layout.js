@@ -1,15 +1,14 @@
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
+import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
+import { ThemeProvider } from '../mobile/src/context/ThemeContext';
+import OfflineBanner from '../mobile/src/components/OfflineBanner';
 import { StatusBar } from 'expo-status-bar';
 import { theme } from '../mobile/src/constants/theme';
-import { ThemeProvider } from '../mobile/src/context/ThemeContext';
-import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
-import OfflineBanner from '../mobile/src/components/OfflineBanner';
 import { initMonitoring } from '../mobile/src/services/monitoring';
 import * as SplashScreen from 'expo-splash-screen';
 
-// Prevent auto-hide splash screen
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -30,8 +29,8 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <GlobalProvider>
-        <ErrorBoundary>
+      <ErrorBoundary>
+        <GlobalProvider>
           <OfflineBanner />
           <StatusBar style="light" />
           <Stack
@@ -142,8 +141,8 @@ export default function RootLayout() {
               }} 
             />
           </Stack>
-        </ErrorBoundary>
-      </GlobalProvider>
+        </GlobalProvider>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }
