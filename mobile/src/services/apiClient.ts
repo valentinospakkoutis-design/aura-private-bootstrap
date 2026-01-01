@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { getApiBaseUrl } from '../config/environment';
+import { logger } from '../utils/Logger';
 
 // Base URL - uses environment configuration
 const BASE_URL = getApiBaseUrl();
@@ -17,7 +18,7 @@ class ApiClient {
       },
     });
 
-    // Request interceptor - add auth token
+    // Request interceptor - add auth token + logging
     this.client.interceptors.request.use(
       async (config) => {
         try {
@@ -25,24 +26,35 @@ class ApiClient {
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
           }
+          
+          // Log API call
+          logger.api(config.method?.toUpperCase() || 'GET', config.url || '', config.data);
         } catch (error) {
-          console.warn('Error getting auth token:', error);
+          logger.error('Request interceptor error:', error);
         }
         return config;
       },
-      (error) => Promise.reject(error)
+      (error) => {
+        logger.error('Request interceptor error:', error);
+        return Promise.reject(error);
+      }
     );
 
-    // Response interceptor - handle errors
+    // Response interceptor - handle errors + logging
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        logger.debug('API Response:', response.status, response.data);
+        return response;
+      },
       async (error: AxiosError) => {
+        logger.error('API Error:', error.response?.status, error.message);
+        
         if (error.response?.status === 401) {
           // Unauthorized - clear token and redirect to login
           try {
             await SecureStore.deleteItemAsync('auth_token');
           } catch (e) {
-            console.warn('Error deleting auth token:', e);
+            logger.warn('Error deleting auth token:', e);
           }
           // You can add navigation logic here
         }
