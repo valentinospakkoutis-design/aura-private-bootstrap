@@ -344,6 +344,16 @@ export default function VoiceBriefingScreen() {
           />
         </View>
       )}
+
+      {/* Tips Card */}
+      <View style={styles.tipsCard}>
+        <Text style={styles.tipsTitle}>💡 Συμβουλές για καλύτερη ηχογράφηση:</Text>
+        <Text style={styles.tipText}>• Βρες ένα ήσυχο μέρος</Text>
+        <Text style={styles.tipText}>• Μίλα φυσιολογικά και καθαρά</Text>
+        <Text style={styles.tipText}>• Κράτα το τηλέφωνο σε απόσταση 15-20cm</Text>
+        <Text style={styles.tipText}>• Αποφύγετε background noise</Text>
+        <Text style={styles.tipText}>• Ηχογράφησε τουλάχιστον 30 δευτερόλεπτα</Text>
+      </View>
     </ScrollView>
   );
 }
@@ -423,6 +433,24 @@ const styles = StyleSheet.create({
     color: theme.colors.semantic.success,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  tipsCard: {
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+  },
+  tipsTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.md,
+  },
+  tipText: {
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.secondary,
+    lineHeight: 24,
+    marginBottom: theme.spacing.xs,
   },
 });
 
