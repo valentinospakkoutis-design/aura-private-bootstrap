@@ -12,12 +12,10 @@ interface TestResultProps {
 
 const TestResult: React.FC<TestResultProps> = ({ label, passed }) => (
   <View style={styles.testResult}>
-    <Text style={styles.testLabel}>{label}:</Text>
-    <View style={[styles.statusBadge, { backgroundColor: passed ? theme.colors.semantic.success + '20' : theme.colors.semantic.error + '20' }]}>
-      <Text style={[styles.statusText, { color: passed ? theme.colors.semantic.success : theme.colors.semantic.error }]}>
-        {passed ? '✓ Pass' : '✗ Fail'}
-      </Text>
-    </View>
+    <Text style={styles.testLabel}>{label}</Text>
+    <Text style={[styles.testStatus, { color: passed ? theme.colors.semantic.success : theme.colors.semantic.error }]}>
+      {passed ? '✓ PASS' : '✕ FAIL'}
+    </Text>
   </View>
 );
 
@@ -75,6 +73,7 @@ export default function DevTestScreen() {
           size="medium"
           fullWidth
           loading={testing}
+          style={styles.button}
         />
 
         {testResults && (
@@ -87,52 +86,44 @@ export default function DevTestScreen() {
         )}
       </View>
 
-      {/* Toast Tests */}
+      {/* UI Component Tests */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Toast Tests</Text>
-        <View style={styles.buttonRow}>
-          <Button
-            title="Success Toast"
-            onPress={() => testToast('success')}
-            variant="primary"
-            size="small"
-            style={styles.button}
-          />
-          <Button
-            title="Error Toast"
-            onPress={() => testToast('error')}
-            variant="danger"
-            size="small"
-            style={styles.button}
-          />
-        </View>
-        <View style={styles.buttonRow}>
-          <Button
-            title="Warning Toast"
-            onPress={() => testToast('warning')}
-            variant="secondary"
-            size="small"
-            style={styles.button}
-          />
-          <Button
-            title="Info Toast"
-            onPress={() => testToast('info')}
-            variant="ghost"
-            size="small"
-            style={styles.button}
-          />
-        </View>
-      </View>
-
-      {/* Modal Tests */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Modal Tests</Text>
+        <Text style={styles.sectionTitle}>UI Components</Text>
+        
         <Button
-          title="Show Test Modal"
-          onPress={testModal}
+          title="Test Success Toast"
+          onPress={() => testToast('success')}
+          variant="primary"
+          size="medium"
+          fullWidth
+          style={styles.button}
+        />
+        
+        <Button
+          title="Test Error Toast"
+          onPress={() => testToast('error')}
+          variant="danger"
+          size="medium"
+          fullWidth
+          style={styles.button}
+        />
+        
+        <Button
+          title="Test Warning Toast"
+          onPress={() => testToast('warning')}
           variant="secondary"
           size="medium"
           fullWidth
+          style={styles.button}
+        />
+        
+        <Button
+          title="Test Modal"
+          onPress={testModal}
+          variant="gradient"
+          size="medium"
+          fullWidth
+          style={styles.button}
         />
       </View>
 
@@ -152,7 +143,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.background,
   },
   content: {
-    padding: theme.spacing.lg,
+    padding: theme.spacing.md,
+    paddingBottom: theme.spacing.xl * 2,
   },
   title: {
     fontSize: theme.typography.sizes['3xl'],
@@ -162,10 +154,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   section: {
-    backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.xl,
   },
   sectionTitle: {
     fontSize: theme.typography.sizes.xl,
@@ -173,17 +162,14 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.md,
   },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
   button: {
-    flex: 1,
+    marginBottom: theme.spacing.sm,
   },
   results: {
     marginTop: theme.spacing.md,
-    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.large,
+    padding: theme.spacing.md,
   },
   testResult: {
     flexDirection: 'row',
@@ -198,13 +184,8 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
     fontWeight: '600',
   },
-  statusBadge: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.medium,
-  },
-  statusText: {
-    fontSize: theme.typography.sizes.sm,
+  testStatus: {
+    fontSize: theme.typography.sizes.md,
     fontWeight: '700',
   },
   infoSection: {
@@ -220,4 +201,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-
