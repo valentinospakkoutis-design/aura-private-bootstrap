@@ -1,7 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { theme } from '../constants/theme';
+import { theme } from '@/constants/theme';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'gradient' | 'danger';
 type ButtonSize = 'small' | 'medium' | 'large';
