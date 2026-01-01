@@ -350,9 +350,8 @@ export default function VoiceBriefingScreen() {
         <Text style={styles.tipsTitle}>💡 Συμβουλές για καλύτερη ηχογράφηση:</Text>
         <Text style={styles.tipText}>• Βρες ένα ήσυχο μέρος</Text>
         <Text style={styles.tipText}>• Μίλα φυσιολογικά και καθαρά</Text>
-        <Text style={styles.tipText}>• Κράτα το τηλέφωνο σε απόσταση 15-20cm</Text>
-        <Text style={styles.tipText}>• Αποφύγετε background noise</Text>
-        <Text style={styles.tipText}>• Ηχογράφησε τουλάχιστον 30 δευτερόλεπτα</Text>
+        <Text style={styles.tipText}>• Κράτα το τηλέφωνο κοντά στο στόμα</Text>
+        <Text style={styles.tipText}>• Μίλα για 30 δευτερόλεπτα συνεχόμενα</Text>
       </View>
     </ScrollView>
   );
