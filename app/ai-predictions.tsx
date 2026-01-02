@@ -12,6 +12,8 @@ import { NoPredictions } from '../mobile/src/components/NoPredictions';
 import { NoData } from '../mobile/src/components/NoData';
 import { theme } from '../mobile/src/constants/theme';
 import { useRouter } from 'expo-router';
+import { usePriceUpdates } from '../mobile/src/hooks/useWebSocket';
+import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
 
 interface Prediction {
   id: string;
@@ -28,6 +30,7 @@ export default function AIPredictionsScreen() {
   const router = useRouter();
   const { predictions, setPredictions } = useAppStore();
   const [refreshing, setRefreshing] = useState(false);
+  const { isOfflineMode } = useOfflineMode();
 
   const {
     data,
@@ -36,16 +39,47 @@ export default function AIPredictionsScreen() {
     execute: fetchPredictions,
   } = useApi(api.getPredictions);
 
+  // WebSocket for real-time prices
+  const assets = predictions?.map((p) => p.asset) || [];
+  const { prices, isConnected } = usePriceUpdates(assets);
+
   useEffect(() => {
     loadPredictions();
   }, []);
 
+  // Update prediction prices in real-time
+  useEffect(() => {
+    if (prices.size > 0 && predictions && predictions.length > 0) {
+      setPredictions(
+        predictions.map((prediction) => {
+          const priceUpdate = prices.get(prediction.asset);
+          if (priceUpdate) {
+            return {
+              ...prediction,
+              price: priceUpdate.price,
+              timestamp: priceUpdate.timestamp,
+            };
+          }
+          return prediction;
+        })
+      );
+    }
+  }, [prices, predictions, setPredictions]);
+
   const loadPredictions = async () => {
     try {
-      const result = await fetchPredictions();
-      setPredictions(result);
+      // Use cache when offline - pass useCache parameter to fetchPredictions
+      const result = await fetchPredictions(isOfflineMode);
+      if (Array.isArray(result)) {
+        setPredictions(result);
+      }
     } catch (err) {
-      // Error handled by useApi
+      console.error('Failed to load predictions:', err);
+      // If offline and cache fails, try to use existing predictions from store
+      if (isOfflineMode && predictions && predictions.length > 0) {
+        // Keep existing predictions
+        return;
+      }
     }
   };
 
@@ -179,6 +213,26 @@ export default function AIPredictionsScreen() {
   return (
     <PageTransition type="slideUp">
       <View style={styles.container}>
+        {/* Offline Banner */}
+        {isOfflineMode && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineIcon}>📡</Text>
+            <Text style={styles.offlineText}>
+              Offline Mode - Showing cached data
+            </Text>
+          </View>
+        )}
+
+        {/* Connection Status */}
+        {!isOfflineMode && (
+          <View style={styles.connectionStatus}>
+            <View style={[styles.statusDot, { backgroundColor: isConnected ? theme.colors.semantic.success : theme.colors.semantic.error }]} />
+            <Text style={styles.statusText}>
+              {isConnected ? 'Live Prices' : 'Reconnecting...'}
+            </Text>
+          </View>
+        )}
+
         <FlatList
           data={predictions}
           keyExtractor={(item) => item.id}
@@ -202,6 +256,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,
+  },
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: theme.spacing.xs,
+  },
+  statusText: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.secondary,
+    fontWeight: '600',
   },
   listContent: {
     padding: theme.spacing.md,
@@ -302,6 +374,24 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.primary,
     fontWeight: '600',
     textAlign: 'right',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.semantic.warning + '20',
+    paddingVertical: theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.semantic.warning,
+  },
+  offlineIcon: {
+    fontSize: 16,
+    marginRight: theme.spacing.xs,
+  },
+  offlineText: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.semantic.warning,
+    fontWeight: '600',
   },
 });
 

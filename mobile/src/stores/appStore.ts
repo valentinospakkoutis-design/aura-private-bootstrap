@@ -4,6 +4,8 @@ interface User {
   id: string;
   name: string;
   email: string;
+  phone?: string;
+  avatar?: string;
   voiceCloned: boolean;
   riskProfile: 'conservative' | 'moderate' | 'aggressive';
 }

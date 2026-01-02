@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { ErrorHandler, AppError } from '@/utils/errorHandler';
-import { useAppStore } from '@/stores/appStore';
+import { ErrorHandler, AppError } from '../utils/errorHandler';
+import { useAppStore } from '../stores/appStore';
 
 interface UseApiOptions {
   showToast?: boolean;

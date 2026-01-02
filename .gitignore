@@ -8,6 +8,8 @@ backend/*.pyc
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
 
 # Expo
 .expo/

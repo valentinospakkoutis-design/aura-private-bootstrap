@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal as RNModal, TouchableOpacity, Dimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { theme } from '@/constants/theme';
+import { theme } from '../constants/theme';
 import { Button } from './Button';
 
 interface ModalProps {

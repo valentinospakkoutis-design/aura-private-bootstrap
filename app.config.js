@@ -4,7 +4,7 @@
 export default {
   expo: {
     name: "AURA",
-    slug: "aura-app",
+    slug: "aura",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -86,9 +86,7 @@ export default {
     updates: {
       url: "https://u.expo.dev/8e6aeafd-b2a9-41b2-a06d-5b55044ec68d"
     },
-    runtimeVersion: {
-      policy: "appVersion"
-    },
+    runtimeVersion: "1.0.0",
     extra: {
       // EAS Project ID
       eas: {

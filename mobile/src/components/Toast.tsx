@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { theme } from '@/constants/theme';
+import { theme } from '../constants/theme';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 

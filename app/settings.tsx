@@ -1,25 +1,42 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAppStore } from '@/stores/appStore';
-import { useApi } from '@/hooks/useApi';
-import { api } from '@/services/apiClient';
-import { Button } from '@/components/Button';
-import { Modal } from '@/components/Modal';
-import { theme } from '@/constants/theme';
-import * as SecureStore from 'expo-secure-store';
+import { useAppStore } from '../mobile/src/stores/appStore';
+import { useApi } from '../mobile/src/hooks/useApi';
+import { api } from '../mobile/src/services/apiClient';
+import { Button } from '../mobile/src/components/Button';
+import { Modal } from '../mobile/src/components/Modal';
+import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
+import { PageTransition } from '../mobile/src/components/PageTransition';
+import { useTheme } from '../mobile/src/context/ThemeContext';
+import { useBiometrics } from '../mobile/src/hooks/useBiometrics';
+import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
+import * as Haptics from 'expo-haptics';
 
 type RiskProfile = 'conservative' | 'moderate' | 'aggressive';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, setUser, showToast, showModal } = useAppStore();
+  const { theme, themeMode, setThemeMode, isDark } = useTheme();
   
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [paperTradingMode, setPaperTradingMode] = useState(true);
   const [selectedRiskProfile, setSelectedRiskProfile] = useState<RiskProfile>(user?.riskProfile || 'moderate');
   const [showRiskModal, setShowRiskModal] = useState(false);
+
+  // Biometrics hook
+  const {
+    isAvailable: biometricsAvailable,
+    isEnabled: biometricsEnabled,
+    biometricType,
+    loading: biometricsLoading,
+    enable: enableBiometrics,
+    disable: disableBiometrics,
+  } = useBiometrics();
+
+  // Offline mode hook
+  const { isOfflineMode, isOnline, cacheStats, cacheSize, clearCache } = useOfflineMode();
 
   const {
     loading: updatingProfile,
@@ -30,19 +47,6 @@ export default function SettingsScreen() {
     loading: updatingRisk,
     execute: updateRisk,
   } = useApi(api.updateRiskProfile, { showLoading: false, showToast: false });
-
-  useEffect(() => {
-    loadBiometricsSetting();
-  }, []);
-
-  const loadBiometricsSetting = async () => {
-    try {
-      const value = await SecureStore.getItemAsync('biometrics_enabled');
-      setBiometricsEnabled(value === 'true');
-    } catch (err) {
-      console.error('Error loading biometrics setting:', err);
-    }
-  };
 
   const handleUpdateRiskProfile = useCallback(async (profile: RiskProfile) => {
     try {
@@ -67,16 +71,15 @@ export default function SettingsScreen() {
     }
   }, [showToast]);
 
-  const handleToggleBiometrics = useCallback(async (value: boolean) => {
-    try {
-      setBiometricsEnabled(value);
-      await SecureStore.setItemAsync('biometrics_enabled', value ? 'true' : 'false');
-      showToast(value ? 'Biometrics ενεργοποιήθηκαν' : 'Biometrics απενεργοποιήθηκαν', 'success');
-    } catch (err) {
-      showToast('Αποτυχία ενημέρωσης', 'error');
-      setBiometricsEnabled(!value);
+  const handleBiometricsToggle = useCallback(async () => {
+    if (biometricsLoading) return;
+
+    if (biometricsEnabled) {
+      await disableBiometrics();
+    } else {
+      await enableBiometrics();
     }
-  }, [showToast]);
+  }, [biometricsEnabled, biometricsLoading, enableBiometrics, disableBiometrics]);
 
   const handleTogglePaperTrading = useCallback(async (value: boolean) => {
     if (!value) {
@@ -162,6 +165,17 @@ export default function SettingsScreen() {
     );
   }, [showToast, router]);
 
+  const handleClearCache = useCallback(() => {
+    showModal(
+      '🗑️ Clear Cache',
+      `Are you sure you want to clear ${cacheStats.count} cached items (${cacheSize})? This will remove all offline data.`,
+      async () => {
+        await clearCache();
+        showToast('Cache cleared successfully', 'success');
+      }
+    );
+  }, [cacheStats, cacheSize, clearCache, showModal, showToast]);
+
   const getRiskProfileDescription = (profile: RiskProfile) => {
     switch (profile) {
       case 'conservative':
@@ -176,8 +190,9 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Profile Section */}
+    <PageTransition type="fade">
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {/* Profile Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>👤 Προφίλ</Text>
         
@@ -275,25 +290,115 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      {/* Appearance Section */}
+      <AnimatedCard delay={100} animationType="slideUp">
+        <Text style={styles.sectionTitle}>🎨 Εμφάνιση</Text>
+
+        {/* Theme Mode Selector */}
+        <View style={styles.settingItem}>
+          <Text style={styles.settingLabel}>Θέμα</Text>
+        </View>
+        
+        <View style={styles.themeOptions}>
+          {(['light', 'dark', 'auto'] as const).map((mode) => (
+            <TouchableOpacity
+              key={mode}
+              style={[
+                styles.themeOption,
+                themeMode === mode && styles.themeOptionActive,
+              ]}
+              onPress={() => {
+                setThemeMode(mode);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            >
+              <Text style={styles.themeOptionIcon}>
+                {mode === 'light' ? '☀️' : mode === 'dark' ? '🌙' : '⚙️'}
+              </Text>
+              <Text
+                style={[
+                  styles.themeOptionText,
+                  themeMode === mode && styles.themeOptionTextActive,
+                ]}
+              >
+                {mode === 'light' ? 'Φωτεινό' : mode === 'dark' ? 'Σκοτεινό' : 'Αυτόματο'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={styles.settingDescription}>
+          {themeMode === 'auto'
+            ? 'Το θέμα αλλάζει αυτόματα με βάση τις ρυθμίσεις του συστήματος'
+            : `Χρήση ${themeMode === 'light' ? 'φωτεινού' : 'σκοτεινού'} θέματος`}
+        </Text>
+      </AnimatedCard>
+
+      {/* Storage & Cache Section */}
+      <AnimatedCard delay={300} animationType="slideUp">
+        <Text style={styles.sectionTitle}>💾 Storage & Cache</Text>
+
+        {/* Connection Status */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Connection Status</Text>
+            <Text style={styles.settingDescription}>
+              {isOnline ? 'Online' : 'Offline'}
+            </Text>
+          </View>
+          <View style={[styles.statusIndicator, { backgroundColor: isOnline ? theme.colors.semantic.success : theme.colors.semantic.error }]} />
+        </View>
+
+        {/* Cache Info */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Cached Data</Text>
+            <Text style={styles.settingDescription}>
+              {cacheStats.count} items • {cacheSize}
+            </Text>
+          </View>
+        </View>
+
+        {/* Clear Cache Button */}
+        <Button
+          title="🗑️ Clear Cache"
+          onPress={handleClearCache}
+          variant="secondary"
+          size="medium"
+          fullWidth
+          style={styles.clearCacheButton}
+        />
+
+        <Text style={styles.settingDescription}>
+          Cached data allows the app to work offline. Clear cache if you're experiencing issues.
+        </Text>
+      </AnimatedCard>
+
       {/* Security */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🔒 Ασφάλεια</Text>
 
-        <View style={styles.settingItem}>
-          <View style={styles.settingLeft}>
-            <Text style={styles.settingLabel}>Biometric Login</Text>
-            <Text style={styles.settingDescription}>Face ID / Touch ID</Text>
+        {/* Biometrics Toggle */}
+        {biometricsAvailable && (
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>{biometricType}</Text>
+              <Text style={styles.settingDescription}>
+                Χρήση {biometricType} για γρήγορη σύνδεση
+              </Text>
+            </View>
+            <Switch
+              value={biometricsEnabled}
+              onValueChange={handleBiometricsToggle}
+              trackColor={{ 
+                false: theme.colors.ui.border, 
+                true: theme.colors.brand.primary 
+              }}
+              thumbColor="#FFFFFF"
+              disabled={biometricsLoading}
+            />
           </View>
-          <Switch
-            value={biometricsEnabled}
-            onValueChange={handleToggleBiometrics}
-            trackColor={{ 
-              false: theme.colors.ui.border, 
-              true: theme.colors.brand.primary 
-            }}
-            thumbColor="#FFFFFF"
-          />
-        </View>
+        )}
 
         <TouchableOpacity 
           style={styles.settingItem}
@@ -412,7 +517,8 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+    </PageTransition>
   );
 }
 
@@ -446,6 +552,9 @@ const styles = StyleSheet.create({
   settingLeft: {
     flex: 1,
     marginRight: theme.spacing.md,
+  },
+  settingInfo: {
+    flex: 1,
   },
   settingLabel: {
     fontSize: theme.typography.sizes.md,
@@ -508,6 +617,44 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
     lineHeight: 20,
+  },
+  themeOptions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginVertical: theme.spacing.md,
+  },
+  themeOption: {
+    flex: 1,
+    alignItems: 'center',
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.ui.background,
+    borderRadius: theme.borderRadius.medium,
+    borderWidth: 2,
+    borderColor: theme.colors.ui.border,
+  },
+  themeOptionActive: {
+    borderColor: theme.colors.brand.primary,
+    backgroundColor: theme.colors.brand.primary + '10',
+  },
+  themeOptionIcon: {
+    fontSize: 32,
+    marginBottom: theme.spacing.xs,
+  },
+  themeOptionText: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '600',
+    color: theme.colors.text.secondary,
+  },
+  themeOptionTextActive: {
+    color: theme.colors.brand.primary,
+  },
+  statusIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  clearCacheButton: {
+    marginTop: theme.spacing.md,
   },
 });
 

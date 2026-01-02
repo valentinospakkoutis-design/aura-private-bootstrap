@@ -34,17 +34,17 @@ export default function NotificationsScreen() {
     loading,
     error,
     execute: fetchNotifications,
-  } = useApi(() => api.get('/api/notifications'), { showLoading: false, showToast: false });
+  } = useApi(api.getNotifications, { showLoading: false, showToast: false });
 
   const {
     loading: markingRead,
     execute: markAsRead,
-  } = useApi((id: string) => api.put(`/api/notifications/${id}/read`), { showLoading: false, showToast: false });
+  } = useApi(api.markNotificationAsRead, { showLoading: false, showToast: false });
 
   const {
     loading: deleting,
     execute: deleteNotification,
-  } = useApi((id: string) => api.delete(`/api/notifications/${id}`), { showLoading: false, showToast: false });
+  } = useApi(api.deleteNotification, { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadNotifications();
@@ -403,18 +403,17 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.lg,
   },
   emptyTitle: {
-    fontSize: theme.typography.sizes['2xl'],
+    fontSize: theme.typography.sizes.xl,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
     textAlign: 'center',
   },
   emptyDescription: {
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.secondary,
     textAlign: 'center',
-    lineHeight: 24,
-    maxWidth: 300,
+    paddingHorizontal: theme.spacing.xl,
   },
 });
 

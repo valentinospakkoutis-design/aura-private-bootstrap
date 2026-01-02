@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { useAppStore } from '@/stores/appStore';
+import { useAppStore } from '../stores/appStore';
 import { Toast } from './Toast';
 import { Modal } from './Modal';
 

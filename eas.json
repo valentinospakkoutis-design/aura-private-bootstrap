@@ -7,44 +7,112 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "APP_ENV": "development",
+        "EXPO_PUBLIC_ENVIRONMENT": "development",
+        "NODE_ENV": "development"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Debug"
+      },
       "android": {
         "buildType": "apk"
       }
     },
-    "preview": {
+    "staging": {
       "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      }
-    },
-    "production": {
-      "distribution": "store",
+      "env": {
+        "APP_ENV": "staging",
+        "EXPO_PUBLIC_ENVIRONMENT": "staging",
+        "NODE_ENV": "staging",
+        "API_BASE_URL": "https://staging-api.aura.app",
+        "WS_URL": "wss://staging-api.aura.app/ws",
+        "EXPO_PUBLIC_API_URL": "https://staging-api.aura.app",
+        "EXPO_PUBLIC_WS_URL": "wss://staging-api.aura.app/ws",
+        "EXPO_PUBLIC_ENABLE_ANALYTICS": "true",
+        "EXPO_PUBLIC_ENABLE_CRASH_REPORTING": "true",
+        "EXPO_PUBLIC_ENABLE_BIOMETRICS": "true",
+        "EXPO_PUBLIC_ENABLE_PUSH_NOTIFICATIONS": "true",
+        "EXPO_PUBLIC_ENABLE_WEBSOCKET": "true",
+        "EXPO_PUBLIC_ENABLE_DARK_MODE": "true",
+        "EXPO_PUBLIC_ENABLE_OFFLINE_MODE": "true",
+        "DEBUG_MODE": "true",
+        "LOG_LEVEL": "debug"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "resourceClass": "m-medium"
+      },
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease"
       },
-      "env": {
-        "EXPO_PUBLIC_ENVIRONMENT": "production",
-        "NODE_ENV": "production",
-        "EXPO_PUBLIC_API_URL": "https://aura-private-bootstrap-production.up.railway.app",
-        "EXPO_PUBLIC_ENABLE_ANALYTICS": "true",
-        "EXPO_PUBLIC_ENABLE_CRASH_REPORTING": "true"
-      },
-      "channel": "production"
+      "channel": "staging"
     },
-    "standalone": {
+    "preview": {
       "distribution": "internal",
+      "env": {
+        "APP_ENV": "preview",
+        "EXPO_PUBLIC_ENVIRONMENT": "preview",
+        "NODE_ENV": "preview"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      },
       "android": {
         "buildType": "apk"
       },
+      "channel": "preview"
+    },
+    "production": {
+      "autoIncrement": true,
+      "distribution": "store",
       "env": {
+        "APP_ENV": "production",
         "EXPO_PUBLIC_ENVIRONMENT": "production",
-        "NODE_ENV": "production"
-      }
+        "NODE_ENV": "production",
+        "API_BASE_URL": "https://aura-private-bootstrap-production.up.railway.app",
+        "WS_URL": "wss://aura-private-bootstrap-production.up.railway.app/ws",
+        "EXPO_PUBLIC_API_URL": "https://aura-private-bootstrap-production.up.railway.app",
+        "EXPO_PUBLIC_WS_URL": "wss://aura-private-bootstrap-production.up.railway.app/ws",
+        "EXPO_PUBLIC_ENABLE_ANALYTICS": "true",
+        "EXPO_PUBLIC_ENABLE_CRASH_REPORTING": "true",
+        "EXPO_PUBLIC_ENABLE_BIOMETRICS": "true",
+        "EXPO_PUBLIC_ENABLE_PUSH_NOTIFICATIONS": "true",
+        "EXPO_PUBLIC_ENABLE_WEBSOCKET": "true",
+        "EXPO_PUBLIC_ENABLE_DARK_MODE": "true",
+        "EXPO_PUBLIC_ENABLE_OFFLINE_MODE": "true",
+        "DEBUG_MODE": "false",
+        "LOG_LEVEL": "error"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "resourceClass": "m-medium",
+        "autoIncrement": true
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:bundleRelease",
+        "autoIncrement": true
+      },
+      "channel": "production"
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "your-apple-id@email.com",
+        "ascAppId": "your-asc-app-id",
+        "appleTeamId": "your-apple-team-id"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "production"
+      }
+    }
   }
 }
-

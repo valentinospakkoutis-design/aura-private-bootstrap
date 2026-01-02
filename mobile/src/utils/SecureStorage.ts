@@ -78,5 +78,6 @@ export const STORAGE_KEYS = {
   PAPER_TRADING_MODE: 'paper_trading_mode',
   RISK_PROFILE: 'risk_profile',
   NOTIFICATIONS_ENABLED: 'notifications_enabled',
+  PUSH_TOKEN: 'push_token',
 } as const;
 

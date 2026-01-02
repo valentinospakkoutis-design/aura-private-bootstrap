@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import json
 import os
 import secrets
+import asyncio
 from urllib.parse import quote
 from brokers.binance import BinanceAPI
 from services.paper_trading import paper_trading_service
@@ -97,6 +98,30 @@ async def rate_limit_middleware_wrapper(request: Request, call_next):
     except Exception as e:
         # If rate limit middleware fails, continue without rate limiting
         return await call_next(request)
+
+# WebSocket endpoint for real-time price updates
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time price updates"""
+    await websocket.accept()
+    try:
+        while True:
+            # Send price updates
+            await websocket.send_json({
+                "type": "price_update",
+                "payload": {
+                    "asset": "BTC/USD",
+                    "price": 42500.00,
+                    "change": 250.00,
+                    "changePercentage": 0.59,
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }
+            })
+            await asyncio.sleep(5)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        await websocket.close()
 
 # User storage file
 USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")

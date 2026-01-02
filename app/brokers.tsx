@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
-import { useAppStore } from '@/stores/appStore';
-import { useApi } from '@/hooks/useApi';
-import { api } from '@/services/apiClient';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoBrokerConnected } from '@/components/NoBrokerConnected';
-import { Button } from '@/components/Button';
-import { Modal } from '@/components/Modal';
-import { theme } from '@/constants/theme';
+import { useAppStore } from '../mobile/src/stores/appStore';
+import { useApi } from '../mobile/src/hooks/useApi';
+import { api } from '../mobile/src/services/apiClient';
+import { LoadingSpinner } from '../mobile/src/components/LoadingSpinner';
+import { NoBrokerConnected } from '../mobile/src/components/NoBrokerConnected';
+import { Button } from '../mobile/src/components/Button';
+import { Modal } from '../mobile/src/components/Modal';
+import { theme } from '../mobile/src/constants/theme';
 import * as SecureStore from 'expo-secure-store';
 
 interface Broker {

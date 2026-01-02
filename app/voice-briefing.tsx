@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
-import { useApi } from '@/hooks/useApi';
-import { api } from '@/services/apiClient';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoVoiceBriefing } from '@/components/NoVoiceBriefing';
-import { Button } from '@/components/Button';
-import { theme } from '@/constants/theme';
-import { useAppStore } from '@/stores/appStore';
+import { useApi } from '../mobile/src/hooks/useApi';
+import { api } from '../mobile/src/services/apiClient';
+import { LoadingSpinner } from '../mobile/src/components/LoadingSpinner';
+import { NoVoiceBriefing } from '../mobile/src/components/NoVoiceBriefing';
+import { Button } from '../mobile/src/components/Button';
+import { theme } from '../mobile/src/constants/theme';
+import { useAppStore } from '../mobile/src/stores/appStore';
 
 type RecordingStatus = 'idle' | 'recording' | 'stopped' | 'uploading';
 
