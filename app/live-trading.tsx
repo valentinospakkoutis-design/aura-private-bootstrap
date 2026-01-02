@@ -461,7 +461,7 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
   statItem: {
     flex: 1,
@@ -484,16 +484,12 @@ const styles = StyleSheet.create({
   },
   statsGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: theme.spacing.md,
-    gap: theme.spacing.md,
+    justifyContent: 'space-between',
+    backgroundColor: theme.colors.ui.background,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.large,
   },
   gridItem: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.medium,
-    padding: theme.spacing.md,
     alignItems: 'center',
   },
   gridValue: {
@@ -503,7 +499,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   gridLabel: {
-    fontSize: theme.typography.sizes.sm,
+    fontSize: theme.typography.sizes.xs,
     color: theme.colors.text.secondary,
   },
   sectionTitle: {
@@ -514,22 +510,18 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.md,
   },
   tradeCard: {
-    backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
+    gap: theme.spacing.md,
   },
   tradeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: theme.spacing.md,
+    alignItems: 'center',
   },
   tradeInfo: {
     flex: 1,
   },
   tradeAsset: {
-    fontSize: theme.typography.sizes.xl,
+    fontSize: theme.typography.sizes.lg,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.xs,
@@ -548,7 +540,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tradeBody: {
-    marginBottom: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   priceRow: {
@@ -570,13 +561,12 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.md,
     borderRadius: theme.borderRadius.medium,
-    marginBottom: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   profitRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: theme.spacing.sm,
   },
   profitLabel: {
     fontSize: theme.typography.sizes.md,
@@ -584,9 +574,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
   },
   profitValues: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
+    alignItems: 'flex-end',
   },
   profitValue: {
     fontSize: theme.typography.sizes.lg,
@@ -594,21 +582,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   profitPercentage: {
-    fontSize: theme.typography.sizes.md,
-    fontFamily: theme.typography.fontFamily.mono,
+    fontSize: theme.typography.sizes.sm,
     fontWeight: '600',
+    marginTop: theme.spacing.xs,
   },
   limitsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: theme.spacing.md,
-    gap: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
   limitItem: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.sm,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.small,
   },
   limitLabel: {
     fontSize: theme.typography.sizes.xs,
