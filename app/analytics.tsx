@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   cardTitle: {
-    fontSize: theme.typography.sizes.lg,
+    fontSize: theme.typography.sizes.xl,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.md,
@@ -354,12 +354,13 @@ const styles = StyleSheet.create({
   metricsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: theme.colors.ui.background,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.large,
+    gap: theme.spacing.sm,
   },
   metricItem: {
     flex: 1,
+    backgroundColor: theme.colors.ui.background,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.medium,
     alignItems: 'center',
   },
   metricValue: {
@@ -421,7 +422,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.md,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: theme.colors.text.secondary,
   },
   assetProgressContainer: {
     flexDirection: 'row',
@@ -431,8 +432,8 @@ const styles = StyleSheet.create({
   assetPercentage: {
     fontSize: theme.typography.sizes.sm,
     fontWeight: '600',
-    color: theme.colors.text.secondary,
-    minWidth: 50,
+    color: theme.colors.text.primary,
+    minWidth: 45,
     textAlign: 'right',
   },
   bottomPadding: {
