@@ -642,6 +642,7 @@ useEffect(() => {
 
 ### Loading State with Skeleton
 ```tsx
+// Pattern 1: List with SkeletonList
 {loading ? (
   <SkeletonList count={5} />
 ) : (
@@ -651,6 +652,28 @@ useEffect(() => {
       <AnimatedListItem index={index} item={item} />
     )}
   />
+)}
+
+// Pattern 2: Single Card with SkeletonCard
+{loading ? (
+  <SkeletonCard />
+) : (
+  <AnimatedCard animationType="fade">
+    <Content />
+  </AnimatedCard>
+)}
+
+// Pattern 3: Multiple SkeletonLoaders
+{loading ? (
+  <View>
+    <SkeletonLoader width="100%" height={20} style={{ marginBottom: 8 }} />
+    <SkeletonLoader width="80%" height={20} style={{ marginBottom: 8 }} />
+    <SkeletonLoader width="60%" height={20} />
+  </View>
+) : (
+  <AnimatedCard animationType="slideUp">
+    <Content />
+  </AnimatedCard>
 )}
 ```
 
