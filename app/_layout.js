@@ -4,7 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
 import { ThemeProvider, useTheme } from '../mobile/src/context/ThemeContext';
-import { useNotifications } from '../mobile/src/hooks/useNotifications';
+// import { useNotifications } from '../mobile/src/hooks/useNotifications'; // Temporarily disabled to prevent crashes
 import OfflineBanner from '../mobile/src/components/OfflineBanner';
 import { StatusBar } from 'expo-status-bar';
 import { initMonitoring } from '../mobile/src/services/monitoring';
@@ -14,7 +14,6 @@ SplashScreen.preventAutoHideAsync();
 
 function AppContent() {
   const { theme, isDark } = useTheme();
-  const { isRegistered, pushToken } = useNotifications();
 
   useEffect(() => {
     // Initialize monitoring on app start (with error handling)
@@ -27,16 +26,11 @@ function AppContent() {
 
     // Hide splash screen after app is ready
     setTimeout(() => {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch((err) => {
+        console.error('Failed to hide splash screen:', err);
+      });
     }, 1000);
   }, []);
-
-  useEffect(() => {
-    if (isRegistered && pushToken) {
-      console.log('Push notifications ready:', pushToken);
-      // TODO: Send token to backend
-    }
-  }, [isRegistered, pushToken]);
 
   return (
     <>
