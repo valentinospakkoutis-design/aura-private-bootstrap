@@ -182,22 +182,37 @@ Loading skeleton με shimmer animation.
 
 **Usage:**
 ```tsx
-import { SkeletonLoader, SkeletonCard } from '@/components/ui/SkeletonLoader';
+import { SkeletonLoader, SkeletonCard, SkeletonList } from '@/components/ui/SkeletonLoader';
 
+// Single skeleton
 <SkeletonLoader width="100%" height={20} />
+
+// Predefined card skeleton
 <SkeletonCard />
+
+// List of skeletons
+<SkeletonList count={5} />
 ```
 
-**Props:**
-- `width`: string | number - Skeleton width
-- `height`: number - Skeleton height
+**SkeletonLoader Props:**
+- `width`: string | number - Skeleton width (default: "100%")
+- `height`: number - Skeleton height (default: 20)
+- `borderRadius`: number - Border radius (default: theme.borderRadius.medium)
 - `style`: ViewStyle - Custom style
-- `SkeletonCard`: Predefined card skeleton
+
+**SkeletonCard Props:**
+- No props - Predefined card skeleton with title, lines, and button
+
+**SkeletonList Props:**
+- `count`: number - Number of skeleton cards to render (default: 5)
 
 **Features:**
-- ✅ Shimmer animation
+- ✅ Shimmer animation (continuous loop)
 - ✅ Customizable dimensions
 - ✅ Predefined card skeleton
+- ✅ List of skeletons support
+- ✅ Smooth opacity animation (0.3 → 0.6 → 0.3)
+- ✅ 1.5s animation duration
 
 ---
 
