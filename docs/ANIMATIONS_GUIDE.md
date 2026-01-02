@@ -679,6 +679,7 @@ useEffect(() => {
 
 ### Progress Animation
 ```tsx
+// Pattern 1: Basic progress (0-1)
 const [progress, setProgress] = useState(0);
 
 useEffect(() => {
@@ -691,10 +692,36 @@ useEffect(() => {
   showLabel 
   animated 
 />
+
+// Pattern 2: Percentage to progress (0-100 to 0-1)
+const [percentage, setPercentage] = useState(0);
+
+<AnimatedProgressBar 
+  progress={percentage / 100} 
+  showLabel 
+  animated 
+/>
+
+// Pattern 3: Custom colors and height
+const [completion, setCompletion] = useState(0.75);
+
+<AnimatedProgressBar 
+  progress={completion}
+  color={theme.colors.brand.primary}
+  backgroundColor={theme.colors.ui.border}
+  height={12}
+  showLabel
+/>
 ```
 
 ### Counter Animation
 ```tsx
+// Pattern 1: Basic counter with prefix
+const [amount, setAmount] = useState(0);
+
+<AnimatedCounter value={amount} prefix="$" />
+
+// Pattern 2: Counter with decimals and suffix
 const [balance, setBalance] = useState(0);
 
 useEffect(() => {
@@ -706,6 +733,15 @@ useEffect(() => {
   value={balance} 
   prefix="$" 
   decimals={2} 
+/>
+
+// Pattern 3: Percentage counter
+const [percentage, setPercentage] = useState(0);
+
+<AnimatedCounter 
+  value={percentage} 
+  suffix="%" 
+  decimals={1} 
 />
 ```
 
