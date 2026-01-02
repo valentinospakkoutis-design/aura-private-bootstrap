@@ -57,13 +57,21 @@ import { AnimatedCard } from '@/components/ui/AnimatedCard';
 
 **Props:**
 - `delay`: number - Animation delay in ms (for staggered animations)
-- `animationType`: 'slideUp' | 'fade' | 'scale' | 'slideLeft' | 'slideRight'
+- `animationType`: 'slideUp' | 'fade' | 'scale' | 'slide' (default: 'slideUp')
+- `style`: ViewStyle - Custom card style
 - `children`: ReactNode - Card content
+
+**Animation Types:**
+- `slideUp`: Slides up from bottom (default)
+- `fade`: Fades in
+- `scale`: Scales from 0.9 to 1
+- `slide`: Slides from right
 
 **Features:**
 - ✅ Multiple animation types
 - ✅ Staggered animations support
 - ✅ Smooth entrance animations
+- ✅ Built-in card styling
 
 ---
 
