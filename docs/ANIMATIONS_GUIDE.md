@@ -573,6 +573,134 @@ animateWithSpring(1, { damping: 20, stiffness: 90 });
 
 ---
 
+## Common Patterns
+
+### Staggered List Animation
+```tsx
+{items.map((item, index) => (
+  <AnimatedListItem 
+    key={item.id} 
+    index={index}
+    onPress={() => handlePress(item)}
+  >
+    <ItemContent item={item} />
+  </AnimatedListItem>
+))}
+```
+
+### Staggered Cards
+```tsx
+{cards.map((card, index) => (
+  <AnimatedCard 
+    key={card.id}
+    delay={index * 100} 
+    animationType="slideUp"
+  >
+    <CardContent card={card} />
+  </AnimatedCard>
+))}
+```
+
+### Conditional Animation
+```tsx
+const animatedStyle = useAnimatedStyle(() => ({
+  opacity: isVisible.value ? 1 : 0,
+  transform: [{ scale: isVisible.value ? 1 : 0.9 }],
+}));
+```
+
+### Gesture-Based Animation
+```tsx
+const panGesture = Gesture.Pan()
+  .onUpdate((event) => {
+    translateX.value = event.translationX;
+  })
+  .onEnd(() => {
+    translateX.value = withSpring(0);
+  });
+```
+
+### Sequence Animation
+```tsx
+useEffect(() => {
+  // Fade in first
+  opacity.value = withTiming(1, { duration: 300 });
+  
+  // Then scale
+  scale.value = withDelay(300, withSpring(1));
+}, []);
+```
+
+### Parallel Animation
+```tsx
+useEffect(() => {
+  opacity.value = withTiming(1, { duration: 400 });
+  translateY.value = withSpring(0);
+  scale.value = withSpring(1);
+}, []);
+```
+
+### Loading State with Skeleton
+```tsx
+{loading ? (
+  <SkeletonList count={5} />
+) : (
+  <FlatList
+    data={items}
+    renderItem={({ item, index }) => (
+      <AnimatedListItem index={index} item={item} />
+    )}
+  />
+)}
+```
+
+### Progress Animation
+```tsx
+const [progress, setProgress] = useState(0);
+
+useEffect(() => {
+  // Animate progress to 1
+  setProgress(1);
+}, []);
+
+<AnimatedProgressBar 
+  progress={progress} 
+  showLabel 
+  animated 
+/>
+```
+
+### Counter Animation
+```tsx
+const [balance, setBalance] = useState(0);
+
+useEffect(() => {
+  // Fetch and update balance
+  fetchBalance().then(setBalance);
+}, []);
+
+<AnimatedCounter 
+  value={balance} 
+  prefix="$" 
+  decimals={2} 
+/>
+```
+
+### Page Transition Pattern
+```tsx
+export default function MyScreen() {
+  return (
+    <PageTransition type="slideUp">
+      <ScrollView>
+        {/* Screen content */}
+      </ScrollView>
+    </PageTransition>
+  );
+}
+```
+
+---
+
 ## Testing
 
 Χρησιμοποίησε το **AnimationTestScreen** για testing όλων των animated components:
