@@ -303,13 +303,15 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
     backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.medium,
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
   },
   timeRangeButtonActive: {
     backgroundColor: theme.colors.brand.primary,
+    borderColor: theme.colors.brand.primary,
   },
   timeRangeText: {
     fontSize: theme.typography.sizes.sm,
@@ -320,7 +322,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   cardTitle: {
-    fontSize: theme.typography.sizes.xl,
+    fontSize: theme.typography.sizes.lg,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.md,
@@ -352,18 +354,16 @@ const styles = StyleSheet.create({
   metricsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: theme.spacing.md,
+    backgroundColor: theme.colors.ui.background,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.large,
   },
   metricItem: {
     flex: 1,
     alignItems: 'center',
-    backgroundColor: theme.colors.ui.background,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
   },
   metricValue: {
     fontSize: theme.typography.sizes.xl,
-    fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.xs,
@@ -375,20 +375,20 @@ const styles = StyleSheet.create({
   },
   tradeHighlight: {
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
-    marginBottom: theme.spacing.sm,
+    borderRadius: theme.borderRadius.large,
+    marginBottom: theme.spacing.md,
   },
   tradeHighlightHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
   },
   tradeHighlightIcon: {
     fontSize: 20,
     marginRight: theme.spacing.xs,
   },
   tradeHighlightTitle: {
-    fontSize: theme.typography.sizes.sm,
+    fontSize: theme.typography.sizes.md,
     fontWeight: '600',
     color: theme.colors.text.secondary,
   },
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   tradeHighlightProfit: {
-    fontSize: theme.typography.sizes.md,
+    fontSize: theme.typography.sizes.xl,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '700',
   },
@@ -421,7 +421,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.md,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '600',
-    color: theme.colors.text.secondary,
+    color: theme.colors.text.primary,
   },
   assetProgressContainer: {
     flexDirection: 'row',
@@ -430,7 +430,6 @@ const styles = StyleSheet.create({
   },
   assetPercentage: {
     fontSize: theme.typography.sizes.sm,
-    fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '600',
     color: theme.colors.text.secondary,
     minWidth: 50,
