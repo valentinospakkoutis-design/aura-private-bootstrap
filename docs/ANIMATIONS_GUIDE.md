@@ -262,19 +262,36 @@ Page transition wrapper για smooth screen transitions.
 ```tsx
 import { PageTransition } from '@/components/ui/PageTransition';
 
-<PageTransition type="slideUp">
-  <View>Screen Content</View>
-</PageTransition>
+export default function MyScreen() {
+  return (
+    <PageTransition type="fade">
+      <View>
+        <Text>Screen Content</Text>
+      </View>
+    </PageTransition>
+  );
+}
 ```
 
 **Props:**
-- `type`: 'fade' | 'slideUp' | 'slideDown' | 'slideLeft' | 'slideRight'
+- `type`: 'fade' | 'slide' | 'scale' | 'slideUp' (default: 'fade')
 - `children`: ReactNode - Screen content
+
+**Animation Types:**
+- `fade`: Fades in (default)
+- `slide`: Slides from right
+- `slideUp`: Slides up from bottom
+- `scale`: Scales from 0.9 to 1
 
 **Features:**
 - ✅ Smooth page transitions
 - ✅ Multiple transition types
 - ✅ Consistent animations
+- ✅ Spring physics for natural feel
+- ✅ 400ms fade duration
+- ✅ Full screen container (flex: 1)
+
+**Note:** Χρησιμοποίησε το PageTransition ως wrapper για κάθε screen για consistent transitions. Το component έχει built-in `flex: 1` container.
 
 ---
 
