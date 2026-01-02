@@ -147,6 +147,13 @@ export default function RootLayout() {
                 headerBackTitle: 'Πίσω',
               }} 
             />
+            <Stack.Screen 
+              name="animation-test" 
+              options={{ 
+                title: '🎬 Animation Test',
+                headerBackTitle: 'Πίσω',
+              }} 
+            />
           </Stack>
         </GlobalProvider>
       </ErrorBoundary>
