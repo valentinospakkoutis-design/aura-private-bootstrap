@@ -483,11 +483,93 @@ animateWithSpring(1, { damping: 20, stiffness: 90 });
 
 ## Performance Tips
 
-1. **Use `useAnimatedStyle`** για animated styles
-2. **Avoid unnecessary re-renders** με `useMemo` και `useCallback`
-3. **Use `runOnJS`** για JavaScript functions in animations
-4. **Use `withSpring`** για natural animations
-5. **Use `withTiming`** για precise timing
+1. **Use `useSharedValue`** instead of `useState` for animated values
+   ```tsx
+   // ✅ Good - runs on UI thread
+   const translateX = useSharedValue(0);
+   
+   // ❌ Bad - causes re-renders
+   const [translateX, setTranslateX] = useState(0);
+   ```
+
+2. **Use `useAnimatedStyle`** instead of inline styles
+   ```tsx
+   // ✅ Good - optimized for animations
+   const animatedStyle = useAnimatedStyle(() => ({
+     transform: [{ translateX: translateX.value }],
+   }));
+   
+   // ❌ Bad - causes re-renders
+   <View style={{ transform: [{ translateX }] }} />
+   ```
+
+3. **Avoid animating layout properties** (width, height, padding) - prefer transforms
+   ```tsx
+   // ✅ Good - transforms are GPU-accelerated
+   transform: [{ scale: scale.value }, { translateX: x.value }]
+   
+   // ❌ Bad - layout animations are expensive
+   width: width.value, height: height.value
+   ```
+
+4. **Use `FlatList`** with `getItemLayout` for large lists
+   ```tsx
+   <FlatList
+     data={items}
+     getItemLayout={(data, index) => ({
+       length: ITEM_HEIGHT,
+       offset: ITEM_HEIGHT * index,
+       index,
+     })}
+     renderItem={({ item, index }) => (
+       <AnimatedListItem index={index} item={item} />
+     )}
+   />
+   ```
+
+5. **Memoize components** that don't need to re-render
+   ```tsx
+   const MemoizedItem = React.memo(({ item }) => (
+     <AnimatedCard>
+       <ItemContent item={item} />
+     </AnimatedCard>
+   ));
+   ```
+
+6. **Test on real devices**, not just simulators
+   - Real devices show actual performance
+   - Simulators can be misleading
+   - Test on low-end devices too
+
+7. **Use `runOnJS`** for JavaScript functions in animations
+   ```tsx
+   // ✅ Good - runs JS function on JS thread
+   runOnJS(handleAnimationComplete)();
+   
+   // ❌ Bad - can block UI thread
+   handleAnimationComplete();
+   ```
+
+8. **Use `withSpring`** for natural animations
+   ```tsx
+   // ✅ Good - feels natural
+   withSpring(value, ANIMATION_PRESETS.spring.gentle);
+   
+   // ❌ Bad - can feel robotic
+   withTiming(value, { duration: 300 });
+   ```
+
+9. **Limit concurrent animations**
+   - Too many animations at once can cause jank
+   - Use staggered animations instead
+   - Consider reducing animation complexity on low-end devices
+
+10. **Use `cancelAnimation`** to stop animations early
+    ```tsx
+    const cancelAnimation = () => {
+      cancelAnimation(translateX);
+    };
+    ```
 
 ---
 
