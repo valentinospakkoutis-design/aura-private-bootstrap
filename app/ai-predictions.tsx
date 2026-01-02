@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
-import { useAppStore } from '@/stores/appStore';
-import { useApi } from '@/hooks/useApi';
-import { api } from '@/services/apiClient';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoPredictions } from '@/components/NoPredictions';
-import { NoData } from '@/components/NoData';
-import { theme } from '@/constants/theme';
+import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { useAppStore } from '../mobile/src/stores/appStore';
+import { useApi } from '../mobile/src/hooks/useApi';
+import { api } from '../mobile/src/services/apiClient';
+import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
+import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
+import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
+import { SkeletonList } from '../mobile/src/components/SkeletonLoader';
+import { PageTransition } from '../mobile/src/components/PageTransition';
+import { NoPredictions } from '../mobile/src/components/NoPredictions';
+import { NoData } from '../mobile/src/components/NoData';
+import { theme } from '../mobile/src/constants/theme';
 import { useRouter } from 'expo-router';
 
 interface Prediction {
@@ -77,11 +81,11 @@ export default function AIPredictionsScreen() {
     }
   };
 
-  const renderPredictionCard = ({ item }: { item: Prediction }) => (
-    <TouchableOpacity
-      style={styles.card}
+  const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => (
+    <AnimatedListItem
+      index={index}
       onPress={() => router.push(`/prediction-details?id=${item.id}`)}
-      activeOpacity={0.8}
+      style={styles.card}
     >
       {/* Header */}
       <View style={styles.cardHeader}>
@@ -106,30 +110,33 @@ export default function AIPredictionsScreen() {
       <View style={styles.priceContainer}>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
-          <Text style={styles.priceValue}>${item.price.toLocaleString()}</Text>
+          <AnimatedCounter
+            value={item.price}
+            prefix="$"
+            decimals={2}
+            style={styles.priceValue}
+          />
         </View>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Στόχος:</Text>
-          <Text style={[styles.priceValue, { color: getActionColor(item.action) }]}>
-            ${item.targetPrice.toLocaleString()}
-          </Text>
+          <AnimatedCounter
+            value={item.targetPrice}
+            prefix="$"
+            decimals={2}
+            style={[styles.priceValue, { color: getActionColor(item.action) }]}
+          />
         </View>
       </View>
 
       {/* Confidence */}
       <View style={styles.confidenceContainer}>
         <Text style={styles.confidenceLabel}>Βεβαιότητα AI:</Text>
-        <View style={styles.confidenceBar}>
-          <View
-            style={[
-              styles.confidenceFill,
-              {
-                width: `${item.confidence * 100}%`,
-                backgroundColor: getActionColor(item.action),
-              },
-            ]}
-          />
-        </View>
+        <AnimatedProgressBar
+          progress={item.confidence}
+          color={getActionColor(item.action)}
+          height={8}
+          showLabel={false}
+        />
         <Text style={styles.confidenceValue}>{(item.confidence * 100).toFixed(0)}%</Text>
       </View>
 
@@ -140,38 +147,52 @@ export default function AIPredictionsScreen() {
 
       {/* View Details */}
       <Text style={styles.viewDetails}>Δες Ανάλυση →</Text>
-    </TouchableOpacity>
+    </AnimatedListItem>
   );
 
   if (loading && !refreshing) {
-    return <LoadingSpinner fullScreen message="Φόρτωση προβλέψεων..." />;
+    return (
+      <PageTransition type="fade">
+        <SkeletonList count={5} />
+      </PageTransition>
+    );
   }
 
   if (error && (!predictions || predictions.length === 0)) {
-    return <NoData onRetry={loadPredictions} />;
+    return (
+      <PageTransition type="fade">
+        <NoData onRetry={loadPredictions} />
+      </PageTransition>
+    );
   }
 
   if (!predictions || predictions.length === 0) {
-    return <NoPredictions />;
+    return (
+      <PageTransition type="fade">
+        <NoPredictions />
+      </PageTransition>
+    );
   }
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={predictions}
-        keyExtractor={(item) => item.id}
-        renderItem={renderPredictionCard}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={theme.colors.brand.primary}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      />
-    </View>
+    <PageTransition type="slideUp">
+      <View style={styles.container}>
+        <FlatList
+          data={predictions}
+          keyExtractor={(item) => item.id}
+          renderItem={renderPredictionCard}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.colors.brand.primary}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
+    </PageTransition>
   );
 }
 
