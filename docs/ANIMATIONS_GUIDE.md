@@ -154,15 +154,17 @@ import { AnimatedListItem } from '@/components/ui/AnimatedListItem';
 ```
 
 **Props:**
-- `index`: number - Item index (for staggered animations)
-- `onPress`: () => void - Press handler
+- `index`: number - Item index (for staggered animations, 100ms delay per item)
+- `onPress`: () => void - Optional press handler
 - `children`: ReactNode - Item content
 - `style`: ViewStyle - Custom style
 
 **Features:**
-- ✅ Staggered entrance animations
-- ✅ Press animations
+- ✅ Staggered entrance animations (100ms delay per item)
+- ✅ Press animations (scale on press)
+- ✅ Haptic feedback on press
 - ✅ Smooth transitions
+- ✅ Auto-disabled if no onPress handler
 
 ---
 
