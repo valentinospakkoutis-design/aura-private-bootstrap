@@ -128,17 +128,22 @@ import { AnimatedProgressBar } from '@/components/ui/AnimatedProgressBar';
 ```
 
 **Props:**
-- `progress`: number - Progress value (0-1)
-- `color`: string - Progress bar color
-- `height`: number - Bar height
-- `showLabel`: boolean - Show percentage label
-- `animated`: boolean - Enable smooth animations
+- `progress`: number - Progress value (0-1) (required)
+- `color`: string - Progress bar color (default: theme.colors.brand.primary)
+- `backgroundColor`: string - Track background color (default: theme.colors.ui.border)
+- `height`: number - Bar height in pixels (default: 8)
+- `showLabel`: boolean - Show percentage label below bar (default: false)
+- `animated`: boolean - Enable smooth spring animations (default: true)
 
 **Features:**
-- ✅ Smooth progress animations
-- ✅ Customizable colors
+- ✅ Smooth progress animations (spring physics)
+- ✅ Customizable colors (fill & background)
 - ✅ Optional percentage label
 - ✅ Configurable height
+- ✅ Rounded corners
+- ✅ Spring animation for natural feel
+
+**Note:** Το `progress` πρέπει να είναι μεταξύ 0 και 1. Το label δείχνει το rounded percentage (π.χ., 75% για progress 0.75).
 
 ---
 
