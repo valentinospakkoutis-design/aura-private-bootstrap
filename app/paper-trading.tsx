@@ -1,13 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
-import { useApi } from '@/hooks/useApi';
-import { api } from '@/services/apiClient';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoTrades } from '@/components/NoTrades';
-import { NoData } from '@/components/NoData';
-import { Button } from '@/components/Button';
-import { theme } from '@/constants/theme';
-import { useAppStore } from '@/stores/appStore';
+import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { useApi } from '../mobile/src/hooks/useApi';
+import { api } from '../mobile/src/services/apiClient';
+import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
+import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
+import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
+import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
+import { PageTransition } from '../mobile/src/components/PageTransition';
+import { NoTrades } from '../mobile/src/components/NoTrades';
+import { NoData } from '../mobile/src/components/NoData';
+import { Button } from '../mobile/src/components/Button';
+import { theme } from '../mobile/src/constants/theme';
+import { useAppStore } from '../mobile/src/stores/appStore';
 import { useRouter } from 'expo-router';
 
 interface PaperTrade {
@@ -99,17 +103,35 @@ export default function PaperTradingScreen() {
 
   // Loading state
   if ((loadingTrades || loadingStats) && !refreshing && !trades.length) {
-    return <LoadingSpinner fullScreen message="Φόρτωση Paper Trading..." />;
+    return (
+      <PageTransition type="fade">
+        <View style={styles.container}>
+          <View style={styles.content}>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </View>
+        </View>
+      </PageTransition>
+    );
   }
 
   // Error state (only if no cached data)
   if ((errorTrades || errorStats) && !trades.length && !stats) {
-    return <NoData onRetry={loadData} />;
+    return (
+      <PageTransition type="fade">
+        <NoData onRetry={loadData} />
+      </PageTransition>
+    );
   }
 
   // Empty state
   if (!trades || trades.length === 0) {
-    return <NoTrades />;
+    return (
+      <PageTransition type="fade">
+        <NoTrades />
+      </PageTransition>
+    );
   }
 
   // Safe profit color calculation
@@ -118,35 +140,44 @@ export default function PaperTradingScreen() {
     : theme.colors.market.bearish;
 
   return (
-    <ScrollView 
-      style={styles.container} 
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={theme.colors.brand.primary}
-        />
-      }
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Stats Card */}
+    <PageTransition type="slideUp">
+      <ScrollView 
+        style={styles.container} 
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.brand.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+      {/* Stats Card - ANIMATED */}
       {stats && (
-        <View style={styles.statsCard}>
+        <AnimatedCard delay={0} animationType="slideUp">
           <Text style={styles.statsTitle}>📊 Το Portfolio σου</Text>
           
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Συνολική Αξία</Text>
-              <Text style={styles.statValue}>
-                ${(stats.totalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Text>
+              <AnimatedCounter
+                value={stats.totalValue || 0}
+                decimals={2}
+                prefix="$"
+                duration={1500}
+                style={styles.statValue}
+              />
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Κέρδος/Ζημιά</Text>
-              <Text style={[styles.statValue, { color: profitColor }]}>
-                {stats.totalProfit >= 0 ? '+' : ''}${Math.abs(stats.totalProfit || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Text>
+              <AnimatedCounter
+                value={Math.abs(stats.totalProfit || 0)}
+                decimals={2}
+                prefix={stats.totalProfit >= 0 ? '+$' : '-$'}
+                duration={1500}
+                style={[styles.statValue, { color: profitColor }]}
+              />
               <Text style={[styles.statPercentage, { color: profitColor }]}>
                 ({stats.profitPercentage >= 0 ? '+' : ''}{(stats.profitPercentage || 0).toFixed(2)}%)
               </Text>
@@ -172,10 +203,10 @@ export default function PaperTradingScreen() {
             fullWidth
             style={styles.liveButton}
           />
-        </View>
+        </AnimatedCard>
       )}
 
-      {/* Trades List */}
+      {/* Trades List - SWIPEABLE */}
       <Text style={styles.sectionTitle}>Πρόσφατα Trades ({trades.length})</Text>
       {trades.map((trade) => {
         // Safe calculations with fallbacks
@@ -187,110 +218,109 @@ export default function PaperTradingScreen() {
           : theme.colors.market.bearish;
 
         return (
-          <TouchableOpacity 
-            key={trade.id} 
-            style={styles.tradeCard}
-            onPress={() => router.push(`/trade-details?id=${trade.id}`)}
-            activeOpacity={0.8}
+          <SwipeableCard
+            key={trade.id}
+            onDelete={trade.status === 'open' ? () => handleCloseTrade(trade.id) : undefined}
+            deleteText="Κλείσιμο"
           >
-            {/* Header */}
-            <View style={styles.tradeHeader}>
-              <View style={styles.tradeHeaderLeft}>
-                <Text style={styles.tradeAsset}>{trade.asset || 'Unknown'}</Text>
-                <Text style={styles.tradeTimestamp}>
-                  {trade.timestamp 
-                    ? new Date(trade.timestamp).toLocaleDateString('el-GR', {
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : 'N/A'
-                  }
-                </Text>
-              </View>
-              <View style={[
-                styles.tradeBadge,
-                { backgroundColor: tradeColor + '20' }
-              ]}>
-                <Text style={[styles.tradeAction, { color: tradeColor }]}>
-                  {trade.action === 'buy' ? '📈 BUY' : '📉 SELL'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Price Info */}
-            <View style={styles.tradeBody}>
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Ποσότητα:</Text>
-                <Text style={styles.priceValue}>
-                  {(trade.amount || 0).toFixed(4)} {trade.asset?.split('/')[0] || ''}
-                </Text>
-              </View>
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Τιμή Αγοράς:</Text>
-                <Text style={styles.priceValue}>
-                  ${(trade.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
-              {trade.status === 'open' && trade.currentPrice && (
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
-                  <Text style={[styles.priceValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
-                    ${trade.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <View style={styles.tradeCard}>
+              {/* Header */}
+              <View style={styles.tradeHeader}>
+                <View style={styles.tradeHeaderLeft}>
+                  <Text style={styles.tradeAsset}>{trade.asset || 'Unknown'}</Text>
+                  <Text style={styles.tradeTimestamp}>
+                    {trade.timestamp 
+                      ? new Date(trade.timestamp).toLocaleDateString('el-GR', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'N/A'
+                    }
                   </Text>
+                </View>
+                <View style={[
+                  styles.tradeBadge,
+                  { backgroundColor: tradeColor + '20' }
+                ]}>
+                  <Text style={[styles.tradeAction, { color: tradeColor }]}>
+                    {trade.action === 'buy' ? '📈 BUY' : '📉 SELL'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Price Info */}
+              <View style={styles.tradeBody}>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Ποσότητα:</Text>
+                  <Text style={styles.priceValue}>
+                    {(trade.amount || 0).toFixed(4)} {trade.asset?.split('/')[0] || ''}
+                  </Text>
+                </View>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Τιμή Αγοράς:</Text>
+                  <Text style={styles.priceValue}>
+                    ${(trade.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                {trade.status === 'open' && trade.currentPrice && (
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
+                    <Text style={[styles.priceValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
+                      ${trade.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Profit/Loss - ANIMATED */}
+              {trade.status === 'open' && (
+                <View style={styles.profitContainer}>
+                  <View style={styles.profitRow}>
+                    <Text style={styles.profitLabel}>P/L:</Text>
+                    <AnimatedCounter
+                      value={Math.abs(tradeProfit)}
+                      decimals={2}
+                      prefix={isProfit ? '+$' : '-$'}
+                      style={[styles.profitValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}
+                    />
+                    <Text style={[styles.profitPercentage, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
+                      ({isProfit ? '+' : ''}{tradeProfitPercentage.toFixed(2)}%)
+                    </Text>
+                  </View>
                 </View>
               )}
-            </View>
 
-            {/* Profit/Loss */}
-            {trade.status === 'open' && (
-              <View style={styles.profitContainer}>
-                <View style={styles.profitRow}>
-                  <Text style={styles.profitLabel}>P/L:</Text>
-                  <Text style={[styles.profitValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
-                    {isProfit ? '+' : ''}{tradeProfit.toFixed(2)} ({isProfit ? '+' : ''}{tradeProfitPercentage.toFixed(2)}%)
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* Status Badge */}
-            <View style={styles.statusContainer}>
-              <View style={[
-                styles.statusBadge,
-                { backgroundColor: trade.status === 'open' 
-                  ? theme.colors.semantic.success + '20' 
-                  : theme.colors.ui.border 
-                }
-              ]}>
-                <Text style={[
-                  styles.statusText,
-                  { color: trade.status === 'open' 
-                    ? theme.colors.semantic.success 
-                    : theme.colors.text.secondary 
+              {/* Status Badge */}
+              <View style={styles.statusContainer}>
+                <View style={[
+                  styles.statusBadge,
+                  { backgroundColor: trade.status === 'open' 
+                    ? theme.colors.semantic.success + '20' 
+                    : theme.colors.ui.border 
                   }
                 ]}>
-                  {trade.status === 'open' ? '🟢 Ανοιχτό' : '⚪ Κλειστό'}
-                </Text>
+                  <Text style={[
+                    styles.statusText,
+                    { color: trade.status === 'open' 
+                      ? theme.colors.semantic.success 
+                      : theme.colors.text.secondary 
+                    }
+                  ]}>
+                    {trade.status === 'open' ? '🟢 Ανοιχτό' : '⚪ Κλειστό'}
+                  </Text>
+                </View>
               </View>
-
-              {trade.status === 'open' && (
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  onPress={() => handleCloseTrade(trade.id)}
-                >
-                  <Text style={styles.closeButtonText}>Κλείσιμο</Text>
-                </TouchableOpacity>
-              )}
             </View>
-          </TouchableOpacity>
+          </SwipeableCard>
         );
       })}
 
       {/* Bottom Padding */}
       <View style={styles.bottomPadding} />
     </ScrollView>
+    </PageTransition>
   );
 }
 
@@ -430,6 +460,12 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.lg,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '700',
+  },
+  profitPercentage: {
+    fontSize: theme.typography.sizes.md,
+    fontFamily: theme.typography.fontFamily.mono,
+    fontWeight: '600',
+    marginLeft: theme.spacing.xs,
   },
   statusContainer: {
     flexDirection: 'row',
