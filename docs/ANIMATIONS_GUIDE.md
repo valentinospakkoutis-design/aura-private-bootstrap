@@ -261,6 +261,8 @@ Page transition wrapper για smooth screen transitions.
 **Usage:**
 ```tsx
 import { PageTransition } from '@/components/ui/PageTransition';
+// Or relative path:
+// import { PageTransition } from '../mobile/src/components/PageTransition';
 
 export default function MyScreen() {
   return (
