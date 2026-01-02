@@ -47,7 +47,8 @@
       },
       "android": {
         "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease"
+        "gradleCommand": ":app:assembleRelease",
+        "credentialsSource": "auto"
       },
       "channel": "staging"
     },
@@ -63,7 +64,8 @@
         "buildConfiguration": "Release"
       },
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "credentialsSource": "auto"
       },
       "channel": "preview"
     },
@@ -97,7 +99,8 @@
       "android": {
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease",
-        "autoIncrement": true
+        "autoIncrement": true,
+        "credentialsSource": "auto"
       },
       "channel": "production"
     }
