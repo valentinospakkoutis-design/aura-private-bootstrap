@@ -92,11 +92,11 @@ import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 ```
 
 **Props:**
-- `value`: number - Counter value
-- `prefix`: string - Optional prefix (e.g., "$")
-- `suffix`: string - Optional suffix (e.g., "%")
-- `decimals`: number - Decimal places
-- `duration`: number - Animation duration in ms
+- `value`: number - Counter value (required)
+- `prefix`: string - Optional prefix (e.g., "$", "€", "£") (default: "")
+- `suffix`: string - Optional suffix (e.g., "%", "kg", "m") (default: "")
+- `decimals`: number - Decimal places (default: 0)
+- `duration`: number - Animation duration in ms (default: 1000)
 - `style`: TextStyle - Custom text style
 
 **Features:**
@@ -104,6 +104,10 @@ import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 - ✅ Customizable duration
 - ✅ Prefix/suffix support
 - ✅ Decimal formatting
+- ✅ Monospace font for numbers
+- ✅ Built-in large font size
+
+**Note:** Το prefix/suffix μπορεί να είναι οποιοδήποτε string. Για currency symbols, χρησιμοποίησε `prefix="$"` (χωρίς escape character).
 
 ---
 
