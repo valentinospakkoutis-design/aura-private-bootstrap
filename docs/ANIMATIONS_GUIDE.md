@@ -357,10 +357,16 @@ animateWithSpring(1, { damping: 20, stiffness: 90 });
 
 ### 5. **Use Animated Counters**
 ```tsx
-// ✅ Good
+// ✅ Good - Smooth animated counter
 <AnimatedCounter value={balance} prefix="$" decimals={2} />
 
-// ❌ Bad
+// ✅ Good - With suffix
+<AnimatedCounter value={percentage} suffix="%" decimals={1} />
+
+// ✅ Good - Custom duration
+<AnimatedCounter value={count} duration={500} />
+
+// ❌ Bad - No animation
 <Text>${balance.toFixed(2)}</Text>
 ```
 
