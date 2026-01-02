@@ -128,16 +128,18 @@ export default function AIPredictionsScreen() {
         </View>
       </View>
 
-      {/* Confidence */}
+      {/* Confidence - ANIMATED PROGRESS BAR */}
       <View style={styles.confidenceContainer}>
-        <Text style={styles.confidenceLabel}>Βεβαιότητα AI:</Text>
+        <View style={styles.confidenceHeader}>
+          <Text style={styles.confidenceLabel}>Βεβαιότητα AI:</Text>
+          <Text style={styles.confidenceValue}>{(item.confidence * 100).toFixed(0)}%</Text>
+        </View>
         <AnimatedProgressBar
           progress={item.confidence}
           color={getActionColor(item.action)}
           height={8}
-          showLabel={false}
+          animated={true}
         />
-        <Text style={styles.confidenceValue}>{(item.confidence * 100).toFixed(0)}%</Text>
       </View>
 
       {/* Reasoning Preview */}
@@ -273,26 +275,19 @@ const styles = StyleSheet.create({
   confidenceContainer: {
     marginBottom: theme.spacing.md,
   },
+  confidenceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.xs,
+  },
   confidenceLabel: {
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
-    marginBottom: theme.spacing.xs,
-  },
-  confidenceBar: {
-    height: 8,
-    backgroundColor: theme.colors.ui.border,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: theme.spacing.xs,
-  },
-  confidenceFill: {
-    height: '100%',
-    borderRadius: 4,
   },
   confidenceValue: {
     fontSize: theme.typography.sizes.sm,
-    fontFamily: theme.typography.fontFamily.primary,
-    fontWeight: '600',
+    fontWeight: '700',
     color: theme.colors.text.primary,
   },
   reasoning: {
