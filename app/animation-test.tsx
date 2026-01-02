@@ -6,128 +6,164 @@ import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
 import { SkeletonLoader, SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
+import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { theme } from '../mobile/src/constants/theme';
 import { useAppStore } from '../mobile/src/stores/appStore';
 
 export default function AnimationTestScreen() {
   const { showToast } = useAppStore();
-  const [counter, setCounter] = useState(0);
+  const [counter, setCounter] = useState(1000);
   const [progress, setProgress] = useState(0.5);
 
   return (
     <PageTransition type="slideUp">
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>🎬 Animation Test Screen</Text>
+        <Text style={styles.title}>🎨 Animation Test Lab</Text>
 
-        {/* Animated Button */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Animated Button</Text>
+        {/* Animated Buttons */}
+        <AnimatedCard delay={0} animationType="slideUp">
+          <Text style={styles.sectionTitle}>Animated Buttons</Text>
           <AnimatedButton
-            title="Press Me"
-            onPress={() => {
-              setCounter(counter + 1);
-              showToast('Button pressed!', 'success');
-            }}
+            title="Primary Button"
+            onPress={() => showToast('Primary clicked!', 'success')}
             variant="primary"
             size="medium"
             fullWidth
+            style={styles.button}
           />
-        </View>
-
-        {/* Animated Card */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Animated Card</Text>
-          <AnimatedCard delay={0} animationType="slideUp">
-            <Text style={styles.cardText}>This is an animated card with slideUp animation</Text>
-          </AnimatedCard>
-          <AnimatedCard delay={100} animationType="fade">
-            <Text style={styles.cardText}>This is an animated card with fade animation</Text>
-          </AnimatedCard>
-          <AnimatedCard delay={200} animationType="scale">
-            <Text style={styles.cardText}>This is an animated card with scale animation</Text>
-          </AnimatedCard>
-        </View>
+          <AnimatedButton
+            title="Secondary Button"
+            onPress={() => showToast('Secondary clicked!', 'info')}
+            variant="secondary"
+            size="medium"
+            fullWidth
+            style={styles.button}
+          />
+          <AnimatedButton
+            title="Gradient Button"
+            onPress={() => showToast('Gradient clicked!', 'success')}
+            variant="gradient"
+            size="medium"
+            fullWidth
+            style={styles.button}
+          />
+          <AnimatedButton
+            title="Danger Button"
+            onPress={() => showToast('Danger clicked!', 'error')}
+            variant="danger"
+            size="medium"
+            fullWidth
+            style={styles.button}
+          />
+        </AnimatedCard>
 
         {/* Animated Counter */}
-        <View style={styles.section}>
+        <AnimatedCard delay={100} animationType="slideUp">
           <Text style={styles.sectionTitle}>Animated Counter</Text>
           <View style={styles.counterContainer}>
             <AnimatedCounter
               value={counter}
-              prefix="Count: "
-              duration={500}
-              style={styles.counterText}
+              decimals={2}
+              prefix="$"
+              style={styles.counterValue}
             />
           </View>
-          <AnimatedButton
-            title="Increment Counter"
-            onPress={() => setCounter(counter + 1)}
-            variant="secondary"
-            size="small"
-            fullWidth
-          />
-        </View>
+          <View style={styles.counterButtons}>
+            <AnimatedButton
+              title="+100"
+              onPress={() => setCounter((prev) => prev + 100)}
+              variant="primary"
+              size="small"
+            />
+            <AnimatedButton
+              title="+1000"
+              onPress={() => setCounter((prev) => prev + 1000)}
+              variant="primary"
+              size="small"
+            />
+            <AnimatedButton
+              title="Reset"
+              onPress={() => setCounter(0)}
+              variant="secondary"
+              size="small"
+            />
+          </View>
+        </AnimatedCard>
 
         {/* Animated Progress Bar */}
-        <View style={styles.section}>
+        <AnimatedCard delay={200} animationType="slideUp">
           <Text style={styles.sectionTitle}>Animated Progress Bar</Text>
           <AnimatedProgressBar
             progress={progress}
             color={theme.colors.brand.primary}
             height={12}
-            showLabel={true}
+            showLabel
+            animated
           />
-          <View style={styles.progressControls}>
+          <View style={styles.progressButtons}>
             <AnimatedButton
               title="0%"
               onPress={() => setProgress(0)}
-              variant="ghost"
+              variant="secondary"
               size="small"
             />
             <AnimatedButton
               title="50%"
               onPress={() => setProgress(0.5)}
-              variant="ghost"
+              variant="secondary"
               size="small"
             />
             <AnimatedButton
               title="100%"
               onPress={() => setProgress(1)}
-              variant="ghost"
+              variant="secondary"
               size="small"
             />
           </View>
-        </View>
+        </AnimatedCard>
 
-        {/* Skeleton Loader */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Skeleton Loader</Text>
-          <SkeletonLoader width="100%" height={40} />
-          <SkeletonLoader width="80%" height={20} style={styles.skeletonMargin} />
-          <SkeletonLoader width="60%" height={20} style={styles.skeletonMargin} />
-          <SkeletonCard />
-        </View>
+        {/* Skeleton Loaders */}
+        <AnimatedCard delay={300} animationType="slideUp">
+          <Text style={styles.sectionTitle}>Skeleton Loaders</Text>
+          <SkeletonLoader width="100%" height={20} style={styles.skeleton} />
+          <SkeletonLoader width="80%" height={20} style={styles.skeleton} />
+          <SkeletonLoader width="60%" height={20} style={styles.skeleton} />
+        </AnimatedCard>
 
-        {/* Swipeable Card */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Swipeable Card</Text>
+        {/* Swipeable Cards */}
+        <Text style={styles.sectionTitle}>Swipeable Cards (Swipe Left)</Text>
+        {[1, 2, 3].map((item, index) => (
           <SwipeableCard
-            onDelete={() => {
-              showToast('Card deleted!', 'success');
-            }}
+            key={item}
+            onDelete={() => showToast(`Card ${item} deleted!`, 'success')}
             deleteText="Διαγραφή"
           >
-            <Text style={styles.cardText}>Swipe left to delete this card</Text>
+            <View style={styles.swipeableContent}>
+              <Text style={styles.swipeableTitle}>Swipeable Card {item}</Text>
+              <Text style={styles.swipeableDescription}>
+                Swipe left to delete this card
+              </Text>
+            </View>
           </SwipeableCard>
-        </View>
+        ))}
 
-        {/* Info */}
-        <View style={styles.infoSection}>
-          <Text style={styles.infoText}>
-            This screen is for testing all animated components. Use it to verify animations work correctly.
-          </Text>
-        </View>
+        {/* Animated List Items */}
+        <Text style={styles.sectionTitle}>Animated List Items (Staggered)</Text>
+        {['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'].map((item, index) => (
+          <AnimatedListItem
+            key={item}
+            index={index}
+            onPress={() => showToast(`${item} clicked!`, 'info')}
+          >
+            <View style={styles.listItem}>
+              <Text style={styles.listItemText}>{item}</Text>
+              <Text style={styles.listItemArrow}>→</Text>
+            </View>
+          </AnimatedListItem>
+        ))}
+
+        <View style={styles.bottomPadding} />
       </ScrollView>
     </PageTransition>
   );
@@ -140,6 +176,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: theme.spacing.md,
+    paddingBottom: theme.spacing.xl * 2,
   },
   title: {
     fontSize: theme.typography.sizes['3xl'],
@@ -148,49 +185,74 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
     textAlign: 'center',
   },
-  section: {
-    marginBottom: theme.spacing.xl,
-  },
   sectionTitle: {
-    fontSize: theme.typography.sizes.xl,
+    fontSize: theme.typography.sizes.lg,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.md,
+    marginTop: theme.spacing.md,
   },
-  cardText: {
-    fontSize: theme.typography.sizes.md,
-    color: theme.colors.text.primary,
+  button: {
+    marginBottom: theme.spacing.sm,
   },
   counterContainer: {
-    backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
     alignItems: 'center',
+    paddingVertical: theme.spacing.xl,
+    backgroundColor: theme.colors.ui.background,
+    borderRadius: theme.borderRadius.large,
+    marginBottom: theme.spacing.md,
   },
-  counterText: {
-    fontSize: theme.typography.sizes['3xl'],
+  counterValue: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: theme.colors.brand.primary,
   },
-  progressControls: {
+  counterButtons: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: theme.spacing.md,
     gap: theme.spacing.sm,
   },
-  skeletonMargin: {
-    marginTop: theme.spacing.sm,
-  },
-  infoSection: {
-    backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.lg,
+  progressButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: theme.spacing.sm,
     marginTop: theme.spacing.md,
   },
-  infoText: {
+  skeleton: {
+    marginBottom: theme.spacing.sm,
+  },
+  swipeableContent: {
+    padding: theme.spacing.md,
+  },
+  swipeableTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  swipeableDescription: {
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
-    lineHeight: 20,
-    textAlign: 'center',
+  },
+  listItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.ui.cardBackground,
+    padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.large,
+  },
+  listItemText: {
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  listItemArrow: {
+    fontSize: 18,
+    color: theme.colors.text.secondary,
+  },
+  bottomPadding: {
+    height: theme.spacing.xl,
   },
 });
 
