@@ -301,30 +301,88 @@ export default function MyScreen() {
 
 Το AURA χρησιμοποιεί **AnimationPresets** για consistent animations across the app.
 
-### Timing Presets
+### Import
 ```tsx
 import { ANIMATION_PRESETS } from '@/utils/AnimationPresets';
+// Or relative path:
+// import { ANIMATION_PRESETS } from '../mobile/src/utils/AnimationPresets';
+```
 
+### Timing Presets
+```tsx
 ANIMATION_PRESETS.timing.fast      // 200ms
-ANIMATION_PRESETS.timing.normal    // 400ms
+ANIMATION_PRESETS.timing.normal    // 400ms (default)
 ANIMATION_PRESETS.timing.slow       // 600ms
 ANIMATION_PRESETS.timing.verySlow   // 1000ms
 ```
 
+**Usage:**
+```tsx
+withTiming(value, {
+  duration: ANIMATION_PRESETS.timing.normal,
+  easing: ANIMATION_PRESETS.easing.easeOut,
+});
+```
+
 ### Spring Presets
 ```tsx
-ANIMATION_PRESETS.spring.gentle    // Gentle bounce
-ANIMATION_PRESETS.spring.bouncy     // Bouncy animation
-ANIMATION_PRESETS.spring.stiff      // Stiff animation
-ANIMATION_PRESETS.spring.slow       // Slow animation
+ANIMATION_PRESETS.spring.gentle    // Smooth & natural (damping: 20, stiffness: 90)
+ANIMATION_PRESETS.spring.bouncy     // Playful bounce (damping: 10, stiffness: 100)
+ANIMATION_PRESETS.spring.stiff      // Quick & snappy (damping: 15, stiffness: 300)
+ANIMATION_PRESETS.spring.slow       // Slow animation (damping: 30, stiffness: 50)
+```
+
+**Usage:**
+```tsx
+withSpring(value, ANIMATION_PRESETS.spring.gentle);
 ```
 
 ### Easing Presets
 ```tsx
 ANIMATION_PRESETS.easing.easeIn     // Ease in
-ANIMATION_PRESETS.easing.easeOut    // Ease out
+ANIMATION_PRESETS.easing.easeOut    // Ease out (most common)
 ANIMATION_PRESETS.easing.easeInOut  // Ease in-out
-ANIMATION_PRESETS.easing.linear     // Linear
+ANIMATION_PRESETS.easing.linear     // Linear (constant speed)
+ANIMATION_PRESETS.easing.bounce     // Bounce effect
+ANIMATION_PRESETS.easing.elastic    // Elastic effect
+ANIMATION_PRESETS.easing.back       // Back effect (overshoot)
+ANIMATION_PRESETS.easing.bezier     // Custom bezier curve
+```
+
+**Usage:**
+```tsx
+withTiming(value, {
+  duration: 400,
+  easing: ANIMATION_PRESETS.easing.easeOut,
+});
+```
+
+### Common Animation Configs
+```tsx
+ANIMATION_PRESETS.configs.fadeIn    // { duration: 400, easing: Easing.out(Easing.cubic) }
+ANIMATION_PRESETS.configs.slideIn   // { damping: 20, stiffness: 90 }
+ANIMATION_PRESETS.configs.scaleIn   // { damping: 15, stiffness: 100 }
+ANIMATION_PRESETS.configs.button    // { damping: 15, stiffness: 300 }
+```
+
+**Usage:**
+```tsx
+// For timing animations
+withTiming(value, ANIMATION_PRESETS.configs.fadeIn);
+
+// For spring animations
+withSpring(value, ANIMATION_PRESETS.configs.slideIn);
+```
+
+### Helper Functions
+```tsx
+import { getStaggerDelay, interpolateColor } from '@/utils/AnimationPresets';
+
+// Calculate stagger delay for list items
+const delay = getStaggerDelay(index, 100); // index * 100ms
+
+// Interpolate colors
+const color = interpolateColor(progress, [0, 1], ['#000', '#fff']);
 ```
 
 ---
