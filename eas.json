@@ -48,7 +48,7 @@
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
-        "credentialsSource": "auto"
+        "credentialsSource": "remote"
       },
       "channel": "staging"
     },
@@ -65,7 +65,7 @@
       },
       "android": {
         "buildType": "apk",
-        "credentialsSource": "auto"
+        "credentialsSource": "remote"
       },
       "channel": "preview"
     },
@@ -100,7 +100,7 @@
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease",
         "autoIncrement": true,
-        "credentialsSource": "auto"
+        "credentialsSource": "remote"
       },
       "channel": "production"
     }
