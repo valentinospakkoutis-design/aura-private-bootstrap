@@ -217,14 +217,26 @@ import { SwipeableCard } from '@/components/ui/SwipeableCard';
 ```
 
 **Props:**
-- `onDelete`: () => void - Delete handler
-- `deleteText`: string - Delete button text
+- `onDelete`: () => void - Delete handler (optional, card is swipeable even without handler)
+- `deleteText`: string - Delete button text (default: "Διαγραφή")
 - `children`: ReactNode - Card content
 
 **Features:**
-- ✅ Swipe-to-delete gesture
-- ✅ Smooth swipe animations
+- ✅ Swipe-to-delete gesture (left swipe only)
+- ✅ Smooth swipe animations (spring physics)
 - ✅ Customizable delete text
+- ✅ Haptic feedback on delete
+- ✅ Swipe threshold (30% of screen width)
+- ✅ Auto-snap back if threshold not reached
+- ✅ Built-in card styling
+- ✅ Delete background indicator
+
+**Behavior:**
+- Swipe left to reveal delete button
+- Swipe threshold: 30% of screen width
+- If threshold reached: card animates out and `onDelete` is called
+- If threshold not reached: card snaps back with spring animation
+- Haptic feedback on successful delete
 
 ---
 
