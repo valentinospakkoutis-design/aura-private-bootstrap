@@ -9,7 +9,7 @@ import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
 import { AnimatedButton } from '../mobile/src/components/AnimatedButton';
 import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
-import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
+import { Button } from '../mobile/src/components/Button';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoTrades } from '../mobile/src/components/NoTrades';
@@ -17,6 +17,7 @@ import { NoData } from '../mobile/src/components/NoData';
 import { theme } from '../mobile/src/constants/theme';
 import { NumberFormatter } from '../mobile/src/utils/NumberFormatter';
 import { DateFormatter } from '../mobile/src/utils/DateFormatter';
+import { Alert } from 'react-native';
 
 interface LiveTrade {
   id: string;
@@ -100,11 +101,11 @@ export default function LiveTradingScreen() {
   const handleCloseTrade = useCallback((tradeId: string) => {
     showModal(
       '⚠️ Κλείσιμο Live Trade',
-      'Είσαι σίγουρος ότι θέλεις να κλείσεις αυτό το trade; Αυτό θα εκτελεστεί με ΠΡΑΓΜΑΤΙΚΑ χρήματα!',
+      'Είσαι σίγουρος ότι θέλεις να κλείσεις αυτό το πραγματικό trade; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
       async () => {
         try {
           await closeTrade(tradeId);
-          showToast('Το trade έκλεισε επιτυχώς! 💰', 'success');
+          showToast('Το trade έκλεισε επιτυχώς!', 'success');
           await loadData();
         } catch (err) {
           showToast('Αποτυχία κλεισίματος trade', 'error');
@@ -113,9 +114,21 @@ export default function LiveTradingScreen() {
     );
   }, [closeTrade, showModal, showToast, loadData]);
 
-  const handleNavigateToPaperTrading = () => {
-    router.push('/paper-trading');
-  };
+  const handleSwitchToPaper = useCallback(() => {
+    Alert.alert(
+      'Επιστροφή σε Paper Trading',
+      'Θέλεις να επιστρέψεις σε Paper Trading mode;',
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Επιστροφή',
+          onPress: () => {
+            router.push('/paper-trading');
+          },
+        },
+      ]
+    );
+  }, [router]);
 
   // Check if user has connected brokers
   const hasConnectedBrokers = brokers && brokers.some((b) => b.connected);
@@ -192,16 +205,21 @@ export default function LiveTradingScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Warning Banner */}
-        <AnimatedCard delay={0} animationType="slideUp">
-          <View style={styles.warningBanner}>
+        <AnimatedCard delay={0} animationType="slideUp" style={styles.warningBanner}>
+          <View style={styles.warningHeader}>
             <Text style={styles.warningIcon}>⚠️</Text>
-            <View style={styles.warningContent}>
-              <Text style={styles.warningTitle}>Live Trading Mode</Text>
-              <Text style={styles.warningText}>
-                Αυτά τα trades γίνονται με ΠΡΑΓΜΑΤΙΚΑ χρήματα. Κάνε προσεκτικές αποφάσεις!
-              </Text>
-            </View>
+            <Text style={styles.warningTitle}>Live Trading Mode</Text>
           </View>
+          <Text style={styles.warningText}>
+            Βρίσκεσαι σε LIVE mode. Όλα τα trades γίνονται με πραγματικά χρήματα.
+          </Text>
+          <Button
+            title="Επιστροφή σε Paper Trading"
+            onPress={handleSwitchToPaper}
+            variant="secondary"
+            size="small"
+            fullWidth
+          />
         </AnimatedCard>
 
         {/* Stats Card */}
@@ -256,27 +274,20 @@ export default function LiveTradingScreen() {
               </View>
             </View>
 
-            {/* Paper Trading CTA */}
-            <View style={styles.paperTradingCTA}>
-              <Text style={styles.ctaText}>
-                💡 Θέλεις να δοκιμάσεις χωρίς ρίσκο;
-              </Text>
-              <AnimatedButton
-                title="Δοκίμασε Paper Trading"
-                onPress={handleNavigateToPaperTrading}
-                variant="secondary"
-                size="small"
-                fullWidth
-              />
-            </View>
           </AnimatedCard>
         )}
 
         {/* Trades List */}
-        <Text style={styles.sectionTitle}>Ενεργά Trades ({trades.filter(t => t.status === 'open').length})</Text>
-        {trades
-          .filter(trade => trade.status === 'open')
-          .map((trade, index) => {
+        {trades.length === 0 ? (
+          <NoTrades />
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>
+              Ενεργά Trades ({trades.filter(t => t.status === 'open').length})
+            </Text>
+            {trades
+              .filter(trade => trade.status === 'open')
+              .map((trade, index) => {
             const tradeProfit = trade.profit || 0;
             const tradeProfitPercentage = trade.profitPercentage || 0;
             const isProfit = tradeProfit >= 0;
@@ -290,51 +301,39 @@ export default function LiveTradingScreen() {
                 onDelete={() => handleCloseTrade(trade.id)}
                 deleteText="Κλείσιμο"
               >
-                <AnimatedListItem
-                  index={index}
-                  onPress={() => router.push(`/trade-details?id=${trade.id}`)}
-                  style={styles.tradeCard}
-                >
+                <View style={styles.tradeCard}>
                   {/* Header */}
                   <View style={styles.tradeHeader}>
-                    <View style={styles.tradeHeaderLeft}>
-                      <Text style={styles.tradeAsset}>{trade.asset || 'Unknown'}</Text>
+                    <View style={styles.tradeInfo}>
+                      <Text style={styles.tradeAsset}>{trade.asset}</Text>
                       <Text style={styles.tradeTimestamp}>
                         {DateFormatter.toRelativeTime(trade.timestamp)}
                       </Text>
                     </View>
                     <View style={[styles.tradeBadge, { backgroundColor: tradeColor + '20' }]}>
                       <Text style={[styles.tradeAction, { color: tradeColor }]}>
-                        {trade.action === 'buy' ? '📈 BUY' : '📉 SELL'}
+                        {trade.action.toUpperCase()}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Price Info */}
+                  {/* Body */}
                   <View style={styles.tradeBody}>
                     <View style={styles.priceRow}>
-                      <Text style={styles.priceLabel}>Ποσότητα:</Text>
+                      <Text style={styles.priceLabel}>Entry:</Text>
                       <Text style={styles.priceValue}>
-                        {NumberFormatter.toCompact(trade.amount || 0)} {trade.asset?.split('/')[0] || ''}
+                        {NumberFormatter.toCurrency(trade.entryPrice)}
                       </Text>
                     </View>
                     <View style={styles.priceRow}>
-                      <Text style={styles.priceLabel}>Τιμή Εισόδου:</Text>
-                      <AnimatedCounter
-                        value={trade.entryPrice || 0}
-                        decimals={2}
-                        prefix="$"
-                        style={styles.priceValue}
-                      />
+                      <Text style={styles.priceLabel}>Current:</Text>
+                      <Text style={styles.priceValue}>
+                        {NumberFormatter.toCurrency(trade.currentPrice)}
+                      </Text>
                     </View>
                     <View style={styles.priceRow}>
-                      <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
-                      <AnimatedCounter
-                        value={trade.currentPrice || 0}
-                        decimals={2}
-                        prefix="$"
-                        style={[styles.priceValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}
-                      />
+                      <Text style={styles.priceLabel}>Amount:</Text>
+                      <Text style={styles.priceValue}>{trade.amount}</Text>
                     </View>
                   </View>
 
@@ -342,57 +341,54 @@ export default function LiveTradingScreen() {
                   <View style={styles.profitContainer}>
                     <View style={styles.profitRow}>
                       <Text style={styles.profitLabel}>P/L:</Text>
-                      <AnimatedCounter
-                        value={tradeProfit}
-                        decimals={2}
-                        prefix={isProfit ? '+$' : '-$'}
-                        style={[styles.profitValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}
-                      />
-                      <Text style={[styles.profitPercentage, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
-                        ({isProfit ? '+' : ''}{tradeProfitPercentage.toFixed(2)}%)
-                      </Text>
+                      <View style={styles.profitValues}>
+                        <AnimatedCounter
+                          value={Math.abs(tradeProfit)}
+                          decimals={2}
+                          prefix={isProfit ? '+$' : '-$'}
+                          style={[styles.profitValue, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}
+                        />
+                        <Text style={[styles.profitPercentage, { color: isProfit ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
+                          ({isProfit ? '+' : ''}{tradeProfitPercentage.toFixed(2)}%)
+                        </Text>
+                      </View>
                     </View>
+                    <AnimatedProgressBar
+                      progress={Math.min(Math.abs(tradeProfitPercentage) / 100, 1)}
+                      color={isProfit ? theme.colors.market.bullish : theme.colors.market.bearish}
+                      height={6}
+                      animated
+                    />
                   </View>
 
                   {/* Stop Loss / Take Profit */}
                   {(trade.stopLoss || trade.takeProfit) && (
-                    <View style={styles.riskManagement}>
+                    <View style={styles.limitsContainer}>
                       {trade.stopLoss && (
-                        <View style={styles.riskItem}>
-                          <Text style={styles.riskLabel}>Stop Loss:</Text>
-                          <Text style={[styles.riskValue, { color: theme.colors.semantic.error }]}>
-                            ${trade.stopLoss.toFixed(2)}
+                        <View style={styles.limitItem}>
+                          <Text style={styles.limitLabel}>Stop Loss:</Text>
+                          <Text style={[styles.limitValue, { color: theme.colors.semantic.error }]}>
+                            {NumberFormatter.toCurrency(trade.stopLoss)}
                           </Text>
                         </View>
                       )}
                       {trade.takeProfit && (
-                        <View style={styles.riskItem}>
-                          <Text style={styles.riskLabel}>Take Profit:</Text>
-                          <Text style={[styles.riskValue, { color: theme.colors.semantic.success }]}>
-                            ${trade.takeProfit.toFixed(2)}
+                        <View style={styles.limitItem}>
+                          <Text style={styles.limitLabel}>Take Profit:</Text>
+                          <Text style={[styles.limitValue, { color: theme.colors.semantic.success }]}>
+                            {NumberFormatter.toCurrency(trade.takeProfit)}
                           </Text>
                         </View>
                       )}
                     </View>
                   )}
-
-                  {/* Progress Bar */}
-                  {trade.stopLoss && trade.takeProfit && (
-                    <View style={styles.progressContainer}>
-                      <AnimatedProgressBar
-                        progress={Math.max(0, Math.min(1, (trade.currentPrice - trade.stopLoss) / (trade.takeProfit - trade.stopLoss)))}
-                        color={isProfit ? theme.colors.market.bullish : theme.colors.market.bearish}
-                        height={6}
-                        showLabel={false}
-                      />
-                    </View>
-                  )}
-                </AnimatedListItem>
+                </View>
               </SwipeableCard>
             );
           })}
+          </>
+        )}
 
-        {/* Bottom Padding */}
         <View style={styles.bottomPadding} />
       </ScrollView>
     </PageTransition>
@@ -432,29 +428,29 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   warningBanner: {
+    backgroundColor: theme.colors.semantic.warning + '15',
+    borderWidth: 2,
+    borderColor: theme.colors.semantic.warning,
+  },
+  warningHeader: {
     flexDirection: 'row',
-    backgroundColor: theme.colors.semantic.warning + '20',
-    borderRadius: theme.borderRadius.large,
-    padding: theme.spacing.md,
     alignItems: 'center',
+    marginBottom: theme.spacing.sm,
   },
   warningIcon: {
-    fontSize: 32,
-    marginRight: theme.spacing.md,
-  },
-  warningContent: {
-    flex: 1,
+    fontSize: 24,
+    marginRight: theme.spacing.sm,
   },
   warningTitle: {
     fontSize: theme.typography.sizes.lg,
     fontWeight: '700',
     color: theme.colors.semantic.warning,
-    marginBottom: theme.spacing.xs,
   },
   warningText: {
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
     lineHeight: 20,
+    marginBottom: theme.spacing.md,
   },
   statsTitle: {
     fontSize: theme.typography.sizes.xl,
@@ -510,18 +506,6 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
   },
-  paperTradingCTA: {
-    marginTop: theme.spacing.lg,
-    paddingTop: theme.spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.ui.border,
-  },
-  ctaText: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
-    marginBottom: theme.spacing.sm,
-    textAlign: 'center',
-  },
   sectionTitle: {
     fontSize: theme.typography.sizes.lg,
     fontWeight: '700',
@@ -541,7 +525,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: theme.spacing.md,
   },
-  tradeHeaderLeft: {
+  tradeInfo: {
     flex: 1,
   },
   tradeAsset: {
@@ -592,11 +576,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: theme.spacing.sm,
   },
   profitLabel: {
     fontSize: theme.typography.sizes.md,
     fontWeight: '600',
     color: theme.colors.text.secondary,
+  },
+  profitValues: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
   },
   profitValue: {
     fontSize: theme.typography.sizes.lg,
@@ -608,24 +598,24 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '600',
   },
-  riskManagement: {
+  limitsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: theme.spacing.md,
+    marginTop: theme.spacing.md,
     gap: theme.spacing.md,
   },
-  riskItem: {
+  limitItem: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.sm,
     borderRadius: theme.borderRadius.medium,
   },
-  riskLabel: {
+  limitLabel: {
     fontSize: theme.typography.sizes.xs,
     color: theme.colors.text.secondary,
     marginBottom: theme.spacing.xs,
   },
-  riskValue: {
+  limitValue: {
     fontSize: theme.typography.sizes.sm,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '600',
