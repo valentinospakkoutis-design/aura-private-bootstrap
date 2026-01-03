@@ -95,10 +95,11 @@ export default {
       // Environment variables from .env files
       // Access via Constants.expoConfig.extra
       environment: process.env.EXPO_PUBLIC_ENVIRONMENT || (process.env.NODE_ENV !== 'production' ? 'development' : 'production'),
-      // API URL: Set via environment variable or use production default
+      // API URL: Set via environment variable from eas.json or use production default
       // For standalone builds, this should be your production API URL
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://api.aura.app' : undefined),
-      wsUrl: process.env.EXPO_PUBLIC_WS_URL || (process.env.NODE_ENV === 'production' ? 'wss://api.aura.app/ws' : undefined),
+      // EAS build sets EXPO_PUBLIC_API_URL from eas.json env variables
+      apiUrl: process.env.EXPO_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://web-production-5a28a.up.railway.app' : undefined),
+      wsUrl: process.env.EXPO_PUBLIC_WS_URL || (process.env.NODE_ENV === 'production' ? 'wss://web-production-5a28a.up.railway.app/ws' : undefined),
       enableAnalytics: process.env.EXPO_PUBLIC_ENABLE_ANALYTICS === 'true',
       enableCrashReporting: process.env.EXPO_PUBLIC_ENABLE_CRASH_REPORTING === 'true',
     },
