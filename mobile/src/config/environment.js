@@ -40,12 +40,12 @@ const ENVIRONMENTS = {
   production: {
     // ⚠️ IMPORTANT: Production API URL
     // Priority 1: From Constants.expoConfig.extra.apiUrl (from app.config.js, which reads from eas.json)
-    // Priority 2: Fallback to production URL
+    // Priority 2: Fallback to Railway URL
     // Note: process.env.EXPO_PUBLIC_API_URL is NOT available at runtime, only at build time
     // The value is passed through app.config.js -> Constants.expoConfig.extra.apiUrl
     // See: APK_FIX_GUIDE.md for detailed instructions
     apiUrl: Constants.expoConfig?.extra?.apiUrl || 
-            'https://api.aura.com', // ⚠️ PLACEHOLDER - Update with real production URL
+            'https://web-production-5a28a.up.railway.app', // Railway production URL
     apiTimeout: 20000,
     enableLogging: false,
     enableCache: true,
