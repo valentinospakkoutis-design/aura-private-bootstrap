@@ -47,7 +47,7 @@ export default function PaperTradingScreen() {
     loading: loadingTrades,
     error: errorTrades,
     execute: fetchTrades,
-  } = useApi(api.getTrades, { showLoading: false, showToast: false });
+  } = useApi(api.getPaperTrades, { showLoading: false, showToast: false });
 
   const {
     loading: loadingStats,

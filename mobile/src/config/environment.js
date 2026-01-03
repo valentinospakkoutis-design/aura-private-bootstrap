@@ -67,6 +67,17 @@ export const config = {
 
 // Smart API URL detection (backward compatible)
 export const getApiBaseUrl = () => {
+  // Check for explicit API URL from environment
+  if (typeof process !== 'undefined' && process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  
+  // For development, use your local IP: 192.168.178.97
+  // Update this if your IP changes
+  const devApiUrl = 'http://192.168.178.97:8000';
+  
+  // Return development URL by default
+  return devApiUrl;
   // Priority 1: Use environment config (already includes Constants.expoConfig.extra.apiUrl)
   if (config.apiUrl && config.apiUrl !== 'https://api.aura.com') {
     return config.apiUrl;

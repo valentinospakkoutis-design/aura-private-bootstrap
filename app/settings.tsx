@@ -11,6 +11,7 @@ import { PageTransition } from '../mobile/src/components/PageTransition';
 import { useTheme } from '../mobile/src/context/ThemeContext';
 import { useBiometrics } from '../mobile/src/hooks/useBiometrics';
 import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
+import { lightTheme } from '../mobile/src/constants/theme';
 import * as Haptics from 'expo-haptics';
 
 type RiskProfile = 'conservative' | 'moderate' | 'aggressive';
@@ -19,6 +20,9 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { user, setUser, showToast, showModal } = useAppStore();
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
+  
+  // Create styles with current theme
+  const styles = createStyles(theme);
   
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [paperTradingMode, setPaperTradingMode] = useState(true);
@@ -522,7 +526,8 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+// Styles function - needs theme as parameter
+const createStyles = (theme: typeof lightTheme) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,

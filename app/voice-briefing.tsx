@@ -73,11 +73,16 @@ export default function VoiceBriefingScreen() {
   const loadBriefing = async () => {
     try {
       const data = await fetchBriefing();
-      if (data?.url) {
-        setBriefingUrl(data.url);
+      // Backend returns briefing object with sections, not url
+      // For now, just log it - audio generation would need backend endpoint
+      if (data) {
+        console.log('Briefing loaded:', data.briefing_id || 'briefing');
+        // TODO: Generate audio from briefing text if needed
+        // setBriefingUrl(data.url);
       }
     } catch (err) {
       console.error('Failed to load briefing:', err);
+      showToast('Αποτυχία φόρτωσης briefing', 'error');
     }
   };
 

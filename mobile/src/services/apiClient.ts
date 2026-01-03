@@ -91,13 +91,29 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/predictions');
-    await cacheService.set(CACHE_KEYS.PREDICTIONS, response.data, CACHE_TTL.MEDIUM);
-    return response.data;
+    const response = await this.client.get('/api/ai/predictions');
+    // Backend returns {predictions: {...}} - convert to array
+    const data = response.data;
+    let predictionsArray;
+    if (data && data.predictions && typeof data.predictions === 'object') {
+      // Convert object to array
+      predictionsArray = Object.values(data.predictions);
+    } else if (Array.isArray(data)) {
+      predictionsArray = data;
+    } else {
+      predictionsArray = [];
+    }
+    await cacheService.set(CACHE_KEYS.PREDICTIONS, predictionsArray, CACHE_TTL.MEDIUM);
+    return predictionsArray;
   }
 
   async getPredictionById(id: string) {
-    const response = await this.client.get(`/predictions/${id}`);
+    const response = await this.client.get(`/api/ai/predict/${id}`);
+    return response.data;
+  }
+
+  async getPredictionBySymbol(symbol: string, days: number = 7) {
+    const response = await this.client.get(`/api/ai/predict/${symbol}?days=${days}`);
     return response.data;
   }
 
@@ -111,13 +127,13 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/brokers');
+    const response = await this.client.get('/api/brokers/status');
     await cacheService.set(CACHE_KEYS.BROKERS, response.data, CACHE_TTL.LONG);
     return response.data;
   }
 
   async connectBroker(brokerName: string, apiKey: string, apiSecret: string) {
-    const response = await this.client.post('/brokers/connect', {
+    const response = await this.client.post('/api/brokers/connect', {
       broker_name: brokerName,
       api_key: apiKey,
       api_secret: apiSecret,
@@ -136,7 +152,7 @@ class ApiClient {
 
   // Trades
   async getTrades(limit: number = 50) {
-    const response = await this.client.get(`/trades?limit=${limit}`);
+    const response = await this.client.get(`/api/trading/positions`);
     return response.data;
   }
 
@@ -150,13 +166,23 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/paper-trades');
-    await cacheService.set(CACHE_KEYS.PAPER_TRADES, response.data, CACHE_TTL.SHORT);
-    return response.data;
+    // Get portfolio and history
+    const [portfolioResponse, historyResponse] = await Promise.all([
+      this.client.get('/api/paper-trading/portfolio').catch(() => ({ data: { positions: [], total_value: 0 } })),
+      this.client.get('/api/paper-trading/history').catch(() => ({ data: { trades: [] } }))
+    ]);
+    
+    // Combine portfolio positions with history
+    const portfolio = portfolioResponse.data || {};
+    const history = historyResponse.data || {};
+    const trades = history.trades || portfolio.positions || [];
+    
+    await cacheService.set(CACHE_KEYS.PAPER_TRADES, trades, CACHE_TTL.SHORT);
+    return trades;
   }
 
   async executeTrade(asset: string, action: 'buy' | 'sell', amount: number) {
-    const response = await this.client.post('/trades/execute', {
+    const response = await this.client.post('/api/brokers/order', {
       asset,
       action,
       amount,
@@ -185,14 +211,24 @@ class ApiClient {
   }
 
   async getVoiceBriefing() {
-    const response = await this.client.get('/voice/briefing');
-    return response.data;
+    const response = await this.client.get('/api/voice/briefing');
+    const data = response.data;
+    // Backend returns briefing object with sections, but app expects url
+    // Return the data as-is, component will handle it
+    return data;
   }
 
   // Analytics
   async getPortfolioStats() {
-    const response = await this.client.get('/analytics/portfolio');
-    return response.data;
+    // Try paper trading statistics first, then analytics
+    try {
+      const response = await this.client.get('/api/paper-trading/statistics');
+      return response.data;
+    } catch {
+      // Fallback to analytics performance
+      const response = await this.client.get('/api/analytics/performance');
+      return response.data;
+    }
   }
 
   async getPerformance(period: 'day' | 'week' | 'month' | 'year') {
@@ -262,7 +298,7 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/live-trades');
+    const response = await this.client.get('/api/trading/positions');
     if (useCache) {
       await cacheService.set(CACHE_KEYS.LIVE_TRADES, response.data, CACHE_TTL.SHORT);
     }
@@ -270,7 +306,7 @@ class ApiClient {
   }
 
   async getLiveStats() {
-    const response = await this.client.get('/live-trades/stats');
+    const response = await this.client.get('/api/trading/portfolio');
     return response.data;
   }
 
