@@ -132,11 +132,12 @@ class ApiClient {
     return response.data;
   }
 
-  async connectBroker(brokerName: string, apiKey: string, apiSecret: string) {
+  async connectBroker(brokerName: string, apiKey: string, apiSecret: string, testnet: boolean = true) {
     const response = await this.client.post('/api/brokers/connect', {
-      broker_name: brokerName,
+      broker: brokerName,  // Fixed: backend expects 'broker' not 'broker_name'
       api_key: apiKey,
       api_secret: apiSecret,
+      testnet: testnet,
     });
     // Invalidate brokers cache after connecting
     await cacheService.remove(CACHE_KEYS.BROKERS);
