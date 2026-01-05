@@ -67,17 +67,6 @@ export const config = {
 
 // Smart API URL detection (backward compatible)
 export const getApiBaseUrl = () => {
-  // Check for explicit API URL from environment
-  if (typeof process !== 'undefined' && process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  
-  // For development, use your local IP: 192.168.178.97
-  // Update this if your IP changes
-  const devApiUrl = 'http://192.168.178.97:8000';
-  
-  // Return development URL by default
-  return devApiUrl;
   // Priority 1: Use environment config (already includes Constants.expoConfig.extra.apiUrl)
   if (config.apiUrl && config.apiUrl !== 'https://api.aura.com') {
     return config.apiUrl;
@@ -89,14 +78,9 @@ export const getApiBaseUrl = () => {
     return extraApiUrl;
   }
   
-  // Priority 3: Production fallback (for standalone builds)
-  // ⚠️ WARNING: This is a placeholder - update with real production URL
-  if (config.isProduction) {
-    // If we're in production but no valid URL is set, warn but still return placeholder
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.warn('⚠️ Production API URL is placeholder. Update EXPO_PUBLIC_API_URL in eas.json');
-    }
-    return 'https://api.aura.com'; // ⚠️ PLACEHOLDER - Update with real production URL
+  // Priority 3: Check for explicit API URL from environment (build-time)
+  if (typeof process !== 'undefined' && process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
   }
   
   // Priority 4: Development fallback
@@ -110,8 +94,13 @@ export const getApiBaseUrl = () => {
     return 'http://192.168.178.97:8000'; // Local development IP
   }
   
-  // Final fallback: Production URL (placeholder)
-  return 'https://api.aura.com';
+  // Priority 6: Production fallback (for standalone builds)
+  if (config.isProduction || config.isStaging) {
+    return 'https://web-production-5a28a.up.railway.app'; // Railway production URL
+  }
+  
+  // Final fallback: Railway URL (should not reach here)
+  return 'https://web-production-5a28a.up.railway.app';
 };
 
 // Export API base URL
