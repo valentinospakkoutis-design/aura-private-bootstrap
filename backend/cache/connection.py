@@ -5,6 +5,7 @@ Redis connection management
 import os
 import json
 from typing import Optional, Any
+import time
 import redis
 from redis.asyncio import Redis as AsyncRedis
 import asyncio
@@ -14,16 +15,21 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Sync Redis client
 redis_client: Optional[redis.Redis] = None
+_redis_unavailable_until: float = 0.0
 
 # Async Redis client
 async_redis_client: Optional[AsyncRedis] = None
+_async_redis_unavailable_until: float = 0.0
 
 
 def get_redis() -> redis.Redis:
     """
     Get sync Redis client (singleton)
     """
-    global redis_client
+    global redis_client, _redis_unavailable_until
+    if redis_client is None and _redis_unavailable_until > time.time():
+        return None
+
     if redis_client is None:
         try:
             redis_client = redis.from_url(
@@ -39,6 +45,7 @@ def get_redis() -> redis.Redis:
             print(f"[-] Redis connection error: {e}")
             print("[!] Continuing without Redis caching")
             redis_client = None
+            _redis_unavailable_until = time.time() + 5
     return redis_client
 
 
@@ -46,7 +53,10 @@ async def get_async_redis() -> Optional[AsyncRedis]:
     """
     Get async Redis client (singleton)
     """
-    global async_redis_client
+    global async_redis_client, _async_redis_unavailable_until
+    if async_redis_client is None and _async_redis_unavailable_until > time.time():
+        return None
+
     if async_redis_client is None:
         try:
             async_redis_client = await AsyncRedis.from_url(
@@ -62,6 +72,7 @@ async def get_async_redis() -> Optional[AsyncRedis]:
             print(f"[-] Redis connection error: {e}")
             print("[!] Continuing without Redis caching")
             async_redis_client = None
+            _async_redis_unavailable_until = time.time() + 5
     return async_redis_client
 
 

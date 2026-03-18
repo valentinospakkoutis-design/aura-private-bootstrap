@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request, Form, WebSocket
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
 from typing import Dict, Optional, List
@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import asyncio
+import logging
 from urllib.parse import quote
 from brokers.binance import BinanceAPI
 from services.paper_trading import paper_trading_service
@@ -23,11 +24,15 @@ from services.live_trading import live_trading_service
 from services.analytics import analytics_service
 from services.scheduler import scheduler_service
 from services.notifications import notifications_service
+from services.idempotency import idempotency_service
+from services.risk_governor import risk_governor_service
 from ml.annotation_api import router as annotation_router
+from auth.dependencies import require_roles, get_request_origin
 
 # Database and Cache imports
 from database.connection import init_db, check_db_connection, close_db
 from cache.connection import get_redis, check_redis_connection
+from services.execution.startup_checks import StartupSafetyError
 
 # Security and Error Handling
 from utils.error_handler import handle_error, AuraError, get_error_message
@@ -40,10 +45,39 @@ app = FastAPI(
     version="1.0.0"
 )
 
+logger = logging.getLogger(__name__)
+
+
+def _admin_emails() -> set[str]:
+    raw = os.getenv("AURA_ADMIN_EMAILS", "")
+    return {email.strip().lower() for email in raw.split(",") if email.strip()}
+
+
+def _resolve_roles(email: str, user_data: Optional[dict] = None) -> List[str]:
+    if user_data and isinstance(user_data.get("roles"), list):
+        roles = [str(role).strip().lower() for role in user_data.get("roles") if str(role).strip()]
+        if roles:
+            return sorted(set(roles))
+
+    if user_data and user_data.get("role"):
+        role = str(user_data["role"]).strip().lower()
+        if role:
+            return [role]
+
+    if email.lower() in _admin_emails():
+        return ["admin"]
+
+    return ["trader"]
+
 # Startup event - Initialize database and cache
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and cache on startup"""
+    live_trading_service.validate_execution_configuration()
+    if live_trading_service.is_live_startup_required():
+        live_trading_service.validate_live_startup_preconditions()
+    risk_governor_service.restore_enforcement()
+
     print("[*] Initializing database...")
     try:
         if check_db_connection():
@@ -53,6 +87,8 @@ async def startup_event():
             print("[!] Database not configured - continuing without database")
     except Exception as e:
         print(f"[!] Database initialization error: {e}")
+        if live_trading_service.is_live_startup_required():
+            raise StartupSafetyError("Live startup blocked: database initialization failed") from e
         print("[!] Continuing without database")
     
     print("[*] Checking Redis connection...")
@@ -96,7 +132,22 @@ async def rate_limit_middleware_wrapper(request: Request, call_next):
     try:
         return await rate_limit_middleware(request, call_next)
     except Exception as e:
-        # If rate limit middleware fails, continue without rate limiting
+        sensitive_prefixes = (
+            "/api/trading",
+            "/api/brokers/order",
+            "/api/v1/portfolio",
+            "/api/paper-trading/reset",
+        )
+        if any(request.url.path.startswith(prefix) for prefix in sensitive_prefixes):
+            logger.error("Rate limiter failure on sensitive route %s: %s", request.url.path, e)
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "SECURITY_GUARD_UNAVAILABLE",
+                    "message": "Security guard unavailable. Sensitive action blocked.",
+                },
+            )
+
         return await call_next(request)
 
 # WebSocket endpoint for real-time price updates
@@ -245,12 +296,14 @@ def health_check():
     }
 
 @app.get("/debug/users")
-def debug_users():
-    """Debug endpoint - Shows registered users (remove in production!)"""
+def debug_users(user: dict = Depends(require_roles("admin"))):
+    """Restricted debug endpoint."""
+    if os.getenv("AURA_ENABLE_DEBUG_ENDPOINTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Not found")
+
     return {
         "total_users": len(users_db),
-        "users": {email: {"name": data["name"], "password_length": len(data["password"])} 
-                  for email, data in users_db.items()}
+        "message": "Debug endpoint enabled",
     }
 
 # Authentication Models
@@ -275,42 +328,38 @@ async def login(
     email = email.lower().strip()
     password = password.strip()
     
-    # Debug: Print received data
-    print(f"=== LOGIN ATTEMPT ===")
-    print(f"Email (normalized): '{email}'")
-    print(f"Password length: {len(password)}")
-    print(f"Users in DB: {list(users_db.keys())}")
-    
     # Check if user exists
     if email not in users_db:
-        print(f"❌ User not found: '{email}'")
-        print(f"Available users: {list(users_db.keys())}")
         error_msg = quote("Λάθος email ή κωδικός")
         return RedirectResponse(
             url=f"/?error={error_msg}",
             status_code=303
         )
-    
-    # Check password (in production, use hashed passwords)
-    stored_password = users_db[email]["password"]
-    stored_name = users_db[email]["name"]
-    
-    print(f"Stored password length: {len(stored_password)}")
-    print(f"Input password length: {len(password)}")
-    print(f"Passwords match: {stored_password == password}")
-    
-    if stored_password != password:
-        print(f"❌ Password mismatch for '{email}'")
-        print(f"Stored: '{stored_password}' (len={len(stored_password)})")
-        print(f"Input: '{password}' (len={len(password)})")
+
+    user_record = users_db[email]
+    stored_name = user_record.get("name", user_record.get("full_name", ""))
+
+    password_valid = False
+    if "password_hash" in user_record:
+        password_valid = security_manager.verify_password(password, user_record["password_hash"])
+    elif "password" in user_record:
+        # Legacy migration path: verify once, then replace with hash.
+        password_valid = user_record["password"] == password
+        if password_valid:
+            user_record["password_hash"] = security_manager.hash_password(password)
+            user_record.pop("password", None)
+            user_record["roles"] = _resolve_roles(email, user_record)
+            save_users_db(users_db)
+
+    if not password_valid:
         error_msg = quote("Λάθος κωδικός")
         return RedirectResponse(
             url=f"/?error={error_msg}",
             status_code=303
         )
-    
+
     # Successful login - create session
-    print(f"✅ Login successful for '{email}' (Name: {stored_name})")
+    logger.info("Web login successful for %s", email)
     session_id = create_session(email)
     
     # Redirect to dashboard with session cookie
@@ -339,16 +388,8 @@ async def register(
     password = password.strip()
     confirmPassword = confirmPassword.strip()
     
-    # Debug: Print received data
-    print(f"=== REGISTER ATTEMPT ===")
-    print(f"Name: '{name}'")
-    print(f"Email (normalized): '{email}'")
-    print(f"Password length: {len(password)}")
-    print(f"Confirm password length: {len(confirmPassword)}")
-    
     # Validate passwords match
     if password != confirmPassword:
-        print(f"❌ Passwords don't match")
         error_msg = quote("Οι κωδικοί δεν ταιριάζουν")
         return RedirectResponse(
             url=f"/?error={error_msg}",
@@ -357,7 +398,6 @@ async def register(
     
     # Check if user already exists
     if email in users_db:
-        print(f"❌ Email already exists: '{email}'")
         error_msg = quote("Το email χρησιμοποιείται ήδη")
         return RedirectResponse(
             url=f"/?error={error_msg}",
@@ -366,26 +406,25 @@ async def register(
     
     # Validate password strength (basic check)
     if len(password) < 6:
-        print(f"❌ Password too short: {len(password)} characters")
         error_msg = quote("Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες")
         return RedirectResponse(
             url=f"/?error={error_msg}",
             status_code=303
         )
-    
-    # Create user (in production, hash password and save to database)
+
+    # Create user with hashed password.
     users_db[email] = {
         "name": name,
-        "password": password  # In production: hash this!
+        "email": email,
+        "password_hash": security_manager.hash_password(password),
+        "roles": _resolve_roles(email),
     }
-    
+
     # Save to file
     if save_users_db(users_db):
-        print(f"✅ User registered successfully: '{email}' (Name: {name}, Password: '{password}' len={len(password)})")
-        print(f"Total users in DB: {len(users_db)}")
-        print(f"All users: {list(users_db.keys())}")
+        logger.info("User registered successfully: %s", email)
     else:
-        print(f"⚠️ User registered but failed to save to file: '{email}'")
+        logger.warning("User registered but failed to persist: %s", email)
     
     success_msg = quote("Επιτυχής εγγραφή! Μπορείτε τώρα να συνδεθείτε")
     return RedirectResponse(
@@ -463,12 +502,14 @@ class OrderRequest(BaseModel):
     side: str  # BUY or SELL
     quantity: float
     order_type: str = "MARKET"
+    price: Optional[float] = None
+    stop_loss_price: Optional[float] = None
 
 # Broker Management
 broker_instances = {}  # Store active broker connections
 
 @app.post("/api/brokers/connect")
-def connect_broker(connection: BrokerConnection):
+def connect_broker(connection: BrokerConnection, user: dict = Depends(require_roles("admin"))):
     """Συνδέει broker API"""
     try:
         if connection.broker.lower() == "binance":
@@ -481,6 +522,12 @@ def connect_broker(connection: BrokerConnection):
             
             if result["status"] == "connected":
                 broker_instances[connection.broker.lower()] = broker
+                logger.warning(
+                    "CONTROL_CHANGE broker_connect user=%s broker=%s testnet=%s",
+                    user["email"],
+                    connection.broker,
+                    connection.testnet,
+                )
                 return {
                     "status": "connected",
                     "broker": connection.broker,
@@ -538,39 +585,225 @@ def get_supported_symbols(broker_name: str):
     }
 
 @app.post("/api/brokers/order")
-def place_order(order: OrderRequest):
-    """Τοποθετεί paper trading order"""
+def place_order(
+    order: OrderRequest,
+    request: Request,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    user: dict = Depends(require_roles("trader", "admin")),
+):
+    """Τοποθετεί order με paper ή real execution ανάλογα με trading mode"""
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "IDEMPOTENCY_KEY_REQUIRED", "message": "Idempotency-Key header is required."},
+        )
+
+    current_mode = "live" if live_trading_service.trading_mode == "live" else "paper"
+    can_execute, block_reason = risk_governor_service.can_execute(mode=current_mode, symbol=order.symbol)
+    if not can_execute:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": block_reason or "RISK_GOVERNOR_BLOCK",
+                "message": "Risk governor blocked new execution.",
+            },
+        )
+
+    fingerprint = idempotency_service.build_fingerprint(
+        {
+            "broker": order.broker,
+            "symbol": order.symbol,
+            "side": order.side,
+            "quantity": order.quantity,
+            "order_type": order.order_type,
+        }
+    )
+    decision = idempotency_service.begin_request(
+        principal_id=user["email"],
+        endpoint="/api/brokers/order",
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint,
+    )
+    if decision["action"] == "replay":
+        return decision["existing"].get("result_payload")
+    if decision["action"] == "replay_failed":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "ORDER_PREVIOUSLY_FAILED",
+                "message": decision["existing"].get("error_message") or "Previous submission failed",
+            },
+        )
+    if decision["action"] in {"conflict", "in_progress"}:
+        raise HTTPException(
+            status_code=decision.get("http_status", 409),
+            detail={"error": decision["error"], "message": decision["message"]},
+        )
+
     if order.broker.lower() not in broker_instances:
+        idempotency_service.finalize_failure(
+            principal_id=user["email"],
+            endpoint="/api/brokers/order",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            error_message="Broker not connected",
+        )
         raise HTTPException(status_code=404, detail="Broker not connected")
-    
+
     broker = broker_instances[order.broker.lower()]
-    
-    # Get current market price
-    price_info = broker.get_market_price(order.symbol)
-    if "error" in price_info:
-        raise HTTPException(status_code=400, detail="Failed to get market price")
-    
-    price = price_info["price"]
-    
-    # Create order dict for paper trading service
-    order_dict = {
-        "symbol": order.symbol,
-        "side": order.side,
-        "quantity": order.quantity,
-        "price": price,
-        "order_type": order.order_type
-    }
-    
-    # Place order through paper trading service
-    result = paper_trading_service.place_order(order_dict)
-    
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    
+
+    is_live_mode = live_trading_service.trading_mode == "live"
+
+    if is_live_mode:
+        if order.price is None or order.price <= 0:
+            idempotency_service.finalize_failure(
+                principal_id=user["email"],
+                endpoint="/api/brokers/order",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                error_message="Price is required for live execution",
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "LIVE_PRICE_REQUIRED", "message": "price must be provided for live orders."},
+            )
+
+        portfolio = paper_trading_service.get_portfolio()
+        positions = portfolio.get("positions", [])
+        validation_result = live_trading_service.validate_order(
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            price=order.price,
+            portfolio_value=portfolio.get("total_value", 0),
+            current_positions=positions,
+            stop_loss_price=order.stop_loss_price,
+        )
+
+        if not validation_result.get("valid", False):
+            idempotency_service.finalize_failure(
+                principal_id=user["email"],
+                endpoint="/api/brokers/order",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                error_message="Order validation failed",
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "ORDER_VALIDATION_FAILED",
+                    "message": "Live order rejected by pre-trade validation.",
+                    "errors": validation_result.get("errors", []),
+                },
+            )
+
+        result = live_trading_service.execute_live_order(
+            broker=order.broker,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.order_type,
+            validation_result=validation_result,
+            idempotency_key=idempotency_key,
+            user_email=user["email"],
+            user_roles=user.get("roles", []),
+            broker_adapter=broker,
+            price=order.price,
+            stop_loss_price=order.stop_loss_price,
+            idempotency_reserved=True,
+        )
+
+        if "error" in result:
+            idempotency_service.finalize_failure(
+                principal_id=user["email"],
+                endpoint="/api/brokers/order",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                error_message=result.get("error", "Live execution failed"),
+            )
+            raise HTTPException(
+                status_code=int(result.get("status_code", 400)),
+                detail=result.get("details") or {
+                    "error": result.get("error_code", "LIVE_EXECUTION_FAILED"),
+                    "message": result.get("error", "Live execution failed"),
+                },
+            )
+
+        try:
+            live_balance = broker.get_account_balance()
+            live_equity = live_trading_service._extract_portfolio_value(live_balance)
+            risk_governor_service.update_pnl(
+                mode="live",
+                equity=live_equity,
+                realized_delta=0.0,
+                unrealized_pnl=0.0,
+                source="live_order_execution",
+                symbol=order.symbol,
+            )
+        except Exception as risk_error:
+            logger.error("RISK_GOVERNOR_UPDATE_FAILED mode=live symbol=%s error=%s", order.symbol, risk_error)
+    else:
+        # Paper mode keeps existing behavior and fetches broker market price.
+        price_info = broker.get_market_price(order.symbol)
+        if "error" in price_info:
+            idempotency_service.finalize_failure(
+                principal_id=user["email"],
+                endpoint="/api/brokers/order",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                error_message="Failed to get market price",
+            )
+            raise HTTPException(status_code=400, detail="Failed to get market price")
+
+        price = price_info["price"]
+
+        order_dict = {
+            "symbol": order.symbol,
+            "side": order.side,
+            "quantity": order.quantity,
+            "price": price,
+            "order_type": order.order_type
+        }
+
+        result = paper_trading_service.place_order(order_dict)
+
+        if "error" in result:
+            idempotency_service.finalize_failure(
+                principal_id=user["email"],
+                endpoint="/api/brokers/order",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+                error_message=result["error"],
+            )
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        try:
+            portfolio = paper_trading_service.get_portfolio()
+            realized_delta = float(result.get("pnl") or 0.0)
+            unrealized_pnl = float(portfolio.get("total_pnl") or 0.0)
+            risk_governor_service.update_pnl(
+                mode="paper",
+                equity=float(portfolio.get("total_value") or 0.0),
+                realized_delta=realized_delta,
+                unrealized_pnl=unrealized_pnl,
+                source="paper_order_execution",
+                symbol=order.symbol,
+            )
+        except Exception as risk_error:
+            logger.error("RISK_GOVERNOR_UPDATE_FAILED mode=paper symbol=%s error=%s", order.symbol, risk_error)
+
+    idempotency_service.finalize_success(
+        principal_id=user["email"],
+        endpoint="/api/brokers/order",
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint,
+        result_order_id=result.get("order_id"),
+        result_payload=result,
+    )
     return result
 
 @app.get("/api/trading/portfolio")
-def get_trading_portfolio():
+def get_trading_portfolio(user: dict = Depends(require_roles("viewer", "trader", "admin"))):
     """Επιστρέφει portfolio state"""
     # Get current prices for all positions
     current_prices = {}
@@ -585,7 +818,7 @@ def get_trading_portfolio():
     return paper_trading_service.get_portfolio(current_prices)
 
 @app.get("/api/trading/history")
-def get_trading_history(limit: int = 50):
+def get_trading_history(limit: int = 50, user: dict = Depends(require_roles("viewer", "trader", "admin"))):
     """Επιστρέφει trade history"""
     trades = paper_trading_service.get_trade_history(limit)
     return {
@@ -595,7 +828,7 @@ def get_trading_history(limit: int = 50):
     }
 
 @app.get("/api/trading/positions")
-def get_positions():
+def get_positions(user: dict = Depends(require_roles("viewer", "trader", "admin"))):
     """Επιστρέφει open positions"""
     # Get current prices
     current_prices = {}
@@ -616,10 +849,11 @@ def get_positions():
     }
 
 @app.delete("/api/brokers/{broker_name}/disconnect")
-def disconnect_broker(broker_name: str):
+def disconnect_broker(broker_name: str, user: dict = Depends(require_roles("admin"))):
     """Αποσυνδέει broker"""
     if broker_name.lower() in broker_instances:
         del broker_instances[broker_name.lower()]
+        logger.warning("CONTROL_CHANGE broker_disconnect user=%s broker=%s", user["email"], broker_name)
         return {
             "status": "disconnected",
             "broker": broker_name,
@@ -660,9 +894,10 @@ def get_trading_statistics():
     return paper_trading_service.get_statistics()
 
 @app.post("/api/paper-trading/reset")
-def reset_paper_trading():
+def reset_paper_trading(user: dict = Depends(require_roles("admin"))):
     """Reset paper trading account"""
     paper_trading_service.reset()
+    logger.warning("CONTROL_CHANGE paper_trading_reset user=%s", user["email"])
     return {
         "status": "reset",
         "message": "Paper trading account reset successfully",
@@ -966,21 +1201,43 @@ class OrderValidationRequest(BaseModel):
     quantity: float
     price: float
 
+
+class KillSwitchRequest(BaseModel):
+    active: bool
+    scope: str = "global"
+    value: Optional[str] = None
+    reason: Optional[str] = None
+    emergency: bool = False
+    cancel_open_orders: bool = False
+
 @app.get("/api/trading/mode")
-def get_trading_mode():
+def get_trading_mode(user: dict = Depends(require_roles("admin"))):
     """Επιστρέφει current trading mode"""
     return live_trading_service.get_trading_mode()
 
 @app.post("/api/trading/mode")
-def set_trading_mode(request: TradingModeRequest):
+def set_trading_mode(
+    request: TradingModeRequest,
+    raw_request: Request,
+    user: dict = Depends(require_roles("admin")),
+):
     """Ορίζει trading mode (paper/live)"""
+    previous_mode = live_trading_service.trading_mode
     result = live_trading_service.set_trading_mode(request.mode)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+
+    logger.warning(
+        "CONTROL_CHANGE trading_mode user=%s origin=%s previous=%s new=%s",
+        user["email"],
+        get_request_origin(raw_request),
+        previous_mode,
+        request.mode,
+    )
     return result
 
 @app.get("/api/trading/risk-settings")
-def get_risk_settings():
+def get_risk_settings(user: dict = Depends(require_roles("admin"))):
     """Επιστρέφει risk management settings"""
     return {
         "risk_settings": live_trading_service.risk_settings,
@@ -989,12 +1246,26 @@ def get_risk_settings():
     }
 
 @app.put("/api/trading/risk-settings")
-def update_risk_settings(settings: RiskSettingsUpdate):
+def update_risk_settings(
+    settings: RiskSettingsUpdate,
+    request: Request,
+    user: dict = Depends(require_roles("admin")),
+):
     """Ενημερώνει risk management settings"""
-    return live_trading_service.update_risk_settings(settings.dict(exclude_unset=True))
+    previous = dict(live_trading_service.risk_settings)
+    changes = settings.dict(exclude_unset=True)
+    result = live_trading_service.update_risk_settings(changes)
+    logger.warning(
+        "CONTROL_CHANGE risk_settings user=%s origin=%s previous=%s new=%s",
+        user["email"],
+        get_request_origin(request),
+        previous,
+        changes,
+    )
+    return result
 
 @app.post("/api/trading/validate-order")
-def validate_order(request: OrderValidationRequest):
+def validate_order(request: OrderValidationRequest, user: dict = Depends(require_roles("trader", "admin"))):
     """Επικυρώνει order πριν από execution"""
     # Get portfolio data
     portfolio = paper_trading_service.get_portfolio()
@@ -1014,7 +1285,8 @@ def calculate_position_size(
     symbol: str,
     side: str,
     price: float,
-    risk_percent: Optional[float] = None
+    risk_percent: Optional[float] = None,
+    user: dict = Depends(require_roles("trader", "admin")),
 ):
     """Υπολογίζει optimal position size"""
     portfolio = paper_trading_service.get_portfolio()
@@ -1028,10 +1300,119 @@ def calculate_position_size(
     )
 
 @app.get("/api/trading/risk-summary")
-def get_risk_summary():
+def get_risk_summary(user: dict = Depends(require_roles("trader", "admin"))):
     """Επιστρέφει risk management summary"""
     portfolio = paper_trading_service.get_portfolio()
     return live_trading_service.get_risk_summary(portfolio.get("total_value", 0))
+
+
+@app.post("/api/trading/kill-switch")
+def set_kill_switch(
+    payload: KillSwitchRequest,
+    request: Request,
+    user: dict = Depends(require_roles("admin")),
+):
+    result = live_trading_service.set_kill_switch(
+        payload.active,
+        actor=user["email"],
+        scope=payload.scope,
+        value=payload.value,
+        reason=payload.reason,
+        emergency=payload.emergency,
+        cancel_open_orders=payload.cancel_open_orders,
+    )
+    logger.warning(
+        "CONTROL_CHANGE kill_switch user=%s origin=%s active=%s scope=%s value=%s emergency=%s",
+        user["email"],
+        get_request_origin(request),
+        payload.active,
+        payload.scope,
+        payload.value,
+        payload.emergency,
+    )
+    return result
+
+
+@app.post("/api/trading/kill-switch/enable")
+def enable_kill_switch(
+    payload: KillSwitchRequest,
+    request: Request,
+    user: dict = Depends(require_roles("admin")),
+):
+    result = live_trading_service.set_kill_switch(
+        True,
+        actor=user["email"],
+        scope=payload.scope,
+        value=payload.value,
+        reason=payload.reason,
+        emergency=payload.emergency,
+        cancel_open_orders=payload.cancel_open_orders,
+    )
+    logger.warning(
+        "CONTROL_CHANGE kill_switch_enable user=%s origin=%s scope=%s value=%s",
+        user["email"],
+        get_request_origin(request),
+        payload.scope,
+        payload.value,
+    )
+    return result
+
+
+@app.post("/api/trading/kill-switch/disable")
+def disable_kill_switch(
+    payload: KillSwitchRequest,
+    request: Request,
+    user: dict = Depends(require_roles("admin")),
+):
+    result = live_trading_service.set_kill_switch(
+        False,
+        actor=user["email"],
+        scope=payload.scope,
+        value=payload.value,
+        reason=payload.reason,
+    )
+    logger.warning(
+        "CONTROL_CHANGE kill_switch_disable user=%s origin=%s scope=%s value=%s",
+        user["email"],
+        get_request_origin(request),
+        payload.scope,
+        payload.value,
+    )
+    return result
+
+
+@app.get("/api/trading/kill-switch/status")
+def get_kill_switch_status(user: dict = Depends(require_roles("admin"))):
+    return live_trading_service.get_kill_switch_status()
+
+
+@app.get("/api/trading/risk-governor/status")
+def get_risk_governor_status(
+    mode: Optional[str] = None,
+    user: dict = Depends(require_roles("trader", "admin")),
+):
+    selected_mode = (mode or live_trading_service.trading_mode or "paper").strip().lower()
+    if selected_mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail={"error": "INVALID_MODE", "message": "mode must be paper or live"})
+    return risk_governor_service.get_status(mode=selected_mode)
+
+
+@app.post("/api/trading/reconciliation/run")
+def run_reconciliation(
+    limit: int = 100,
+    request: Request = None,
+    user: dict = Depends(require_roles("admin")),
+):
+    result = live_trading_service.reconcile_live_orders(broker_instances, limit=limit)
+    logger.warning(
+        "CONTROL_CHANGE reconciliation_run user=%s origin=%s checked=%s updated=%s flagged=%s",
+        user["email"],
+        get_request_origin(request) if request else "unknown",
+        result.get("checked"),
+        result.get("updated"),
+        result.get("flagged"),
+    )
+    return result
 
 # Analytics Endpoints
 @app.get("/api/analytics/performance")

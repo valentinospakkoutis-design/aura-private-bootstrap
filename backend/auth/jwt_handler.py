@@ -13,7 +13,25 @@ from utils.error_handler import AuthenticationError
 
 
 # JWT Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "aura-secret-key-change-in-production-2025")
+def _load_and_validate_jwt_secret() -> str:
+    secret = os.getenv("JWT_SECRET_KEY")
+    if not secret:
+        raise RuntimeError("JWT_SECRET_KEY is required and must be set.")
+
+    normalized = secret.strip()
+    weak_values = {
+        "aura-secret-key-change-in-production-2025",
+        "changeme",
+        "secret",
+        "password",
+    }
+    if len(normalized) < 32 or normalized.lower() in weak_values:
+        raise RuntimeError("JWT_SECRET_KEY is too weak. Use at least 32 characters of high-entropy secret.")
+
+    return normalized
+
+
+SECRET_KEY = _load_and_validate_jwt_secret()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
 REFRESH_TOKEN_EXPIRE_DAYS = 7  # 7 days
@@ -115,7 +133,8 @@ def get_user_from_token(token: str) -> Dict:
         return {
             "user_id": payload.get("sub"),
             "email": payload.get("email"),
-            "full_name": payload.get("full_name")
+            "full_name": payload.get("full_name"),
+            "roles": payload.get("roles", [])
         }
     except Exception as e:
         raise AuthenticationError(f"Failed to get user from token: {str(e)}")

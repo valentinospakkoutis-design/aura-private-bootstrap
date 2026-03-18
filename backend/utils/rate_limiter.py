@@ -157,7 +157,7 @@ async def rate_limit_middleware(request: Request, call_next):
             }
         )
     
-    response = call_next(request)
+    response = await call_next(request)
     
     # Add rate limit headers
     response.headers["X-RateLimit-Limit-Minute"] = str(rate_limiter.requests_per_minute)

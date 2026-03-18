@@ -1,10 +1,21 @@
-"""
-Utility modules for AURA
-"""
+"""Utility modules for AURA."""
 
-from .error_handler import handle_error, AuraError, ValidationError, NotFoundError, AuthenticationError
-from .rate_limiter import rate_limiter, get_client_identifier
-from .security import security_manager
+try:
+    from .error_handler import handle_error, AuraError, ValidationError, NotFoundError, AuthenticationError
+except Exception:
+    handle_error = None
+    AuraError = ValidationError = NotFoundError = AuthenticationError = None
+
+try:
+    from .rate_limiter import rate_limiter, get_client_identifier
+except Exception:
+    rate_limiter = None
+    get_client_identifier = None
+
+try:
+    from .security import security_manager
+except Exception:
+    security_manager = None
 
 __all__ = [
     "handle_error",
@@ -14,6 +25,6 @@ __all__ = [
     "AuthenticationError",
     "rate_limiter",
     "get_client_identifier",
-    "security_manager"
+    "security_manager",
 ]
 

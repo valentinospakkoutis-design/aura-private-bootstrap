@@ -3,22 +3,55 @@ API Endpoints από mettal-app
 Προσθήκη όλων των endpoints από το mettal-app στο AURA
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, status, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, status, Request, Header
 from fastapi.security import HTTPAuthorizationCredentials
 from typing import List, Optional
 from datetime import datetime, timedelta
+import os
 from pydantic import BaseModel, EmailStr
 # yfinance is now available via market_data module
 from market_data.yfinance_client import get_price as yf_get_price, get_historical_prices as yf_get_historical_prices
 # Error handling and security
-from utils.error_handler import handle_error, ValidationError, NotFoundError, get_error_message
+from utils.error_handler import handle_error, ValidationError, NotFoundError, AuthenticationError, get_error_message
 from utils.security import security_manager
+from utils.csrf import require_csrf_token
 # JWT Authentication
 from auth.jwt_handler import create_access_token, create_refresh_token, verify_token, get_user_from_token, refresh_access_token
+from auth.dependencies import require_roles
+from services.idempotency import idempotency_service
 # 2FA
 from auth.two_factor import generate_2fa_secret, generate_qr_code, generate_backup_codes, verify_2fa_token, verify_backup_code
 
 router = APIRouter(prefix="/api/v1", tags=["Mettal App APIs"])
+
+
+def _auth_http_exception(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"error": "AUTH_ERROR", "message": message},
+    )
+
+
+def _admin_emails() -> set[str]:
+    raw = os.getenv("AURA_ADMIN_EMAILS", "")
+    return {email.strip().lower() for email in raw.split(",") if email.strip()}
+
+
+def _resolve_roles(email: str, user: Optional[dict] = None) -> List[str]:
+    if user and isinstance(user.get("roles"), list):
+        roles = [str(role).strip().lower() for role in user.get("roles") if str(role).strip()]
+        if roles:
+            return sorted(set(roles))
+
+    if user and user.get("role"):
+        role = str(user["role"]).strip().lower()
+        if role:
+            return [role]
+
+    if email.lower() in _admin_emails():
+        return ["admin"]
+
+    return ["trader"]
 
 # ============================================
 # AUTHENTICATION ENDPOINTS (JWT)
@@ -74,6 +107,7 @@ async def register(user_create: UserCreate):
         "id": user_id,
         "email": email_lower,
         "password_hash": password_hash,
+        "roles": _resolve_roles(email_lower),
         "full_name": user_create.full_name,
         "created_at": datetime.now().isoformat()
     }
@@ -85,7 +119,8 @@ async def register(user_create: UserCreate):
     token_data = {
         "sub": str(user_id),
         "email": email_lower,
-        "full_name": user_create.full_name
+        "full_name": user_create.full_name,
+        "roles": _resolve_roles(email_lower, users_db[email_lower]),
     }
     
     access_token = create_access_token(token_data)
@@ -110,7 +145,7 @@ async def login(user_login: UserLogin):
     
     # Check if user exists
     if email_lower not in users_db:
-        raise AuthenticationError("Invalid email or password")
+        raise _auth_http_exception("Invalid email or password")
     
     user = users_db[email_lower]
     
@@ -124,17 +159,19 @@ async def login(user_login: UserLogin):
         # Upgrade to hashed
         if password_valid:
             user["password_hash"] = security_manager.hash_password(user_login.password)
+            user.pop("password", None)
             from main import save_users_db
             save_users_db(users_db)
     
     if not password_valid:
-        raise AuthenticationError("Invalid email or password")
+        raise _auth_http_exception("Invalid email or password")
     
     # Create tokens
     token_data = {
         "sub": str(user.get("id", user.get("user_id", 0))),
         "email": email_lower,
-        "full_name": user.get("full_name", user.get("name", ""))
+        "full_name": user.get("full_name", user.get("name", "")),
+        "roles": _resolve_roles(email_lower, user),
     }
     
     access_token = create_access_token(token_data)
@@ -164,7 +201,8 @@ async def refresh_token_endpoint(refresh_request: RefreshTokenRequest):
         token_data = {
             "sub": user_id,
             "email": email,
-            "full_name": full_name
+            "full_name": full_name,
+            "roles": payload.get("roles", ["viewer"]),
         }
         
         new_access_token = create_access_token(token_data)
@@ -191,7 +229,7 @@ async def get_current_user_info(request: Request):
     # Get token from Authorization header
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise AuthenticationError("Missing or invalid authorization header")
+        raise _auth_http_exception("Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
     
@@ -261,7 +299,7 @@ async def verify_2fa_setup(verify_request: Verify2FARequest, request: Request):
     # Get current user from token
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise AuthenticationError("Missing or invalid authorization header")
+        raise _auth_http_exception("Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
     user_info = get_user_from_token(token)
@@ -297,7 +335,7 @@ async def login_with_2fa(login_request: Login2FARequest):
     
     # Check if user exists
     if email_lower not in users_db:
-        raise AuthenticationError("Invalid email or password")
+        raise _auth_http_exception("Invalid email or password")
     
     user = users_db[email_lower]
     
@@ -309,7 +347,7 @@ async def login_with_2fa(login_request: Login2FARequest):
         password_valid = (user["password"] == login_request.password)
     
     if not password_valid:
-        raise AuthenticationError("Invalid email or password")
+        raise _auth_http_exception("Invalid email or password")
     
     # Check if 2FA is enabled
     if not user.get("2fa_enabled", False):
@@ -340,13 +378,14 @@ async def login_with_2fa(login_request: Login2FARequest):
             from main import save_users_db
             save_users_db(users_db)
         else:
-            raise AuthenticationError("Invalid 2FA token")
+            raise _auth_http_exception("Invalid 2FA token")
     
     # Create tokens
     token_data = {
         "sub": str(user.get("id", user.get("user_id", 0))),
         "email": email_lower,
-        "full_name": user.get("full_name", user.get("name", ""))
+        "full_name": user.get("full_name", user.get("name", "")),
+        "roles": _resolve_roles(email_lower, user),
     }
     
     access_token = create_access_token(token_data)
@@ -599,7 +638,13 @@ class TradeRequest(BaseModel):
     price: float
 
 @router.post("/portfolio/buy")
-async def buy_asset(trade: TradeRequest, request: Request):
+async def buy_asset(
+    trade: TradeRequest,
+    request: Request,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    user: dict = Depends(require_roles("trader", "admin")),
+    _: bool = Depends(require_csrf_token),
+):
     """
     Buy asset - Protected with CSRF and Authentication
     
@@ -610,6 +655,41 @@ async def buy_asset(trade: TradeRequest, request: Request):
     # Portfolio buy using paper trading service
     from services.paper_trading import paper_trading_service
     
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "IDEMPOTENCY_KEY_REQUIRED", "message": "Idempotency-Key header is required."},
+        )
+
+    request_payload = {
+        "asset_id": trade.asset_id,
+        "quantity": trade.quantity,
+        "price": trade.price,
+        "side": "BUY",
+    }
+    fingerprint = idempotency_service.build_fingerprint(request_payload)
+    decision = idempotency_service.begin_request(
+        principal_id=user["email"],
+        endpoint="/api/v1/portfolio/buy",
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint,
+    )
+    if decision["action"] == "replay":
+        return decision["existing"].get("result_payload")
+    if decision["action"] == "replay_failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "ORDER_PREVIOUSLY_FAILED",
+                "message": decision["existing"].get("error_message") or "Previous submission failed",
+            },
+        )
+    if decision["action"] in {"conflict", "in_progress"}:
+        raise HTTPException(
+            status_code=decision.get("http_status", status.HTTP_409_CONFLICT),
+            detail={"error": decision["error"], "message": decision["message"]},
+        )
+
     try:
         order = {
             "symbol": trade.asset_id,
@@ -623,25 +703,89 @@ async def buy_asset(trade: TradeRequest, request: Request):
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
         
-        return {
+        response_payload = {
             "success": True,
             "message": f"Bought {trade.quantity} {trade.asset_id} at ${trade.price}",
             "transaction_id": result.get("order_id"),
             "timestamp": datetime.now().isoformat()
         }
+        idempotency_service.finalize_success(
+            principal_id=user["email"],
+            endpoint="/api/v1/portfolio/buy",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            result_order_id=result.get("order_id"),
+            result_payload=response_payload,
+        )
+        return response_payload
     except HTTPException:
+        idempotency_service.finalize_failure(
+            principal_id=user["email"],
+            endpoint="/api/v1/portfolio/buy",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            error_message="Order rejected",
+        )
         raise
     except Exception as e:
+        idempotency_service.finalize_failure(
+            principal_id=user["email"],
+            endpoint="/api/v1/portfolio/buy",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            error_message=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/portfolio/sell")
-async def sell_asset(trade: TradeRequest, request: Request):
+async def sell_asset(
+    trade: TradeRequest,
+    request: Request,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    user: dict = Depends(require_roles("trader", "admin")),
+    _: bool = Depends(require_csrf_token),
+):
     """
     Sell asset - Protected with CSRF and Authentication
     """
     # Portfolio sell using paper trading service
     from services.paper_trading import paper_trading_service
     
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "IDEMPOTENCY_KEY_REQUIRED", "message": "Idempotency-Key header is required."},
+        )
+
+    request_payload = {
+        "asset_id": trade.asset_id,
+        "quantity": trade.quantity,
+        "price": trade.price,
+        "side": "SELL",
+    }
+    fingerprint = idempotency_service.build_fingerprint(request_payload)
+    decision = idempotency_service.begin_request(
+        principal_id=user["email"],
+        endpoint="/api/v1/portfolio/sell",
+        idempotency_key=idempotency_key,
+        request_fingerprint=fingerprint,
+    )
+    if decision["action"] == "replay":
+        return decision["existing"].get("result_payload")
+    if decision["action"] == "replay_failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "ORDER_PREVIOUSLY_FAILED",
+                "message": decision["existing"].get("error_message") or "Previous submission failed",
+            },
+        )
+    if decision["action"] in {"conflict", "in_progress"}:
+        raise HTTPException(
+            status_code=decision.get("http_status", status.HTTP_409_CONFLICT),
+            detail={"error": decision["error"], "message": decision["message"]},
+        )
+
     try:
         order = {
             "symbol": trade.asset_id,
@@ -663,20 +807,43 @@ async def sell_asset(trade: TradeRequest, request: Request):
                 pnl = pos.get("pnl", 0)
                 break
         
-        return {
+        response_payload = {
             "success": True,
             "message": f"Sold {trade.quantity} {trade.asset_id} at ${trade.price}",
             "transaction_id": result.get("order_id"),
             "pnl": pnl,
             "timestamp": datetime.now().isoformat()
         }
+        idempotency_service.finalize_success(
+            principal_id=user["email"],
+            endpoint="/api/v1/portfolio/sell",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            result_order_id=result.get("order_id"),
+            result_payload=response_payload,
+        )
+        return response_payload
     except HTTPException:
+        idempotency_service.finalize_failure(
+            principal_id=user["email"],
+            endpoint="/api/v1/portfolio/sell",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            error_message="Order rejected",
+        )
         raise
     except Exception as e:
+        idempotency_service.finalize_failure(
+            principal_id=user["email"],
+            endpoint="/api/v1/portfolio/sell",
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+            error_message=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/positions")
-async def get_positions():
+async def get_positions(user: dict = Depends(require_roles("viewer", "trader", "admin"))):
     """
     Get user portfolio positions with current P&L (requires authentication)
     """
@@ -702,7 +869,7 @@ async def get_positions():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/summary")
-async def get_portfolio_summary():
+async def get_portfolio_summary(user: dict = Depends(require_roles("viewer", "trader", "admin"))):
     """
     Get portfolio summary with total P&L (requires authentication)
     """
@@ -723,7 +890,11 @@ async def get_portfolio_summary():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/transactions")
-async def get_transactions(limit: int = 50, asset_id: Optional[str] = None):
+async def get_transactions(
+    limit: int = 50,
+    asset_id: Optional[str] = None,
+    user: dict = Depends(require_roles("viewer", "trader", "admin")),
+):
     """
     Get user transaction history (requires authentication)
     """
@@ -789,24 +960,17 @@ async def get_news(asset_id: Optional[str] = None, limit: int = 10):
 # ============================================
 
 @router.get("/csrf-token")
-async def get_csrf_token(request: Request):
+async def get_csrf_token(
+    request: Request,
+    user: dict = Depends(require_roles("viewer", "trader", "admin")),
+):
     """
     Get CSRF token for protected requests (requires authentication)
     
     CSRF tokens are session-based and should be included in X-CSRF-Token header
     for state-changing requests (POST, PUT, DELETE).
     """
-    # Get user from JWT token (if provided)
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        try:
-            token = auth_header.split(" ")[1]
-            user_info = get_user_from_token(token)
-            user_id = user_info.get("user_id")
-        except:
-            user_id = None
-    else:
-        user_id = None
+    user_id = user.get("user_id") or user.get("email")
     
     # Generate CSRF token (can be session-based or user-based)
     import secrets
