@@ -4,11 +4,13 @@ import hashlib
 import hmac
 import os
 import time
+import socket
 from decimal import Decimal, ROUND_DOWN
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import requests
+import urllib3.util.connection as urllib3_connection
 
 from ops.secret_loader import SecretConfigurationError, get_secret_loader
 from services.execution.broker_client import BrokerClient, BrokerClientError
@@ -56,8 +58,60 @@ class BinanceBrokerClient(BrokerClient):
         self._symbol_filters: Dict[str, Dict[str, Any]] = {}
         self.guard = BrokerExecutionGuard(provider="binance")
 
+    @staticmethod
+    def _truthy(value: Optional[str]) -> bool:
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _assert_static_execution_host(cls) -> None:
+        if not cls._truthy(os.getenv("AURA_FIRST_LIVE_PROFILE", "false")):
+            return
+
+        if not cls._truthy(os.getenv("AURA_REQUIRE_STATIC_EGRESS", "true")):
+            return
+
+        expected_ip = os.getenv("AURA_EXECUTION_STATIC_PUBLIC_IP", "116.203.75.114").strip()
+        required_role = os.getenv("AURA_EXECUTION_REQUIRED_HOST_ROLE", "execution").strip().lower()
+        host_role = os.getenv("AURA_EXECUTION_HOST_ROLE", "").strip().lower()
+
+        if required_role and host_role != required_role:
+            raise BrokerClientError(
+                f"EXECUTION_HOST_ROLE_MISMATCH required={required_role} actual={host_role or 'unset'}"
+            )
+
+        try:
+            response = requests.get("https://api4.ipify.org", timeout=5)
+            detected_ip = response.text.strip() if response.status_code == 200 else ""
+        except requests.RequestException as exc:
+            raise BrokerClientError(f"STATIC_EGRESS_CHECK_FAILED: {exc}") from exc
+
+        if not detected_ip or detected_ip != expected_ip:
+            hostname = socket.gethostname()
+            raise BrokerClientError(
+                "STATIC_EGRESS_IP_MISMATCH "
+                f"host={hostname} detected={detected_ip or 'unknown'} expected={expected_ip}"
+            )
+
+    @staticmethod
+    def _request_ipv4(session: requests.Session, *, method: str, url: str, params: Optional[Dict[str, Any]], timeout: int) -> requests.Response:
+        # Keep IPv4 pinning scoped to broker HTTP calls only.
+        original_allowed_gai_family = urllib3_connection.allowed_gai_family
+        try:
+            urllib3_connection.allowed_gai_family = lambda: socket.AF_INET
+            return session.request(
+                method=method,
+                url=url,
+                params=params or {},
+                timeout=timeout,
+            )
+        finally:
+            urllib3_connection.allowed_gai_family = original_allowed_gai_family
+
     @classmethod
     def from_adapter(cls, adapter: Any) -> "BinanceBrokerClient":
+        cls._assert_static_execution_host()
         loader = get_secret_loader()
 
         api_key = getattr(adapter, "api_key", None)
@@ -142,7 +196,8 @@ class BinanceBrokerClient(BrokerClient):
 
         def _send() -> requests.Response:
             try:
-                return self.session.request(
+                return self._request_ipv4(
+                    self.session,
                     method=method.upper(),
                     url=url,
                     params=signed,
@@ -164,7 +219,13 @@ class BinanceBrokerClient(BrokerClient):
 
         def _send() -> requests.Response:
             try:
-                return self.session.get(url, params=params or {}, timeout=self.timeout_seconds)
+                return self._request_ipv4(
+                    self.session,
+                    method="GET",
+                    url=url,
+                    params=params or {},
+                    timeout=self.timeout_seconds,
+                )
             except requests.RequestException as exc:
                 raise BrokerClientError(f"BINANCE_NETWORK_ERROR: {exc}")
 

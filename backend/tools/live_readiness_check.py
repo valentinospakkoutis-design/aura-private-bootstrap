@@ -5,11 +5,21 @@ import json
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 CURRENT_FILE = Path(__file__).resolve()
 BACKEND_ROOT = CURRENT_FILE.parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+
+
+def _load_backend_env() -> None:
+    """Load backend/.env for local readiness checks without overriding shell vars."""
+    load_dotenv(dotenv_path=BACKEND_ROOT / ".env", override=False)
+
+
+_load_backend_env()
 
 from services.live_readiness import LiveReadinessChecker, exit_code_for_verdict, render_text_report
 

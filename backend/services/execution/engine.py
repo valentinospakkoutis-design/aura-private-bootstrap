@@ -32,6 +32,7 @@ OPEN_STATUSES = {
     ExecutionStatus.PENDING.value,
     ExecutionStatus.SUBMITTED.value,
     ExecutionStatus.PARTIALLY_FILLED.value,
+    "UNKNOWN_PENDING_RECON",
 }
 
 
@@ -244,6 +245,22 @@ class RealExecutionEngine:
                 session.commit()
             except Exception as persist_error:
                 session.rollback()
+                order.status = "UNKNOWN_PENDING_RECON"
+                order.error_reason = "Persistence failed after broker submission; reconciliation required"
+                order.updated_at = datetime.utcnow()
+                self._audit(
+                    session,
+                    internal_order_id,
+                    "UNKNOWN_PENDING_RECON",
+                    {
+                        "error": str(persist_error),
+                        "broker_order_id": broker_response.broker_order_id,
+                    },
+                )
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
                 try:
                     if broker_response.broker_order_id:
                         broker_client.cancel_order(broker_response.broker_order_id)
@@ -252,7 +269,7 @@ class RealExecutionEngine:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail={
-                        "error": "DB_PERSIST_FAILED_AFTER_SUBMISSION",
+                        "error": "UNKNOWN_PENDING_RECON",
                         "message": f"Order submitted to broker but persistence failed: {persist_error}",
                     },
                 )

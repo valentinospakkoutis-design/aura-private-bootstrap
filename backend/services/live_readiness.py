@@ -80,6 +80,7 @@ class LiveReadinessChecker:
             self.check_test_status(),
             self.check_execution_provider_safety(),
             self.check_broker_credentials(),
+            self.check_binance_static_ip_auth_gate(),
             self.check_database_readiness(),
             self.check_kill_switch_status(),
             self.check_risk_governor_readiness(),
@@ -231,6 +232,52 @@ class LiveReadinessChecker:
             name="broker_credentials",
             status=PASS,
             details="Required broker secrets are present and pass minimum strength rules.",
+        )
+
+    def check_binance_static_ip_auth_gate(self) -> ReadinessCheck:
+        provider = self._env("EXECUTION_PROVIDER", "stub").lower()
+        trading_mode = self._env("TRADING_MODE", "paper").lower()
+        allow_live = _truthy(self._env("ALLOW_LIVE_TRADING", "false"))
+        live_intended = self._is_live_intended() or trading_mode == "live" or allow_live
+
+        if provider != "binance" and not live_intended:
+            return ReadinessCheck(
+                name="binance_static_ip_auth",
+                status=WARNING,
+                details="Binance static-IP auth gate is not active because execution provider is not binance in current context.",
+                next_action="Enable provider=binance in launch context when ready for live activation.",
+                critical=False,
+            )
+
+        manual_verified = _truthy(self._env("AURA_STATIC_IP_AUTH_VERIFIED", "false"))
+        verified_ip = self._env("AURA_EXECUTION_STATIC_PUBLIC_IP", "")
+        verified_by = self._env("AURA_STATIC_IP_AUTH_VERIFIED_BY", "")
+        verified_at = self._env("AURA_STATIC_IP_AUTH_VERIFIED_AT", "")
+        evidence = self._env("AURA_STATIC_IP_AUTH_EVIDENCE", "")
+
+        if manual_verified:
+            details = (
+                "Manual operator verification accepted for Binance signed auth from static-IP execution host "
+                f"(ip={verified_ip or 'unset'}, verified_by={verified_by or 'unset'}, verified_at={verified_at or 'unset'})."
+            )
+            if evidence:
+                details = f"{details} Evidence={evidence}."
+            return ReadinessCheck(
+                name="binance_static_ip_auth",
+                status=PASS,
+                details=details,
+                critical=True,
+            )
+
+        return ReadinessCheck(
+            name="binance_static_ip_auth",
+            status=FAIL,
+            details="Binance static-IP authenticated account access is not verified for live context.",
+            next_action=(
+                "Run signed /api/v3/account auth test from execution host static IP and set "
+                "AURA_STATIC_IP_AUTH_VERIFIED=true with operator evidence."
+            ),
+            critical=True,
         )
 
     def _migration_state(self) -> tuple[bool, str]:
@@ -498,6 +545,7 @@ class LiveReadinessChecker:
 
         max_pos = float(risk.get("max_position_size_percent", 0.0) or 0.0)
         max_daily = float(risk.get("max_daily_loss_percent", 0.0) or 0.0)
+        allowed_symbol = self._env("AURA_FIRST_LIVE_ALLOWED_SYMBOL", "BTCUSDT").upper()
 
         if max_pos <= 0 or max_daily <= 0:
             return ReadinessCheck(
@@ -509,7 +557,6 @@ class LiveReadinessChecker:
             )
 
         first_live_profile = _truthy(self._env("AURA_FIRST_LIVE_PROFILE", "false"))
-        conservative_caps = max_pos <= 10.0 and max_daily <= 5.0
 
         if not first_live_profile:
             return ReadinessCheck(
@@ -523,19 +570,31 @@ class LiveReadinessChecker:
                 critical=False,
             )
 
-        if not conservative_caps:
+        if max_pos > 0.25 or max_daily > 0.50:
             return ReadinessCheck(
                 name="first_live_guardrails",
                 status=WARNING,
-                details=f"First-live profile enabled but caps are aggressive (position={max_pos}%, daily_loss={max_daily}%).",
-                next_action="Tighten guardrails for first-live rollout (suggest <=10% position and <=5% daily loss).",
+                details=f"First-live profile enabled but tiny-cap guardrails are too loose (position={max_pos}%, daily_loss={max_daily}%).",
+                next_action="Tighten first-live guardrails to <=0.25% position and <=0.50% daily loss.",
+                critical=False,
+            )
+
+        if allowed_symbol != "BTCUSDT":
+            return ReadinessCheck(
+                name="first_live_guardrails",
+                status=WARNING,
+                details=f"First-live symbol is set to {allowed_symbol} (expected safest default BTCUSDT).",
+                next_action="Use BTCUSDT as single-symbol first-live scope unless operator explicitly approves another symbol.",
                 critical=False,
             )
 
         return ReadinessCheck(
             name="first_live_guardrails",
             status=PASS,
-            details=f"First-live profile enabled with conservative caps (position={max_pos}%, daily_loss={max_daily}%).",
+            details=(
+                "First-live profile enabled with tiny-cap guardrails "
+                f"(position={max_pos}%, daily_loss={max_daily}%, symbol={allowed_symbol})."
+            ),
             critical=False,
         )
 
@@ -545,6 +604,7 @@ def render_text_report(report: LiveReadinessReport) -> str:
         "test_status": "Test Status / Baseline",
         "execution_provider": "Execution Provider",
         "broker_credentials": "Broker Credentials",
+        "binance_static_ip_auth": "Binance Static-IP Auth",
         "database_readiness": "Database Readiness",
         "kill_switch": "Kill Switch Status",
         "risk_governor": "Risk Governor",

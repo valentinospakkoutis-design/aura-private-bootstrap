@@ -10,6 +10,8 @@ from datetime import datetime
 
 from fastapi import HTTPException
 
+from database.connection import SessionLocal
+from database.models import ExecutionOrder
 from ops.kill_switch import kill_switch_manager
 from ops.observability import runtime_monitor
 from services.execution import (
@@ -26,6 +28,34 @@ from services.execution.startup_checks import startup_checker
 logger = logging.getLogger(__name__)
 
 
+def _truthy_env(name: str, default: str = "false") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return float(default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return int(default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _manual_static_auth_override_enabled() -> bool:
+    return _truthy_env("AURA_STATIC_IP_AUTH_VERIFIED", "false")
+
+
 class LiveTradingService:
     """
     Service for managing live trading
@@ -35,12 +65,23 @@ class LiveTradingService:
     def __init__(self):
         self.trading_mode = "paper"  # "paper" or "live"
         self.kill_switch_active = False
+        configured_max_position = _float_env("MAX_POSITION_SIZE_PERCENT", 10.0)
+        configured_max_daily_loss = _float_env("MAX_DAILY_LOSS_PERCENT", 5.0)
+        configured_stop_loss = _float_env("STOP_LOSS_PERCENT", 2.0)
+        configured_take_profit = _float_env("TAKE_PROFIT_PERCENT", 5.0)
+        configured_max_open_positions = _int_env("MAX_OPEN_POSITIONS", 5)
+
+        if _truthy_env("AURA_FIRST_LIVE_PROFILE", "false"):
+            configured_max_position = min(configured_max_position, 0.25)
+            configured_max_daily_loss = min(configured_max_daily_loss, 0.50)
+            configured_max_open_positions = min(configured_max_open_positions, 1)
+
         self.risk_settings = {
-            "max_position_size_percent": 10.0,  # Max 10% of portfolio per position
-            "max_daily_loss_percent": 5.0,  # Max 5% daily loss
-            "stop_loss_percent": 2.0,  # 2% stop loss
-            "take_profit_percent": 5.0,  # 5% take profit
-            "max_open_positions": 5,  # Max 5 open positions
+            "max_position_size_percent": configured_max_position,
+            "max_daily_loss_percent": configured_max_daily_loss,
+            "stop_loss_percent": configured_stop_loss,
+            "take_profit_percent": configured_take_profit,
+            "max_open_positions": configured_max_open_positions,
             "require_confirmation": True  # Require user confirmation
         }
         self.daily_stats = {
@@ -124,6 +165,10 @@ class LiveTradingService:
 
     @staticmethod
     def _allowed_symbols_from_broker(adapter: Any) -> List[str]:
+        if _truthy_env("AURA_FIRST_LIVE_PROFILE", "false"):
+            first_live_symbol = os.getenv("AURA_FIRST_LIVE_ALLOWED_SYMBOL", "BTCUSDT").strip().upper()
+            return [first_live_symbol] if first_live_symbol else ["BTCUSDT"]
+
         if hasattr(adapter, "get_supported_symbols"):
             try:
                 symbols = adapter.get_supported_symbols()
@@ -136,6 +181,173 @@ class LiveTradingService:
         if not configured.strip():
             return []
         return [item.strip().upper() for item in configured.split(",") if item.strip()]
+
+    @staticmethod
+    def _first_live_profile_enabled() -> bool:
+        return _truthy_env("AURA_FIRST_LIVE_PROFILE", "false")
+
+    @staticmethod
+    def _first_live_allowed_symbol() -> str:
+        return os.getenv("AURA_FIRST_LIVE_ALLOWED_SYMBOL", "BTCUSDT").strip().upper() or "BTCUSDT"
+
+    @staticmethod
+    def _first_live_hard_notional_cap() -> float:
+        return max(0.0, _float_env("AURA_FIRST_LIVE_HARD_NOTIONAL_CAP", 20.0))
+
+    @staticmethod
+    def _first_live_min_available_balance() -> float:
+        return max(0.0, _float_env("AURA_FIRST_LIVE_MIN_AVAILABLE_BALANCE", 25.0))
+
+    @staticmethod
+    def _first_live_one_order_only_enabled() -> bool:
+        return _truthy_env("AURA_FIRST_LIVE_ONE_ORDER_ONLY", "true")
+
+    @staticmethod
+    def _first_live_manual_review_approved() -> bool:
+        return _truthy_env("AURA_FIRST_LIVE_REVIEW_APPROVED", "false")
+
+    @staticmethod
+    def _terminal_statuses() -> set[str]:
+        return {"FILLED", "FAILED", "CANCELLED"}
+
+    def _first_live_terminal_orders_count(self) -> int:
+        session = SessionLocal()
+        try:
+            return int(
+                session.query(ExecutionOrder)
+                .filter(ExecutionOrder.status.in_(self._terminal_statuses()))
+                .count()
+            )
+        finally:
+            session.close()
+
+    def _first_live_unknown_pending_exists(self) -> bool:
+        session = SessionLocal()
+        try:
+            return (
+                session.query(ExecutionOrder)
+                .filter(ExecutionOrder.status == "UNKNOWN_PENDING_RECON")
+                .first()
+                is not None
+            )
+        finally:
+            session.close()
+
+    def _enforce_first_live_guardrails(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        order_type: str,
+        portfolio_value: float,
+        available_balance: float,
+    ) -> None:
+        if not self._first_live_profile_enabled():
+            return
+
+        allowed_symbol = self._first_live_allowed_symbol()
+        normalized_symbol = (symbol or "").strip().upper()
+        if normalized_symbol != allowed_symbol:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FIRST_LIVE_SYMBOL_RESTRICTED",
+                    "message": f"First-live allows only {allowed_symbol}.",
+                },
+            )
+
+        normalized_side = (side or "").strip().upper()
+        if normalized_side not in {"BUY", "SELL"}:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "INVALID_SIDE", "message": "Side must be BUY or SELL."},
+            )
+
+        if quantity <= 0 or price <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "INVALID_ORDER_VALUES", "message": "Quantity and price must be > 0."},
+            )
+
+        normalized_order_type = (order_type or "").strip().upper()
+        if normalized_order_type not in {"MARKET", "LIMIT"}:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FIRST_LIVE_ORDER_TYPE_RESTRICTED",
+                    "message": "First-live supports only spot MARKET/LIMIT orders.",
+                },
+            )
+
+        if self.risk_settings["max_position_size_percent"] > 0.25:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "FIRST_LIVE_POSITION_CAP_TOO_LOOSE",
+                    "message": "max_position_size_percent must be <= 0.25 for first-live.",
+                },
+            )
+
+        if self.risk_settings["max_daily_loss_percent"] > 0.50:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "FIRST_LIVE_DAILY_LOSS_CAP_TOO_LOOSE",
+                    "message": "max_daily_loss_percent must be <= 0.50 for first-live.",
+                },
+            )
+
+        hard_notional_cap = self._first_live_hard_notional_cap()
+        order_notional = float(quantity) * float(price)
+        if hard_notional_cap > 0 and order_notional > hard_notional_cap:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FIRST_LIVE_NOTIONAL_CAP_EXCEEDED",
+                    "message": f"Order notional {order_notional:.8f} exceeds hard cap {hard_notional_cap:.8f}.",
+                },
+            )
+
+        min_balance = self._first_live_min_available_balance()
+        if available_balance < min_balance:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FIRST_LIVE_INSUFFICIENT_AVAILABLE_BALANCE",
+                    "message": f"Available balance {available_balance:.8f} is below safe minimum {min_balance:.8f}.",
+                },
+            )
+
+        if portfolio_value <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FIRST_LIVE_INVALID_PORTFOLIO",
+                    "message": "Portfolio value must be > 0 for first-live execution.",
+                },
+            )
+
+        if self._first_live_unknown_pending_exists():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "UNKNOWN_PENDING_RECON_BLOCK",
+                    "message": "Execution blocked due to UNKNOWN_PENDING_RECON order; manual reconciliation required.",
+                },
+            )
+
+        if self._first_live_one_order_only_enabled() and not self._first_live_manual_review_approved():
+            completed = self._first_live_terminal_orders_count()
+            if completed >= 1:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "FIRST_LIVE_ONE_ORDER_LIMIT_REACHED",
+                        "message": "First-live one-order-only limit reached. Manual review approval is required.",
+                    },
+                )
     
     def set_trading_mode(self, mode: str) -> Dict:
         """Set trading mode (paper or live)"""
@@ -344,6 +556,17 @@ class LiveTradingService:
             )
             balance = broker_client.get_balance()
             portfolio_value = self._extract_portfolio_value(balance)
+            available_balance = float(balance.get("available_balance") or 0.0)
+
+            self._enforce_first_live_guardrails(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                price=float(price),
+                order_type=order_type,
+                portfolio_value=portfolio_value,
+                available_balance=available_balance,
+            )
 
             execution_request = ExecutionRequest(
                 broker=broker,
@@ -433,6 +656,76 @@ class LiveTradingService:
                 "status_code": 500,
                 "details": {"message": str(exc)},
             }
+
+    def run_first_live_dry_run(
+        self,
+        *,
+        broker: str,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str,
+        price: float,
+        broker_adapter: Any,
+        portfolio_value: float,
+        current_positions: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        validation = self.validate_order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            price=price,
+            portfolio_value=portfolio_value,
+            current_positions=current_positions,
+        )
+        if not validation.get("valid", False):
+            return {
+                "valid": False,
+                "error": "ORDER_VALIDATION_FAILED",
+                "details": validation,
+            }
+
+        provider = self.execution_provider()
+        if _manual_static_auth_override_enabled():
+            balance = {
+                "total_balance": _float_env("AURA_MANUAL_VERIFIED_TOTAL_BALANCE", 100.0),
+                "available_balance": _float_env("AURA_MANUAL_VERIFIED_AVAILABLE_BALANCE", 100.0),
+                "source": "manual_static_ip_auth_override",
+            }
+        else:
+            broker_client = build_broker_client(
+                provider=provider,
+                broker_name=broker,
+                adapter=broker_adapter,
+                trading_mode=self.trading_mode,
+                allow_live_trading=self.allow_live_trading() or self.trading_mode == "live",
+            )
+            balance = broker_client.get_balance()
+        portfolio = self._extract_portfolio_value(balance)
+        available_balance = float(balance.get("available_balance") or 0.0)
+
+        self._enforce_first_live_guardrails(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            price=price,
+            order_type=order_type,
+            portfolio_value=portfolio,
+            available_balance=available_balance,
+        )
+
+        return {
+            "valid": True,
+            "mode": "dry_run",
+            "symbol": symbol.upper(),
+            "order_value": float(quantity) * float(price),
+            "available_balance": available_balance,
+            "portfolio_value": portfolio,
+            "first_live_symbol": self._first_live_allowed_symbol(),
+            "first_live_hard_notional_cap": self._first_live_hard_notional_cap(),
+            "one_order_only": self._first_live_one_order_only_enabled(),
+            "no_order_placed": True,
+        }
 
     def reconcile_live_orders(self, broker_adapters: Dict[str, Any], limit: int = 100) -> Dict:
         def _resolver(broker_name: str):

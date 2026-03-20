@@ -1202,6 +1202,15 @@ class OrderValidationRequest(BaseModel):
     price: float
 
 
+class FirstLiveDryRunRequest(BaseModel):
+    broker: str
+    symbol: str
+    side: str
+    quantity: float
+    order_type: str = "MARKET"
+    price: float
+
+
 class KillSwitchRequest(BaseModel):
     active: bool
     scope: str = "global"
@@ -1279,6 +1288,59 @@ def validate_order(request: OrderValidationRequest, user: dict = Depends(require
         portfolio_value=portfolio.get("total_value", 0),
         current_positions=positions
     )
+
+
+@app.post("/api/trading/first-live/dry-run")
+def first_live_dry_run(
+    payload: FirstLiveDryRunRequest,
+    user: dict = Depends(require_roles("trader", "admin")),
+):
+    if payload.broker.lower() not in broker_instances:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "BROKER_NOT_CONNECTED", "message": "Broker not connected."},
+        )
+
+    portfolio = paper_trading_service.get_portfolio()
+    positions = portfolio.get("positions", [])
+    broker = broker_instances[payload.broker.lower()]
+
+    try:
+        result = live_trading_service.run_first_live_dry_run(
+            broker=payload.broker,
+            symbol=payload.symbol,
+            side=payload.side,
+            quantity=payload.quantity,
+            order_type=payload.order_type,
+            price=payload.price,
+            broker_adapter=broker,
+            portfolio_value=float(portfolio.get("total_value", 0) or 0.0),
+            current_positions=positions,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "FIRST_LIVE_DRY_RUN_FAILED", "message": str(exc)},
+        )
+
+    if not result.get("valid", False):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": result.get("error", "FIRST_LIVE_DRY_RUN_REJECTED"),
+                "message": "First-live dry-run validation failed.",
+                "details": result.get("details"),
+            },
+        )
+
+    return {
+        "status": "pass",
+        "dry_run": result,
+        "timestamp": datetime.now().isoformat(),
+        "operator": user.get("email"),
+    }
 
 @app.post("/api/trading/calculate-position")
 def calculate_position_size(

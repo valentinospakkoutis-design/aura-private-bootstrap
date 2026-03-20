@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +17,7 @@ from services.live_readiness import (
     LiveReadinessChecker,
     exit_code_for_verdict,
 )
+import tools.live_readiness_check as readiness_tool
 from tools.live_readiness_check import main as readiness_main
 
 pytestmark = pytest.mark.unit
@@ -166,3 +169,15 @@ def test_exit_codes_correct() -> None:
     assert exit_code_for_verdict(GO) == 0
     assert exit_code_for_verdict(LIMITED_GO) == 1
     assert exit_code_for_verdict(NO_GO) == 2
+
+
+def test_load_backend_env_reads_backend_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("JWT_SECRET_KEY=from-dotenv-secret-0123456789abcdef\n", encoding="utf-8")
+
+    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    monkeypatch.setattr(readiness_tool, "BACKEND_ROOT", tmp_path, raising=True)
+
+    readiness_tool._load_backend_env()
+
+    assert os.getenv("JWT_SECRET_KEY") == "from-dotenv-secret-0123456789abcdef"
