@@ -43,6 +43,10 @@ app = FastAPI(
 def healthz():
     return {"ok": True}
 
+@app.get("/api/ping")
+def api_ping():
+    return {"ok": True}
+
 @app.middleware("http")
 async def request_debug_middleware(request: Request, call_next):
     print(f"[REQ] {request.method} {request.url.path}")
