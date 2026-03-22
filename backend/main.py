@@ -39,6 +39,9 @@ app = FastAPI(
     description="Backend για το AURA - AI Trading Assistant",
     version="1.0.0"
 )
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
 
 # Startup event - Initialize database and cache
 @app.on_event("startup")
