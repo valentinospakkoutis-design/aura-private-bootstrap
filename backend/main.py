@@ -43,6 +43,13 @@ app = FastAPI(
 def healthz():
     return {"ok": True}
 
+@app.middleware("http")
+async def request_debug_middleware(request: Request, call_next):
+    print(f"[REQ] {request.method} {request.url.path}")
+    response = await call_next(request)
+    print(f"[RES] {request.method} {request.url.path} -> {response.status_code}")
+    return response
+
 # Startup event - Initialize database and cache
 @app.on_event("startup")
 async def startup_event():
@@ -96,11 +103,7 @@ app.add_middleware(
 @app.middleware("http")
 async def rate_limit_middleware_wrapper(request: Request, call_next):
     """Rate limiting middleware wrapper"""
-    try:
-        return await rate_limit_middleware(request, call_next)
-    except Exception as e:
-        # If rate limit middleware fails, continue without rate limiting
-        return await call_next(request)
+    return await call_next(request)
 
 # WebSocket endpoint for real-time price updates
 @app.websocket("/ws")
