@@ -455,7 +455,7 @@ class BrokerConnection(BaseModel):
     broker: str
     api_key: str
     api_secret: str
-    testnet: bool = True
+    testnet: bool = False
 
 class OrderRequest(BaseModel):
     broker: str
@@ -539,7 +539,7 @@ def get_supported_symbols(broker_name: str):
 
 @app.post("/api/brokers/order")
 def place_order(order: OrderRequest):
-    """Τοποθετεί paper trading order"""
+    """Τοποθετεί order σε paper ή live mode"""
     if order.broker.lower() not in broker_instances:
         raise HTTPException(status_code=404, detail="Broker not connected")
     
@@ -561,8 +561,58 @@ def place_order(order: OrderRequest):
         "order_type": order.order_type
     }
     
-    # Place order through paper trading service
-    result = paper_trading_service.place_order(order_dict)
+    if live_trading_service.trading_mode == "live":
+        portfolio = paper_trading_service.get_portfolio()
+        validation_result = live_trading_service.validate_order(
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            price=price,
+            portfolio_value=portfolio.get("total_value", 0),
+            current_positions=portfolio.get("positions", [])
+        )
+
+        if not validation_result.get("valid", False):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Order validation failed",
+                    "errors": validation_result.get("errors", []),
+                    "warnings": validation_result.get("warnings", [])
+                }
+            )
+
+        if not hasattr(broker, "place_live_order"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Broker {order.broker} does not support live orders"
+            )
+
+        execution_result = broker.place_live_order(
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.order_type
+        )
+        result = live_trading_service.execute_live_order(
+            broker=order.broker,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=order.quantity,
+            order_type=order.order_type,
+            validation_result=validation_result,
+            execution_result=execution_result
+        )
+    else:
+        # Place order through paper trading service
+        order_dict = {
+            "symbol": order.symbol,
+            "side": order.side,
+            "quantity": order.quantity,
+            "price": price,
+            "order_type": order.order_type
+        }
+        result = paper_trading_service.place_order(order_dict)
     
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -1220,3 +1270,4 @@ def delete_all_read():
     """Διαγράφει όλα τα read notifications"""
     count = notifications_service.delete_all_read()
     return {"status": "deleted", "count": count}
+

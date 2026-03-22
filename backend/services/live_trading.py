@@ -162,11 +162,11 @@ class LiveTradingService:
         side: str,
         quantity: float,
         order_type: str = "MARKET",
-        validation_result: Optional[Dict] = None
+        validation_result: Optional[Dict] = None,
+        execution_result: Optional[Dict] = None
     ) -> Dict:
         """
-        Execute live order (real money)
-        This would call the actual broker API
+        Validate and record a live order execution.
         """
         if self.trading_mode != "live":
             return {
@@ -179,25 +179,24 @@ class LiveTradingService:
                 "error": "Order validation failed",
                 "errors": validation_result.get("errors", [])
             }
-        
-        # In production, this would call the actual broker API
-        # For now, return simulated execution
-        order_id = f"LIVE_{int(datetime.now().timestamp() * 1000)}"
-        
-        # Update daily stats
-        self.daily_stats["total_trades"] += 1
-        
+
+        if execution_result and "error" in execution_result:
+            return execution_result
+
+        if execution_result:
+            self.daily_stats["total_trades"] += 1
+            result = dict(execution_result)
+            result["mode"] = "live"
+            result["timestamp"] = datetime.now().isoformat()
+            return result
+
         return {
-            "order_id": order_id,
+            "error": "Broker execution result was not provided",
+            "broker": broker,
             "symbol": symbol,
             "side": side,
             "quantity": quantity,
-            "order_type": order_type,
-            "status": "FILLED",
-            "executed_at": datetime.now().isoformat(),
-            "mode": "live",
-            "warning": "This is a simulated execution. In production, this would execute real trades.",
-            "timestamp": datetime.now().isoformat()
+            "order_type": order_type
         }
     
     def get_risk_summary(self, portfolio_value: float) -> Dict:
@@ -216,4 +215,5 @@ class LiveTradingService:
 
 # Global instance
 live_trading_service = LiveTradingService()
+
 

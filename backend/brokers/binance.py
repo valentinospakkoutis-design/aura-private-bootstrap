@@ -1,13 +1,16 @@
 """
 Binance API Integration for AURA
-Handles connection, market data, and paper trading simulation
+Handles connection, market data, and order execution.
 """
 
-import hmac
 import hashlib
+import hmac
 import time
-from typing import Dict, Optional, List
 from datetime import datetime
+from typing import Dict, List, Optional
+from urllib.parse import urlencode
+
+import httpx
 
 
 class BinanceAPI:
@@ -27,6 +30,80 @@ class BinanceAPI:
         self.testnet = testnet
         self.base_url = "https://testnet.binance.vision" if testnet else "https://api.binance.com"
         self.connected = False
+
+    def _signed_request(
+        self,
+        method: str,
+        path: str,
+        params: Optional[Dict] = None,
+        timeout: float = 10.0
+    ) -> Dict:
+        """Execute a signed Binance REST request."""
+        if not self.api_key or not self.api_secret:
+            return {
+                "error": "Binance API credentials are missing",
+                "status": "failed"
+            }
+
+        payload = dict(params or {})
+        payload["timestamp"] = int(time.time() * 1000)
+        payload.setdefault("recvWindow", 5000)
+
+        query_string = urlencode(payload)
+        payload["signature"] = self._generate_signature(query_string)
+
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=timeout) as client:
+                response = client.request(
+                    method=method.upper(),
+                    url=path,
+                    params=payload,
+                    headers=self._get_headers()
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = {}
+            try:
+                detail = exc.response.json()
+            except ValueError:
+                detail = {"message": exc.response.text}
+            return {
+                "error": detail.get("msg", "Binance request failed"),
+                "status": "failed",
+                "code": detail.get("code"),
+                "details": detail
+            }
+        except Exception as exc:
+            return {
+                "error": str(exc),
+                "status": "failed"
+            }
+
+    def _public_request(self, path: str, params: Optional[Dict] = None, timeout: float = 10.0) -> Dict:
+        """Execute an unsigned Binance REST request."""
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=timeout) as client:
+                response = client.get(path, params=params)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = {}
+            try:
+                detail = exc.response.json()
+            except ValueError:
+                detail = {"message": exc.response.text}
+            return {
+                "error": detail.get("msg", "Binance request failed"),
+                "status": "failed",
+                "code": detail.get("code"),
+                "details": detail
+            }
+        except Exception as exc:
+            return {
+                "error": str(exc),
+                "status": "failed"
+            }
         
     def _generate_signature(self, query_string: str) -> str:
         """Generate HMAC SHA256 signature for authenticated requests"""
@@ -54,31 +131,24 @@ class BinanceAPI:
             Dict with connection status
         """
         try:
-            # For paper trading, we'll simulate a successful connection
-            if self.testnet:
-                self.connected = True
+            account_info = self._signed_request("GET", "/api/v3/account")
+            if "error" in account_info:
                 return {
-                    "status": "connected",
+                    "status": "error",
                     "broker": "binance",
-                    "testnet": True,
-                    "timestamp": datetime.now().isoformat()
+                    "testnet": self.testnet,
+                    "error": account_info["error"],
+                    "details": account_info.get("details")
                 }
-            
-            # Real API call would go here
-            # For now, return success if API key is provided
-            if self.api_key:
-                self.connected = True
-                return {
-                    "status": "connected",
-                    "broker": "binance",
-                    "testnet": False,
-                    "timestamp": datetime.now().isoformat()
-                }
-            
+
+            self.connected = True
             return {
-                "status": "disconnected",
+                "status": "connected",
                 "broker": "binance",
-                "message": "API key not provided"
+                "testnet": self.testnet,
+                "can_trade": account_info.get("canTrade"),
+                "account_type": account_info.get("accountType"),
+                "timestamp": datetime.now().isoformat()
             }
         except Exception as e:
             return {
@@ -100,17 +170,41 @@ class BinanceAPI:
                 "balance": 0.0
             }
         
-        # Simulated balance for paper trading
+        account_info = self._signed_request("GET", "/api/v3/account")
+        if "error" in account_info:
+            return account_info
+
+        balances = {
+            item["asset"]: float(item["free"]) + float(item["locked"])
+            for item in account_info.get("balances", [])
+            if float(item["free"]) or float(item["locked"])
+        }
+
+        usdt_total = balances.get("USDT", 0.0)
+        usdt_available = next(
+            (
+                float(item["free"])
+                for item in account_info.get("balances", [])
+                if item["asset"] == "USDT"
+            ),
+            0.0
+        )
+        usdt_locked = next(
+            (
+                float(item["locked"])
+                for item in account_info.get("balances", [])
+                if item["asset"] == "USDT"
+            ),
+            0.0
+        )
+
         return {
             "broker": "binance",
-            "total_balance": 10000.0,  # Simulated starting balance
-            "available_balance": 10000.0,
-            "locked_balance": 0.0,
-            "currencies": {
-                "USDT": 10000.0,
-                "BTC": 0.0,
-                "ETH": 0.0
-            },
+            "testnet": self.testnet,
+            "total_balance": usdt_total,
+            "available_balance": usdt_available,
+            "locked_balance": usdt_locked,
+            "currencies": balances,
             "timestamp": datetime.now().isoformat()
         }
     
@@ -124,21 +218,13 @@ class BinanceAPI:
         Returns:
             Dict with price information
         """
-        # Simulated price data for paper trading
-        # In production, this would call Binance API
-        prices = {
-            "BTCUSDT": 45000.0,
-            "ETHUSDT": 2800.0,
-            "BNBUSDT": 320.0,
-            "XAUUSDT": 2050.0,  # Gold
-            "XAGUSDT": 24.5,    # Silver
-        }
-        
-        price = prices.get(symbol.upper(), 0.0)
-        
+        ticker = self._public_request("/api/v3/ticker/price", {"symbol": symbol.upper()})
+        if "error" in ticker:
+            return ticker
+
         return {
             "symbol": symbol.upper(),
-            "price": price,
+            "price": float(ticker["price"]),
             "timestamp": datetime.now().isoformat(),
             "broker": "binance"
         }
@@ -194,6 +280,55 @@ class BinanceAPI:
         }
         
         return order
+
+    def place_live_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET") -> Dict:
+        """
+        Place a real order on Binance.
+        """
+        if not self.connected:
+            return {
+                "error": "Not connected to Binance",
+                "status": "failed"
+            }
+
+        payload = {
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "type": order_type.upper(),
+            "quantity": quantity
+        }
+
+        response = self._signed_request("POST", "/api/v3/order", payload, timeout=20.0)
+        if "error" in response:
+            return response
+
+        fills = response.get("fills", [])
+        executed_price = None
+        if fills:
+            executed_price = float(fills[0].get("price", 0.0))
+        elif response.get("cummulativeQuoteQty") and response.get("executedQty"):
+            executed_qty = float(response["executedQty"])
+            if executed_qty > 0:
+                executed_price = float(response["cummulativeQuoteQty"]) / executed_qty
+
+        return {
+            "order_id": str(response.get("orderId")),
+            "client_order_id": response.get("clientOrderId"),
+            "symbol": response.get("symbol", symbol.upper()),
+            "side": response.get("side", side.upper()),
+            "type": response.get("type", order_type.upper()),
+            "quantity": float(response.get("origQty", quantity)),
+            "executed_qty": float(response.get("executedQty", 0.0)),
+            "price": executed_price,
+            "status": response.get("status"),
+            "broker": "binance",
+            "paper_trading": False,
+            "testnet": self.testnet,
+            "transact_time": response.get("transactTime"),
+            "executed_at": datetime.now().isoformat(),
+            "timestamp": datetime.now().isoformat(),
+            "raw_response": response
+        }
     
     def get_open_orders(self) -> List[Dict]:
         """Get list of open orders (simulated)"""
