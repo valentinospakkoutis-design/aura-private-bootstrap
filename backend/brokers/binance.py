@@ -122,6 +122,16 @@ class BinanceAPI:
             'X-MBX-APIKEY': self.api_key or ''
         }
         return headers
+
+    def get_status(self) -> Dict:
+        """Get broker connection status."""
+        return {
+            "broker": "binance",
+            "connected": self.connected,
+            "has_api_key": bool(self.api_key),
+            "testnet": self.testnet,
+            "timestamp": datetime.now().isoformat()
+        }
     
     def test_connection(self) -> Dict:
         """
