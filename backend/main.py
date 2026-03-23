@@ -501,6 +501,8 @@ def connect_broker(connection: BrokerConnection):
                 raise HTTPException(status_code=400, detail=result)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported broker: {connection.broker}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
