@@ -498,7 +498,7 @@ def connect_broker(connection: BrokerConnection):
                     "timestamp": datetime.now().isoformat()
                 }
             else:
-                raise HTTPException(status_code=400, detail=result.get("message", "Connection failed"))
+                raise HTTPException(status_code=400, detail=result)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported broker: {connection.broker}")
     except Exception as e:
