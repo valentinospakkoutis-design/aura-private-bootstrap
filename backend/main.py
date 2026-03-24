@@ -47,13 +47,6 @@ def healthz():
 def api_ping():
     return {"ok": True}
 
-@app.middleware("http")
-async def request_debug_middleware(request: Request, call_next):
-    print(f"[REQ] {request.method} {request.url.path}")
-    response = await call_next(request)
-    print(f"[RES] {request.method} {request.url.path} -> {response.status_code}")
-    return response
-
 # Startup event - Initialize database and cache
 @app.on_event("startup")
 async def startup_event():
@@ -107,7 +100,10 @@ app.add_middleware(
 @app.middleware("http")
 async def rate_limit_middleware_wrapper(request: Request, call_next):
     """Rate limiting middleware wrapper"""
-    return await call_next(request)
+    try:
+        return await rate_limit_middleware(request, call_next)
+    except Exception:
+        return await call_next(request)
 
 # WebSocket endpoint for real-time price updates
 @app.websocket("/ws")
@@ -455,8 +451,8 @@ def get_system_status():
         "system": "active",
         "backend": "ready",
         "ai_engine": "standby",
-        "trading": "paper_mode",
-        "connected_brokers": [],
+        "trading": "live_mode" if live_trading_service.trading_mode == "live" else "paper_mode",
+        "connected_brokers": list(broker_instances.keys()),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -574,14 +570,16 @@ def place_order(order: OrderRequest):
     }
     
     if live_trading_service.trading_mode == "live":
-        portfolio = paper_trading_service.get_portfolio()
+        balance_info = broker.get_account_balance()
+        portfolio_value = balance_info.get("total_balance", 0) or balance_info.get("available_balance", 0)
+        current_positions = []
         validation_result = live_trading_service.validate_order(
             symbol=order.symbol,
             side=order.side,
             quantity=order.quantity,
             price=price,
-            portfolio_value=portfolio.get("total_value", 0),
-            current_positions=portfolio.get("positions", [])
+            portfolio_value=portfolio_value,
+            current_positions=current_positions
         )
 
         if not validation_result.get("valid", False):
