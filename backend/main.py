@@ -26,7 +26,8 @@ from services.notifications import notifications_service
 from ml.annotation_api import router as annotation_router
 
 # Database and Cache imports
-from database.connection import init_db, check_db_connection, close_db
+from database.connection import init_db, check_db_connection, close_db, SessionLocal
+from database.models import BrokerCredential
 from cache.connection import get_redis, check_redis_connection
 
 # Security and Error Handling
@@ -47,6 +48,23 @@ def healthz():
 def api_ping():
     return {"ok": True}
 
+def _restore_broker_connections():
+    """Restore broker connections from database on startup."""
+    try:
+        db = SessionLocal()
+        rows = db.query(BrokerCredential).filter(BrokerCredential.is_active == True).all()
+        for row in rows:
+            api_key = security_manager.decrypt_api_key(row.encrypted_api_key)
+            api_secret = security_manager.decrypt_api_key(row.encrypted_api_secret)
+            broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
+            broker.connected = True
+            broker_instances[row.broker_name] = broker
+            print(f"[+] Restored broker connection: {row.broker_name}")
+        db.close()
+    except Exception as e:
+        print(f"[!] Could not restore broker connections: {e}")
+
+
 # Startup event - Initialize database and cache
 @app.on_event("startup")
 async def startup_event():
@@ -56,6 +74,7 @@ async def startup_event():
         if check_db_connection():
             init_db()
             print("[+] Database initialized")
+            _restore_broker_connections()
         else:
             print("[!] Database not configured - continuing without database")
     except Exception as e:
@@ -487,6 +506,31 @@ def connect_broker(connection: BrokerConnection):
             
             if result["status"] == "connected":
                 broker_instances[connection.broker.lower()] = broker
+                # Persist to database
+                try:
+                    db = SessionLocal()
+                    enc_key = security_manager.encrypt_api_key(connection.api_key)
+                    enc_secret = security_manager.encrypt_api_key(connection.api_secret)
+                    row = db.query(BrokerCredential).filter(
+                        BrokerCredential.broker_name == connection.broker.lower()
+                    ).first()
+                    if row:
+                        row.encrypted_api_key = enc_key
+                        row.encrypted_api_secret = enc_secret
+                        row.testnet = connection.testnet
+                        row.is_active = True
+                        row.updated_at = datetime.utcnow()
+                    else:
+                        db.add(BrokerCredential(
+                            broker_name=connection.broker.lower(),
+                            encrypted_api_key=enc_key,
+                            encrypted_api_secret=enc_secret,
+                            testnet=connection.testnet,
+                        ))
+                    db.commit()
+                    db.close()
+                except Exception as db_err:
+                    print(f"[!] Could not persist broker credentials: {db_err}")
                 return {
                     "status": "connected",
                     "broker": connection.broker,
@@ -680,6 +724,16 @@ def disconnect_broker(broker_name: str):
     """Αποσυνδέει broker"""
     if broker_name.lower() in broker_instances:
         del broker_instances[broker_name.lower()]
+        # Remove from database
+        try:
+            db = SessionLocal()
+            db.query(BrokerCredential).filter(
+                BrokerCredential.broker_name == broker_name.lower()
+            ).update({"is_active": False})
+            db.commit()
+            db.close()
+        except Exception as db_err:
+            print(f"[!] Could not update broker in DB: {db_err}")
         return {
             "status": "disconnected",
             "broker": broker_name,

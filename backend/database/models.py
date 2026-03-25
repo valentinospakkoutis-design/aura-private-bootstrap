@@ -116,6 +116,20 @@ class Prediction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class BrokerCredential(Base):
+    """Persistent broker API credentials (encrypted)"""
+    __tablename__ = "broker_credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    broker_name = Column(String(50), unique=True, nullable=False, index=True)
+    encrypted_api_key = Column(Text, nullable=False)
+    encrypted_api_secret = Column(Text, nullable=False)
+    testnet = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+    connected_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ModelTraining(Base):
     """ML model training history"""
     __tablename__ = "model_trainings"
