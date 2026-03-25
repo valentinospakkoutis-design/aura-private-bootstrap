@@ -24,7 +24,7 @@ const getEnvironment = () => {
 // Environment configuration
 const ENVIRONMENTS = {
   development: {
-    apiUrl: 'http://192.168.178.97:8000', // Local development
+    apiUrl: 'https://web-production-5a28a.up.railway.app', // Railway (was local dev IP)
     apiTimeout: 10000,
     enableLogging: true,
     enableCache: true,
@@ -84,9 +84,9 @@ export const getApiBaseUrl = () => {
   }
   
   // Priority 4: Development fallback
-  // Check if running on web (browser)
+  // Check if running on web (browser) - use Railway URL
   if (typeof window !== 'undefined' && window.location) {
-    return 'http://localhost:8000';
+    return 'https://web-production-5a28a.up.railway.app';
   }
   
   // Priority 5: Mobile development (only if in development mode)

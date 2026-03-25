@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
+import { Platform } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -55,7 +56,7 @@ export const AnimatedListItem: React.FC<AnimatedListItemProps> = ({
       damping: 15,
       stiffness: 300,
     });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Platform.OS !== 'web' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handlePressOut = () => {
@@ -66,7 +67,7 @@ export const AnimatedListItem: React.FC<AnimatedListItemProps> = ({
   };
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Platform.OS !== 'web' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress?.();
   };
 

@@ -8,7 +8,8 @@ import { AnimatedOrb } from '../mobile/src/components/AnimatedOrb';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { theme } from '../mobile/src/constants/theme';
 import { DateFormatter } from '../mobile/src/utils/DateFormatter';
-import * as Haptics from 'expo-haptics';
+import { Platform } from "react-native";
+import * as Haptics from "expo-haptics";
 import { api } from '../mobile/src/services/apiClient';
 
 const { width } = Dimensions.get('window');
@@ -101,7 +102,7 @@ export default function HomeScreen() {
   };
 
   const handleQuickAction = (route: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(route as any);
   };
 

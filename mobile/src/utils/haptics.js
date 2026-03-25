@@ -1,12 +1,16 @@
 // Haptic Feedback Utilities
 // Provides haptic feedback for better UX
 
+import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
+
+const isNative = Platform.OS !== 'web';
 
 /**
  * Light impact feedback (for selections)
  */
 export function lightImpact() {
+  if (!isNative) return;
   try {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   } catch (error) {
@@ -18,6 +22,7 @@ export function lightImpact() {
  * Medium impact feedback (for actions)
  */
 export function mediumImpact() {
+  if (!isNative) return;
   try {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   } catch (error) {
@@ -29,6 +34,7 @@ export function mediumImpact() {
  * Heavy impact feedback (for important actions)
  */
 export function heavyImpact() {
+  if (!isNative) return;
   try {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   } catch (error) {
@@ -40,6 +46,7 @@ export function heavyImpact() {
  * Success feedback (for successful actions)
  */
 export function successFeedback() {
+  if (!isNative) return;
   try {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   } catch (error) {
@@ -51,6 +58,7 @@ export function successFeedback() {
  * Error feedback (for errors)
  */
 export function errorFeedback() {
+  if (!isNative) return;
   try {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
   } catch (error) {
@@ -62,6 +70,7 @@ export function errorFeedback() {
  * Warning feedback (for warnings)
  */
 export function warningFeedback() {
+  if (!isNative) return;
   try {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   } catch (error) {

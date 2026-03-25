@@ -1,5 +1,16 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+
+const getSecureItem = async (key: string): Promise<string | null> => {
+  if (Platform.OS === 'web') return null;
+  return SecureStore.getItemAsync(key);
+};
+
+const deleteSecureItem = async (key: string): Promise<void> => {
+  if (Platform.OS === 'web') return;
+  await SecureStore.deleteItemAsync(key);
+};
 import { getApiBaseUrl } from '../config/environment';
 import { logger } from '../utils/Logger';
 import { cacheService, CACHE_KEYS, CACHE_TTL } from './CacheService';
@@ -23,7 +34,7 @@ class ApiClient {
     this.client.interceptors.request.use(
       async (config) => {
         try {
-          const token = await SecureStore.getItemAsync('auth_token');
+          const token = await getSecureItem('auth_token');
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
           }
@@ -53,7 +64,7 @@ class ApiClient {
         if (error.response?.status === 401) {
           // Unauthorized - clear token and redirect to login
           try {
-            await SecureStore.deleteItemAsync('auth_token');
+            await deleteSecureItem('auth_token');
           } catch (e) {
             logger.warn('Error deleting auth token:', e);
           }

@@ -2,6 +2,7 @@ import React, { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { MeshDistortMaterial, Sphere, Float, Stars } from '@react-three/drei';
 import { View, StyleSheet, Dimensions } from 'react-native';
+import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 const { width, height } = Dimensions.get('window');
@@ -63,7 +64,7 @@ function AnimatedOrb({ state = 'calm', onTouch }) {
   });
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Platform.OS !== 'web' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onTouch?.();
   };
 

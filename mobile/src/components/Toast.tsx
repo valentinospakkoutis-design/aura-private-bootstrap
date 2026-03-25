@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 
@@ -22,17 +22,19 @@ export const Toast: React.FC<ToastProps> = ({
   const translateY = React.useRef(new Animated.Value(-100)).current;
 
   useEffect(() => {
-    // Haptic feedback
-    try {
-      if (type === 'success') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else if (type === 'error') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      } else if (type === 'warning') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    // Haptic feedback (native only)
+    if (Platform.OS !== 'web') {
+      try {
+        if (type === 'success') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else if (type === 'error') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        } else if (type === 'warning') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+      } catch (error) {
+        console.warn('Haptics not available:', error);
       }
-    } catch (error) {
-      console.warn('Haptics not available:', error);
     }
 
     // Show animation

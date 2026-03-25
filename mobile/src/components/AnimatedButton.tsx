@@ -1,5 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { Platform } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -49,7 +50,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
         stiffness: 300,
       });
       opacity.value = withTiming(0.8, { duration: 100 });
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Platform.OS !== 'web' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
@@ -63,7 +64,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
 
   const handlePress = () => {
     if (!disabled && !loading) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Platform.OS !== 'web' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       onPress();
     }
   };

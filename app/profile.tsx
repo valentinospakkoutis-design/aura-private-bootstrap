@@ -10,7 +10,8 @@ import { PageTransition } from '../mobile/src/components/PageTransition';
 import { theme } from '../mobile/src/constants/theme';
 import { Validator } from '../mobile/src/utils/Validator';
 import * as ImagePicker from 'expo-image-picker';
-import * as Haptics from 'expo-haptics';
+import { Platform } from "react-native";
+import * as Haptics from "expo-haptics";
 
 interface ProfileData {
   name: string;
@@ -123,7 +124,7 @@ export default function ProfileScreen() {
     if (!result.canceled && result.assets[0]) {
       setProfile({ ...profile, avatar: result.assets[0].uri });
       setHasChanges(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
@@ -138,7 +139,7 @@ export default function ProfileScreen() {
       setUser({ ...user, ...profile });
       showToast('Το προφίλ ενημερώθηκε επιτυχώς!', 'success');
       setHasChanges(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       showToast('Αποτυχία ενημέρωσης προφίλ', 'error');
     }
@@ -161,7 +162,7 @@ export default function ProfileScreen() {
         newPassword: '',
         confirmPassword: '',
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       showToast('Αποτυχία αλλαγής password', 'error');
     }

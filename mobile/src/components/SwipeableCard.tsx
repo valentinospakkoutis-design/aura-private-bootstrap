@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { Platform } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -40,7 +41,7 @@ export const SwipeableCard: React.FC<SwipeableCardProps> = ({
         // Swipe threshold reached - delete
         translateX.value = withTiming(-SCREEN_WIDTH, { duration: 300 });
         opacity.value = withTiming(0, { duration: 300 });
-        runOnJS(Haptics.notificationAsync)(Haptics.NotificationFeedbackType.Success);
+        Platform.OS !== 'web' && runOnJS(Haptics.notificationAsync)(Haptics.NotificationFeedbackType.Success);
         setTimeout(() => {
           runOnJS(onDelete)();
         }, 300);

@@ -12,7 +12,8 @@ import { useTheme } from '../mobile/src/context/ThemeContext';
 import { useBiometrics } from '../mobile/src/hooks/useBiometrics';
 import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
 import { lightTheme } from '../mobile/src/constants/theme';
-import * as Haptics from 'expo-haptics';
+import { Platform } from "react-native";
+import * as Haptics from "expo-haptics";
 
 type RiskProfile = 'conservative' | 'moderate' | 'aggressive';
 
@@ -313,7 +314,7 @@ export default function SettingsScreen() {
               ]}
               onPress={() => {
                 setThemeMode(mode);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }}
             >
               <Text style={styles.themeOptionIcon}>

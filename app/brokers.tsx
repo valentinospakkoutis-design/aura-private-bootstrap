@@ -8,7 +8,13 @@ import { NoBrokerConnected } from '../mobile/src/components/NoBrokerConnected';
 import { Button } from '../mobile/src/components/Button';
 import { Modal } from '../mobile/src/components/Modal';
 import { theme } from '../mobile/src/constants/theme';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+
+const storeCredential = async (key: string, value: string) => {
+  if (Platform.OS === 'web') return;
+  await SecureStore.setItemAsync(key, value);
+};
 
 interface Broker {
   id: string;
@@ -65,12 +71,12 @@ export default function BrokersScreen() {
   const {
     loading: loadingBrokers,
     execute: fetchBrokers,
-  } = useApi(api.getBrokers, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.getBrokers(...args), { showLoading: false, showToast: false });
 
   const {
     loading: connecting,
     execute: connectBrokerApi,
-  } = useApi(api.connectBroker, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.connectBroker(...args), { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadBrokers();
@@ -137,14 +143,14 @@ export default function BrokersScreen() {
     try {
       setIsConnecting(true);
 
-      // Store credentials securely
-      await SecureStore.setItemAsync(`${selectedBroker.id}_api_key`, apiKey);
-      await SecureStore.setItemAsync(`${selectedBroker.id}_api_secret`, apiSecret);
+      // Store credentials securely (native only)
+      await storeCredential(`${selectedBroker.id}_api_key`, apiKey);
+      await storeCredential(`${selectedBroker.id}_api_secret`, apiSecret);
 
       // Connect to broker via API
       const result = await connectBrokerApi(selectedBroker.id, apiKey, apiSecret);
 
-      if (result?.success) {
+      if (result?.status === 'connected') {
         addBroker({
           id: result.id || selectedBroker.id,
           name: selectedBroker.name,
@@ -161,9 +167,11 @@ export default function BrokersScreen() {
     } catch (err: any) {
       console.error('Failed to connect broker:', err);
       
-      // Clean up stored credentials on failure
-      await SecureStore.deleteItemAsync(`${selectedBroker.id}_api_key`).catch(() => {});
-      await SecureStore.deleteItemAsync(`${selectedBroker.id}_api_secret`).catch(() => {});
+      // Clean up stored credentials on failure (native only)
+      if (Platform.OS !== 'web') {
+        await SecureStore.deleteItemAsync(`${selectedBroker.id}_api_key`).catch(() => {});
+        await SecureStore.deleteItemAsync(`${selectedBroker.id}_api_secret`).catch(() => {});
+      }
 
       showToast(
         err?.message || 'Αποτυχία σύνδεσης. Έλεγξε τα API credentials.',

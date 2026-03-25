@@ -1,7 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { MeshStandardMaterial, Sphere } from '@react-three/drei';
+import { View, StyleSheet, Dimensions, Animated } from 'react-native';
 import { theme } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
@@ -11,11 +9,11 @@ interface AnimatedOrbProps {
   size?: number;
 }
 
-// Orb component with animations
-function Orb({ state }: { state: string }) {
-  const meshRef = useRef<any>(null);
-  const scaleRef = useRef(1);
-  const scaleDirection = useRef(1);
+export const AnimatedOrb: React.FC<AnimatedOrbProps> = ({
+  state = 'calm',
+  size = width * 0.6,
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const getOrbColor = () => {
     switch (state) {
@@ -33,52 +31,37 @@ function Orb({ state }: { state: string }) {
     }
   };
 
-  useFrame(({ clock }) => {
-    if (meshRef.current) {
-      // Continuous rotation
-      meshRef.current.rotation.y = clock.getElapsedTime() * 0.5;
-      meshRef.current.rotation.x = Math.sin(clock.getElapsedTime() * 0.3) * 0.2;
-
-      // Breathing effect
-      const time = clock.getElapsedTime();
-      scaleRef.current = 1 + Math.sin(time * 2) * 0.1;
-      meshRef.current.scale.set(
-        scaleRef.current,
-        scaleRef.current,
-        scaleRef.current
-      );
-    }
-  });
+  useEffect(() => {
+    const breathe = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scaleAnim, { toValue: 1.1, duration: 1500, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1.0, duration: 1500, useNativeDriver: true }),
+      ])
+    );
+    breathe.start();
+    return () => breathe.stop();
+  }, []);
 
   const color = getOrbColor();
 
   return (
-    <Sphere ref={meshRef} args={[1, 64, 64]}>
-      <MeshStandardMaterial
-        color={color}
-        metalness={0.8}
-        roughness={0.2}
-        emissive={color}
-        emissiveIntensity={0.3}
-      />
-    </Sphere>
-  );
-}
-
-export const AnimatedOrb: React.FC<AnimatedOrbProps> = ({
-  state = 'calm',
-  size = width * 0.6,
-}) => {
-  return (
     <View style={[styles.container, { width: size, height: size }]}>
-      <Canvas
-        camera={{ position: [0, 0, 3], fov: 75 }}
-        gl={{ alpha: true, antialias: true }}
-      >
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} />
-        <Orb state={state} />
-      </Canvas>
+      <Animated.View
+        style={[
+          styles.orb,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: color,
+            transform: [{ scale: scaleAnim }],
+            shadowColor: color,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.8,
+            shadowRadius: size * 0.15,
+          },
+        ]}
+      />
     </View>
   );
 };
@@ -86,6 +69,10 @@ export const AnimatedOrb: React.FC<AnimatedOrbProps> = ({
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orb: {
+    opacity: 0.9,
   },
 });
-
