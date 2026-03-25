@@ -29,8 +29,18 @@ class SecurityManager:
             key = self._derive_key(machine_id)
         
         if isinstance(key, str):
-            key = key.encode()
-        
+            key = key.strip()
+            # If it's a hex string (not valid base64 Fernet key), derive a proper key from it
+            try:
+                decoded = base64.urlsafe_b64decode(key + '==')
+                if len(decoded) != 32:
+                    raise ValueError("not 32 bytes")
+                key = key.encode()
+            except Exception:
+                # Derive a valid Fernet key from whatever string was provided
+                key = key.encode()
+                key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
+
         self.cipher = Fernet(key)
     
     def _get_machine_id(self) -> str:
