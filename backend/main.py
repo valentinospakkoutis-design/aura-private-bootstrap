@@ -53,14 +53,22 @@ def _restore_broker_connections():
     try:
         db = SessionLocal()
         rows = db.query(BrokerCredential).filter(BrokerCredential.is_active == True).all()
+        loaded = 0
         for row in rows:
-            api_key = security_manager.decrypt_api_key(row.encrypted_api_key)
-            api_secret = security_manager.decrypt_api_key(row.encrypted_api_secret)
-            broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
-            broker.connected = True
-            broker_instances[row.broker_name] = broker
-            print(f"[+] Restored broker connection: {row.broker_name}")
+            try:
+                api_key = security_manager.decrypt_api_key(row.encrypted_api_key)
+                api_secret = security_manager.decrypt_api_key(row.encrypted_api_secret)
+                broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
+                broker.connected = True
+                broker_instances[row.broker_name] = broker
+                loaded += 1
+            except Exception as decrypt_err:
+                print(f"[!] Failed to decrypt credentials for {row.broker_name}: {decrypt_err}")
         db.close()
+        if loaded:
+            print(f"[+] Auto-loaded {loaded} broker(s) from database")
+        else:
+            print("[*] No active broker credentials found in database")
     except Exception as e:
         print(f"[!] Could not restore broker connections: {e}")
 
@@ -549,6 +557,10 @@ def connect_broker(connection: BrokerConnection):
 @app.get("/api/brokers/status")
 def get_broker_status():
     """Επιστρέφει κατάσταση brokers"""
+    # Auto-reload from DB if no brokers in memory
+    if not broker_instances:
+        _restore_broker_connections()
+
     status = []
     for broker_name, broker in broker_instances.items():
         status.append(broker.get_status())
@@ -589,30 +601,57 @@ def get_supported_symbols(broker_name: str):
         "timestamp": datetime.now().isoformat()
     }
 
+def _parse_binance_error(execution_result: Dict) -> Dict:
+    """Parse Binance error codes into structured error responses."""
+    code = execution_result.get("code")
+    error_msg = execution_result.get("error", "Unknown broker error")
+    details = execution_result.get("details", {})
+
+    error_map = {
+        -2014: {"type": "invalid_api_key", "message": "Invalid API key. Please reconnect your broker.", "recoverable": True},
+        -2015: {"type": "invalid_signature", "message": "Invalid API key/secret or permissions. Please check your credentials.", "recoverable": True},
+        -2010: {"type": "insufficient_balance", "message": "Insufficient balance for this order.", "recoverable": False},
+        -2011: {"type": "unknown_order", "message": "Order not found or already cancelled.", "recoverable": False},
+        -1003: {"type": "rate_limit", "message": "Too many requests. Please wait and try again.", "recoverable": True},
+        -1015: {"type": "rate_limit", "message": "Too many orders. Please slow down.", "recoverable": True},
+    }
+
+    parsed = error_map.get(code, {"type": "broker_error", "message": error_msg, "recoverable": False})
+
+    # Detect IP restriction from error message
+    if "ip" in error_msg.lower() and "restrict" in error_msg.lower():
+        parsed = {"type": "ip_restriction", "message": "Your IP is not whitelisted on Binance. Update your API key IP restrictions.", "recoverable": True}
+
+    return {
+        "error": parsed["message"],
+        "error_type": parsed["type"],
+        "binance_code": code,
+        "recoverable": parsed["recoverable"],
+        "details": details,
+    }
+
+
 @app.post("/api/brokers/order")
 def place_order(order: OrderRequest):
     """Τοποθετεί order σε paper ή live mode"""
-    if order.broker.lower() not in broker_instances:
-        raise HTTPException(status_code=404, detail="Broker not connected")
-    
-    broker = broker_instances[order.broker.lower()]
-    
+    broker_key = order.broker.lower()
+
+    # Auto-reload from DB if broker not in memory
+    if broker_key not in broker_instances:
+        _restore_broker_connections()
+
+    if broker_key not in broker_instances:
+        raise HTTPException(status_code=404, detail="Broker not connected. Please connect via /api/brokers/connect")
+
+    broker = broker_instances[broker_key]
+
     # Get current market price
     price_info = broker.get_market_price(order.symbol)
     if "error" in price_info:
         raise HTTPException(status_code=400, detail="Failed to get market price")
-    
+
     price = price_info["price"]
-    
-    # Create order dict for paper trading service
-    order_dict = {
-        "symbol": order.symbol,
-        "side": order.side,
-        "quantity": order.quantity,
-        "price": price,
-        "order_type": order.order_type
-    }
-    
+
     if live_trading_service.trading_mode == "live":
         balance_info = broker.get_account_balance()
         portfolio_value = balance_info.get("total_balance", 0) or balance_info.get("available_balance", 0)
@@ -648,6 +687,12 @@ def place_order(order: OrderRequest):
             quantity=order.quantity,
             order_type=order.order_type
         )
+
+        # Structured error handling for Binance errors
+        if "error" in execution_result:
+            parsed = _parse_binance_error(execution_result)
+            raise HTTPException(status_code=400, detail=parsed)
+
         result = live_trading_service.execute_live_order(
             broker=order.broker,
             symbol=order.symbol,
@@ -667,10 +712,10 @@ def place_order(order: OrderRequest):
             "order_type": order.order_type
         }
         result = paper_trading_service.place_order(order_dict)
-    
+
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
-    
+
     return result
 
 @app.get("/api/trading/portfolio")
@@ -1088,6 +1133,15 @@ def get_trading_mode():
 @app.post("/api/trading/mode")
 def set_trading_mode(request: TradingModeRequest):
     """Ορίζει trading mode (paper/live)"""
+    if request.mode == "live" and not broker_instances:
+        # Try auto-reload from DB before rejecting
+        _restore_broker_connections()
+        if not broker_instances:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot switch to live mode: no broker connected. "
+                       "Please connect a broker first via /api/brokers/connect"
+            )
     result = live_trading_service.set_trading_mode(request.mode)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])

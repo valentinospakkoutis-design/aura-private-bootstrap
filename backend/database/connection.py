@@ -17,6 +17,10 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:postgres@localhost:5432/aura_db"
 )
 
+# Railway gives postgres:// but SQLAlchemy requires postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # Async database URL (replace postgresql:// with postgresql+asyncpg://)
 ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
