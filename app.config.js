@@ -98,8 +98,8 @@ export default {
       // API URL: Set via environment variable from eas.json or use production default
       // For standalone builds, this should be your production API URL
       // EAS build sets EXPO_PUBLIC_API_URL from eas.json env variables
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://web-production-5a28a.up.railway.app' : undefined),
-      wsUrl: process.env.EXPO_PUBLIC_WS_URL || (process.env.NODE_ENV === 'production' ? 'wss://web-production-5a28a.up.railway.app/ws' : undefined),
+      apiUrl: process.env.EXPO_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://aura-private-bootstrap-production.up.railway.app' : undefined),
+      wsUrl: process.env.EXPO_PUBLIC_WS_URL || (process.env.NODE_ENV === 'production' ? 'wss://aura-private-bootstrap-production.up.railway.app/ws' : undefined),
       enableAnalytics: process.env.EXPO_PUBLIC_ENABLE_ANALYTICS === 'true',
       enableCrashReporting: process.env.EXPO_PUBLIC_ENABLE_CRASH_REPORTING === 'true',
     },
