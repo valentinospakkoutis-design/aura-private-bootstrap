@@ -515,6 +515,7 @@ def connect_broker(connection: BrokerConnection):
             if result["status"] == "connected":
                 broker_instances[connection.broker.lower()] = broker
                 # Persist to database
+                db = None
                 try:
                     db = SessionLocal()
                     enc_key = security_manager.encrypt_api_key(connection.api_key)
@@ -536,13 +537,24 @@ def connect_broker(connection: BrokerConnection):
                             testnet=connection.testnet,
                         ))
                     db.commit()
-                    db.close()
+                    print(f"[+] Broker credentials saved to database: {connection.broker.lower()}")
                 except Exception as db_err:
-                    print(f"[!] Could not persist broker credentials: {db_err}")
+                    if db:
+                        db.rollback()
+                    print(f"[-] Failed to save broker credentials: {db_err}")
+                    # Remove from memory since we can't persist
+                    broker_instances.pop(connection.broker.lower(), None)
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Broker connected but failed to save credentials to database: {db_err}"
+                    )
+                finally:
+                    if db:
+                        db.close()
                 return {
                     "status": "connected",
                     "broker": connection.broker,
-                    "message": "Successfully connected",
+                    "message": "Successfully connected and saved to database",
                     "timestamp": datetime.now().isoformat()
                 }
             else:
