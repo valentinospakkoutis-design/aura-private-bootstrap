@@ -501,7 +501,7 @@ class OrderRequest(BaseModel):
 broker_instances = {}  # Store active broker connections
 
 @app.post("/api/brokers/connect")
-def connect_broker(connection: BrokerConnection):
+async def connect_broker(connection: BrokerConnection):
     """Συνδέει broker API"""
     try:
         if connection.broker.lower() == "binance":
@@ -510,47 +510,18 @@ def connect_broker(connection: BrokerConnection):
                 api_secret=connection.api_secret,
                 testnet=connection.testnet
             )
-            result = broker.test_connection()
-            
+            result = await asyncio.to_thread(broker.test_connection)
+
             if result["status"] == "connected":
                 broker_instances[connection.broker.lower()] = broker
-                # Persist to database
-                db = None
-                try:
-                    db = SessionLocal()
-                    enc_key = security_manager.encrypt_api_key(connection.api_key)
-                    enc_secret = security_manager.encrypt_api_key(connection.api_secret)
-                    row = db.query(BrokerCredential).filter(
-                        BrokerCredential.broker_name == connection.broker.lower()
-                    ).first()
-                    if row:
-                        row.encrypted_api_key = enc_key
-                        row.encrypted_api_secret = enc_secret
-                        row.testnet = connection.testnet
-                        row.is_active = True
-                        row.updated_at = datetime.utcnow()
-                    else:
-                        db.add(BrokerCredential(
-                            broker_name=connection.broker.lower(),
-                            encrypted_api_key=enc_key,
-                            encrypted_api_secret=enc_secret,
-                            testnet=connection.testnet,
-                        ))
-                    db.commit()
-                    print(f"[+] Broker credentials saved to database: {connection.broker.lower()}")
-                except Exception as db_err:
-                    if db:
-                        db.rollback()
-                    print(f"[-] Failed to save broker credentials: {db_err}")
-                    # Remove from memory since we can't persist
-                    broker_instances.pop(connection.broker.lower(), None)
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Broker connected but failed to save credentials to database: {db_err}"
-                    )
-                finally:
-                    if db:
-                        db.close()
+                # Persist to database (sync DB in threadpool)
+                await asyncio.to_thread(
+                    _save_broker_to_db,
+                    connection.broker.lower(),
+                    connection.api_key,
+                    connection.api_secret,
+                    connection.testnet
+                )
                 return {
                     "status": "connected",
                     "broker": connection.broker,
@@ -565,6 +536,42 @@ def connect_broker(connection: BrokerConnection):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _save_broker_to_db(broker_name: str, api_key: str, api_secret: str, testnet: bool):
+    """Save broker credentials to database (sync, runs in threadpool)."""
+    db = SessionLocal()
+    try:
+        enc_key = security_manager.encrypt_api_key(api_key)
+        enc_secret = security_manager.encrypt_api_key(api_secret)
+        row = db.query(BrokerCredential).filter(
+            BrokerCredential.broker_name == broker_name
+        ).first()
+        if row:
+            row.encrypted_api_key = enc_key
+            row.encrypted_api_secret = enc_secret
+            row.testnet = testnet
+            row.is_active = True
+            row.updated_at = datetime.utcnow()
+        else:
+            db.add(BrokerCredential(
+                broker_name=broker_name,
+                encrypted_api_key=enc_key,
+                encrypted_api_secret=enc_secret,
+                testnet=testnet,
+            ))
+        db.commit()
+        print(f"[+] Broker credentials saved to database: {broker_name}")
+    except Exception as db_err:
+        db.rollback()
+        print(f"[-] Failed to save broker credentials: {db_err}")
+        broker_instances.pop(broker_name, None)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Broker connected but failed to save credentials: {db_err}"
+        )
+    finally:
+        db.close()
 
 @app.get("/api/brokers/status")
 def get_broker_status():
