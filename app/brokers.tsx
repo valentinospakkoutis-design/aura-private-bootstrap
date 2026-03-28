@@ -85,9 +85,14 @@ export default function BrokersScreen() {
   const loadBrokers = async () => {
     try {
       const data = await fetchBrokers();
-      if (Array.isArray(data)) {
-        setBrokers(data);
-      }
+      // Backend returns {brokers: [{broker, connected, ...}], total_connected, timestamp}
+      const brokerList = data?.brokers ?? (Array.isArray(data) ? data : []);
+      const mapped = brokerList.map((b: any) => ({
+        id: b.broker || b.id,
+        name: (b.broker || b.id || '').charAt(0).toUpperCase() + (b.broker || b.id || '').slice(1),
+        connected: b.connected ?? false,
+      }));
+      setBrokers(mapped);
     } catch (err) {
       console.error('Failed to load brokers:', err);
     }
