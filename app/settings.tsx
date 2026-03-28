@@ -203,7 +203,7 @@ export default function SettingsScreen() {
         
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/profile')}
+          onPress={() => router.push({ pathname: '/profile' } as any)}
         >
           <View style={styles.settingLeft}>
             <Text style={styles.settingLabel}>Όνομα</Text>
@@ -214,7 +214,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/profile')}
+          onPress={() => router.push({ pathname: '/profile' } as any)}
         >
           <View style={styles.settingLeft}>
             <Text style={styles.settingLabel}>Email</Text>
@@ -264,7 +264,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/brokers')}
+          onPress={() => router.push({ pathname: '/brokers' } as any)}
         >
           <View style={styles.settingLeft}>
             <Text style={styles.settingLabel}>Brokers</Text>
@@ -407,7 +407,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/change-password')}
+          onPress={() => router.push({ pathname: '/change-password' } as any)}
         >
           <View style={styles.settingLeft}>
             <Text style={styles.settingLabel}>Αλλαγή Κωδικού</Text>
@@ -422,7 +422,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/terms')}
+          onPress={() => router.push({ pathname: '/terms' } as any)}
         >
           <Text style={styles.settingLabel}>Όροι Χρήσης</Text>
           <Text style={styles.arrow}>→</Text>
@@ -430,7 +430,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/privacy')}
+          onPress={() => router.push({ pathname: '/privacy' } as any)}
         >
           <Text style={styles.settingLabel}>Πολιτική Απορρήτου</Text>
           <Text style={styles.arrow}>→</Text>
@@ -438,7 +438,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity 
           style={styles.settingItem}
-          onPress={() => router.push('/help')}
+          onPress={() => router.push({ pathname: '/help' } as any)}
         >
           <Text style={styles.settingLabel}>Βοήθεια & Support</Text>
           <Text style={styles.arrow}>→</Text>

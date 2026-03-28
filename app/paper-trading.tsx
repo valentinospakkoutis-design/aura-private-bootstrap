@@ -98,7 +98,7 @@ export default function PaperTradingScreen() {
   }, [showModal, showToast, loadData]);
 
   const handleStartPaperTrading = useCallback(() => {
-    router.push('/brokers');
+    router.push({ pathname: '/brokers' } as any);
   }, [router]);
 
   // Loading state
@@ -197,7 +197,7 @@ export default function PaperTradingScreen() {
 
           <Button
             title="Ξεκίνα Live Trading"
-            onPress={() => router.push('/live-trading')}
+            onPress={() => router.push({ pathname: '/live-trading' } as any)}
             variant="primary"
             size="medium"
             fullWidth

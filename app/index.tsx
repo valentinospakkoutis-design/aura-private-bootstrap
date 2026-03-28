@@ -103,7 +103,7 @@ export default function HomeScreen() {
 
   const handleQuickAction = (route: string) => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(route as any);
+    router.push({ pathname: route } as any);
   };
 
   return (
@@ -117,7 +117,7 @@ export default function HomeScreen() {
           </View>
           <TouchableOpacity
             style={styles.notificationButton}
-            onPress={() => router.push('/notifications')}
+            onPress={() => router.push({ pathname: '/notifications' } as any)}
           >
             <Text style={styles.notificationIcon}>🔔</Text>
             {unreadCount > 0 && (
@@ -200,7 +200,7 @@ export default function HomeScreen() {
         <AnimatedCard delay={500} animationType="slideUp">
           <View style={styles.activityHeader}>
             <Text style={styles.sectionTitle}>🕐 Πρόσφατη Δραστηριότητα</Text>
-            <TouchableOpacity onPress={() => router.push('/notifications')}>
+            <TouchableOpacity onPress={() => router.push({ pathname: '/notifications' } as any)}>
               <Text style={styles.viewAllButton}>Όλες →</Text>
             </TouchableOpacity>
           </View>

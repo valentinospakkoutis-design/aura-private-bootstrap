@@ -123,7 +123,7 @@ export default function LiveTradingScreen() {
         {
           text: 'Επιστροφή',
           onPress: () => {
-            router.push('/paper-trading');
+            router.push({ pathname: '/paper-trading' } as any);
           },
         },
       ]
@@ -145,7 +145,7 @@ export default function LiveTradingScreen() {
             </Text>
             <AnimatedButton
               title="Σύνδεση Broker"
-              onPress={() => router.push('/brokers')}
+              onPress={() => router.push({ pathname: '/brokers' } as any)}
               variant="primary"
               size="large"
               fullWidth
