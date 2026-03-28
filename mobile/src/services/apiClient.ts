@@ -214,7 +214,7 @@ class ApiClient {
       name: 'voice_sample.m4a',
     } as any);
 
-    const response = await this.client.post('/voice/upload', formData, {
+    const response = await this.client.post('/api/voice/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -244,7 +244,7 @@ class ApiClient {
   }
 
   async getPerformance(period: 'day' | 'week' | 'month' | 'year') {
-    const response = await this.client.get(`/analytics/performance?period=${period}`);
+    const response = await this.client.get(`/api/analytics/performance?period=${period}`);
     return response.data;
   }
 
@@ -259,7 +259,7 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get(`/analytics?range=${timeRange}`);
+    const response = await this.client.get(`/api/analytics/performance?range=${timeRange}`);
     await cacheService.set(cacheKey, response.data, CACHE_TTL.LONG);
     return response.data;
   }
@@ -274,20 +274,20 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/user/profile');
+    const response = await this.client.get('/api/user/profile');
     await cacheService.set(CACHE_KEYS.USER_PROFILE, response.data, CACHE_TTL.LONG);
     return response.data;
   }
 
   async updateProfile(data: { name: string; email: string; phone: string; avatar?: string }) {
-    const response = await this.client.put('/user/profile', data);
+    const response = await this.client.put('/api/user/profile', data);
     // Invalidate profile cache after update
     await cacheService.remove(CACHE_KEYS.USER_PROFILE);
     return response.data;
   }
 
   async updatePassword(data: { currentPassword: string; newPassword: string }) {
-    const response = await this.client.put('/user/password', {
+    const response = await this.client.put('/api/user/password', {
       current_password: data.currentPassword,
       new_password: data.newPassword,
     });
@@ -295,7 +295,7 @@ class ApiClient {
   }
 
   async updateRiskProfile(riskProfile: 'conservative' | 'moderate' | 'aggressive') {
-    const response = await this.client.put('/user/risk-profile', { risk_profile: riskProfile });
+    const response = await this.client.put('/api/user/risk-profile', { risk_profile: riskProfile });
     return response.data;
   }
 
@@ -323,7 +323,7 @@ class ApiClient {
   }
 
   async closeLiveTrade(tradeId: string) {
-    const response = await this.client.post(`/live-trades/${tradeId}/close`);
+    const response = await this.client.post(`/api/live-trades/${tradeId}/close`);
     return response.data;
   }
 
@@ -337,20 +337,20 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/notifications');
+    const response = await this.client.get('/api/notifications');
     await cacheService.set(CACHE_KEYS.NOTIFICATIONS, response.data, CACHE_TTL.SHORT);
     return response.data;
   }
 
   async markNotificationAsRead(id: string) {
-    const response = await this.client.put(`/notifications/${id}/read`);
+    const response = await this.client.put(`/api/notifications/${id}/read`);
     // Invalidate notifications cache after marking as read
     await cacheService.remove(CACHE_KEYS.NOTIFICATIONS);
     return response.data;
   }
 
   async deleteNotification(id: string) {
-    const response = await this.client.delete(`/notifications/${id}`);
+    const response = await this.client.delete(`/api/notifications/${id}`);
     // Invalidate notifications cache after deletion
     await cacheService.remove(CACHE_KEYS.NOTIFICATIONS);
     return response.data;
