@@ -193,7 +193,7 @@ export default function PaperTradingScreen() {
         <TextInput
           style={styles.formInput}
           value={quantity}
-          onChangeText={setQuantity}
+          onChangeText={(v) => setQuantity(v.replace(',', '.'))}
           placeholder="0.001"
           placeholderTextColor={theme.colors.text.secondary}
           keyboardType="decimal-pad"
