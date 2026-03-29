@@ -42,18 +42,8 @@ export default function PaperTradingScreen() {
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const [stats, setStats] = useState<PortfolioStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-
-  const {
-    loading: loadingTrades,
-    error: errorTrades,
-    execute: fetchTrades,
-  } = useApi(api.getPaperTrades, { showLoading: false, showToast: false });
-
-  const {
-    loading: loadingStats,
-    error: errorStats,
-    execute: fetchStats,
-  } = useApi(api.getPortfolioStats, { showLoading: false, showToast: false });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -61,19 +51,23 @@ export default function PaperTradingScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const [tradesData, statsData] = await Promise.all([
-        fetchTrades().catch(() => []), // Fallback to empty array
-        fetchStats().catch(() => null), // Fallback to null
+      setLoading(true);
+      setError(null);
+
+      const [tradesResult, statsResult] = await Promise.all([
+        api.getPaperTrades().catch(() => []),
+        api.getPortfolioStats().catch(() => null),
       ]);
-      
-      // Validate data before setting state
-      setTrades(Array.isArray(tradesData) ? tradesData : []);
-      setStats(statsData && typeof statsData === 'object' ? statsData : null);
+
+      setTrades(Array.isArray(tradesResult) ? tradesResult : []);
+      setStats(statsResult && typeof statsResult === 'object' ? statsResult : null);
     } catch (err) {
       console.error('Error loading paper trading data:', err);
-      showToast('Αποτυχία φόρτωσης δεδομένων', 'error');
+      setError('Δεν ήταν δυνατή η φόρτωση δεδομένων.');
+    } finally {
+      setLoading(false);
     }
-  }, [fetchTrades, fetchStats, showToast]);
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -102,7 +96,7 @@ export default function PaperTradingScreen() {
   }, [router]);
 
   // Loading state
-  if ((loadingTrades || loadingStats) && !refreshing && !trades.length) {
+  if (loading && !refreshing && !trades.length) {
     return (
       <PageTransition type="fade">
         <View style={styles.container}>
@@ -117,7 +111,7 @@ export default function PaperTradingScreen() {
   }
 
   // Error state (only if no cached data)
-  if ((errorTrades || errorStats) && !trades.length && !stats) {
+  if (error && !trades.length && !stats) {
     return (
       <PageTransition type="fade">
         <NoData onRetry={loadData} />

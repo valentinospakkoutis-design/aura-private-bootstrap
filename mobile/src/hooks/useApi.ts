@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ErrorHandler, AppError } from '../utils/errorHandler';
 import { useAppStore } from '../stores/appStore';
 
@@ -58,5 +58,24 @@ export function useApi<T = any>(
     execute,
     reset,
   };
+}
+
+// Legacy hook used by DailyQuote component (auto-fetches on mount)
+export function useQuoteOfDay() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<any>(null);
+
+  useEffect(() => {
+    const { getApiBaseUrl } = require('../config/environment');
+    const baseUrl = getApiBaseUrl();
+    fetch(`${baseUrl}/api/quote-of-day`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setData(d))
+      .catch(e => setError(e))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { data, loading, error, refetch: () => {} };
 }
 
