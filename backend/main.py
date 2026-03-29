@@ -917,8 +917,40 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
             asset_type_enum = AssetType(asset_type.lower())
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
-    
-    return asset_predictor.get_all_predictions(days, asset_type_enum)
+
+    raw = asset_predictor.get_all_predictions(days, asset_type_enum)
+    raw_predictions = raw.get("predictions", {})
+
+    # Map to frontend Prediction interface
+    result = []
+    for symbol, p in raw_predictions.items():
+        if "error" in p:
+            continue
+        rec = (p.get("recommendation") or "HOLD").lower()
+        confidence_raw = p.get("confidence", 0)
+        # Ensure confidence is 0.0-1.0 (backend returns 0-100)
+        confidence = confidence_raw / 100.0 if confidence_raw > 1 else confidence_raw
+
+        trend = p.get("trend", "SIDEWAYS")
+        change_pct = p.get("price_change_percent", 0)
+        reasoning = (
+            f"{p.get('asset_name', symbol)}: {trend} trend, "
+            f"{'+' if change_pct >= 0 else ''}{change_pct:.1f}% expected in {days} days. "
+            f"Strength: {p.get('recommendation_strength', 'N/A')}."
+        )
+
+        result.append({
+            "id": f"pred_{symbol.lower()}_{int(datetime.now().timestamp())}",
+            "asset": p.get("asset_name") or symbol,
+            "action": rec,
+            "confidence": round(confidence, 3),
+            "price": p.get("current_price", 0),
+            "targetPrice": p.get("predicted_price", 0),
+            "timestamp": p.get("timestamp", datetime.now().isoformat()),
+            "reasoning": reasoning,
+        })
+
+    return result
 
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
