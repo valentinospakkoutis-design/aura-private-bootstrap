@@ -205,6 +205,16 @@ class ApiClient {
     return response.data;
   }
 
+  async placePaperOrder(symbol: string, side: 'BUY' | 'SELL', quantity: number) {
+    const response = await this.client.post('/api/trading/order', {
+      symbol,
+      side,
+      quantity,
+    });
+    await cacheService.remove(CACHE_KEYS.PAPER_TRADES);
+    return response.data;
+  }
+
   // Voice
   async uploadVoiceSample(audioUri: string) {
     const formData = new FormData();

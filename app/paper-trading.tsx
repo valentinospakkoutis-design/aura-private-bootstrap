@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TextInput, TouchableOpacity } from 'react-native';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
@@ -44,6 +44,37 @@ export default function PaperTradingScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Order form state
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [quantity, setQuantity] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handlePlaceOrder = useCallback(async () => {
+    const qty = parseFloat(quantity);
+    if (!symbol.trim()) {
+      showToast('Εισήγαγε symbol (π.χ. BTCUSDT)', 'error');
+      return;
+    }
+    if (isNaN(qty) || qty <= 0) {
+      showToast('Εισήγαγε έγκυρη ποσότητα', 'error');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await api.placePaperOrder(symbol.toUpperCase().trim(), side, qty);
+      showToast(`${side} ${qty} ${symbol} εκτελέστηκε!`, 'success');
+      setQuantity('');
+      await loadData();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Αποτυχία order';
+      showToast(msg, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [symbol, side, quantity, showToast, loadData]);
 
   useEffect(() => {
     loadData();
@@ -119,11 +150,78 @@ export default function PaperTradingScreen() {
     );
   }
 
-  // Empty state
+  // Trade form component (reused in empty and normal state)
+  const TradeForm = () => (
+    <AnimatedCard delay={0} animationType="slideUp">
+      <Text style={styles.statsTitle}>📝 Νέο Trade</Text>
+
+      {/* Symbol */}
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Symbol</Text>
+        <TextInput
+          style={styles.formInput}
+          value={symbol}
+          onChangeText={setSymbol}
+          placeholder="BTCUSDT"
+          placeholderTextColor={theme.colors.text.secondary}
+          autoCapitalize="characters"
+        />
+      </View>
+
+      {/* Side Toggle */}
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Side</Text>
+        <View style={styles.sideToggle}>
+          <TouchableOpacity
+            style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
+            onPress={() => setSide('BUY')}
+          >
+            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 BUY</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
+            onPress={() => setSide('SELL')}
+          >
+            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 SELL</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Quantity */}
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Ποσότητα</Text>
+        <TextInput
+          style={styles.formInput}
+          value={quantity}
+          onChangeText={setQuantity}
+          placeholder="0.001"
+          placeholderTextColor={theme.colors.text.secondary}
+          keyboardType="decimal-pad"
+        />
+      </View>
+
+      {/* Submit */}
+      <Button
+        title={submitting ? 'Εκτέλεση...' : `${side} ${symbol}`}
+        onPress={handlePlaceOrder}
+        variant={side === 'BUY' ? 'primary' : 'secondary'}
+        size="large"
+        fullWidth
+        disabled={submitting || !quantity.trim()}
+        loading={submitting}
+      />
+    </AnimatedCard>
+  );
+
+  // Empty state — show form so user can start trading
   if (!trades || trades.length === 0) {
     return (
       <PageTransition type="fade">
-        <NoTrades />
+        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+          <TradeForm />
+          <View style={{ height: theme.spacing.lg }} />
+          <NoTrades />
+        </ScrollView>
       </PageTransition>
     );
   }
@@ -199,6 +297,9 @@ export default function PaperTradingScreen() {
           />
         </AnimatedCard>
       )}
+
+      {/* Trade Form */}
+      <TradeForm />
 
       {/* Trades List - SWIPEABLE */}
       <Text style={styles.sectionTitle}>Πρόσφατα Trades ({trades.length})</Text>
@@ -488,5 +589,52 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: theme.spacing.xl,
+  },
+  formRow: {
+    marginBottom: theme.spacing.md,
+  },
+  formLabel: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '600' as const,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  formInput: {
+    backgroundColor: theme.colors.ui.background,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    borderRadius: theme.borderRadius.medium,
+    padding: theme.spacing.md,
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.primary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  sideToggle: {
+    flexDirection: 'row' as const,
+    gap: theme.spacing.sm,
+  },
+  sideButton: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.borderRadius.medium,
+    borderWidth: 2,
+    borderColor: theme.colors.ui.border,
+    alignItems: 'center' as const,
+  },
+  sideBuy: {
+    borderColor: theme.colors.market.bullish,
+    backgroundColor: theme.colors.market.bullish + '15',
+  },
+  sideSell: {
+    borderColor: theme.colors.market.bearish,
+    backgroundColor: theme.colors.market.bearish + '15',
+  },
+  sideText: {
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '700' as const,
+    color: theme.colors.text.secondary,
+  },
+  sideTextActive: {
+    color: theme.colors.text.primary,
   },
 });

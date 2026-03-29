@@ -837,6 +837,61 @@ def get_trading_statistics():
     """Επιστρέφει trading statistics"""
     return paper_trading_service.get_statistics()
 
+class PaperOrderRequest(BaseModel):
+    symbol: str
+    side: str  # BUY or SELL
+    quantity: float
+
+@app.post("/api/trading/order")
+async def place_trading_order(order: PaperOrderRequest):
+    """Place a paper trading order (fetches price from Binance public API)"""
+    import httpx
+
+    symbol = order.symbol.upper()
+    side = order.side.upper()
+    if side not in ("BUY", "SELL"):
+        raise HTTPException(status_code=400, detail="Side must be BUY or SELL")
+    if order.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be positive")
+
+    # Get current price — try connected broker first, then public API
+    price = None
+    if broker_instances:
+        for broker in broker_instances.values():
+            try:
+                info = broker.get_market_price(symbol)
+                if "price" in info:
+                    price = info["price"]
+                    break
+            except Exception:
+                pass
+
+    if price is None:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://api.binance.com/api/v3/ticker/price",
+                    params={"symbol": symbol}
+                )
+                resp.raise_for_status()
+                price = float(resp.json()["price"])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not fetch price for {symbol}: {e}")
+
+    result = paper_trading_service.place_order({
+        "symbol": symbol,
+        "side": side,
+        "quantity": order.quantity,
+        "price": price,
+        "order_type": "MARKET",
+    })
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
 @app.post("/api/paper-trading/reset")
 def reset_paper_trading():
     """Reset paper trading account"""
