@@ -37,7 +37,7 @@ export default function AIPredictionsScreen() {
     error,
     loading,
     execute: fetchPredictions,
-  } = useApi(api.getPredictions);
+  } = useApi((...args: any[]) => api.getPredictions(...args), { showLoading: false, showToast: false });
 
   // WebSocket for real-time prices
   const assets = predictions?.map((p) => p.asset) || [];

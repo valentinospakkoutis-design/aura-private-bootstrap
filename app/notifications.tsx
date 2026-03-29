@@ -34,17 +34,17 @@ export default function NotificationsScreen() {
     loading,
     error,
     execute: fetchNotifications,
-  } = useApi(api.getNotifications, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.getNotifications(...args), { showLoading: false, showToast: false });
 
   const {
     loading: markingRead,
     execute: markAsRead,
-  } = useApi(api.markNotificationAsRead, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.markNotificationAsRead(...args), { showLoading: false, showToast: false });
 
   const {
     loading: deleting,
     execute: deleteNotification,
-  } = useApi(api.deleteNotification, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.deleteNotification(...args), { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadNotifications();

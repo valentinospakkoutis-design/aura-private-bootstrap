@@ -25,12 +25,12 @@ export default function VoiceBriefingScreen() {
   const {
     loading: loadingBriefing,
     execute: fetchBriefing,
-  } = useApi(api.getVoiceBriefing, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.getVoiceBriefing(...args), { showLoading: false, showToast: false });
 
   const {
     loading: uploadingVoice,
     execute: uploadVoice,
-  } = useApi(api.uploadVoiceSample, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.uploadVoiceSample(...args), { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadBriefing();

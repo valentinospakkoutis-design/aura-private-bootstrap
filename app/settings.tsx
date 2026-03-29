@@ -46,12 +46,12 @@ export default function SettingsScreen() {
   const {
     loading: updatingProfile,
     execute: updateProfile,
-  } = useApi(api.updateProfile, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.updateProfile(...args), { showLoading: false, showToast: false });
 
   const {
     loading: updatingRisk,
     execute: updateRisk,
-  } = useApi(api.updateRiskProfile, { showLoading: false, showToast: false });
+  } = useApi((...args: any[]) => api.updateRiskProfile(...args), { showLoading: false, showToast: false });
 
   const handleUpdateRiskProfile = useCallback(async (profile: RiskProfile) => {
     try {

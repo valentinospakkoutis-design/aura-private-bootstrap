@@ -49,7 +49,7 @@ export default function ProfileScreen() {
   const {
     loading: updatingProfile,
     execute: updateProfile,
-  } = useApi(api.updateProfile, { showLoading: false });
+  } = useApi((...args: any[]) => api.updateProfile(...args), { showLoading: false });
 
   const {
     loading: updatingPassword,
