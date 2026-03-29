@@ -960,25 +960,17 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     raw = asset_predictor.get_all_predictions(days, asset_type_enum)
     raw_predictions = raw.get("predictions", {})
 
-    # Try to fetch live prices for crypto from Binance (best effort)
+    # Batch-fetch live crypto prices from Binance (single request)
     live_prices: Dict[str, float] = {}
     try:
         import httpx
-        crypto_symbols = [s for s in raw_predictions if s.endswith("USDT")]
-        if crypto_symbols:
-            with httpx.Client(timeout=5.0) as client:
-                for sym in crypto_symbols[:10]:  # Limit to 10 to avoid slowdown
-                    try:
-                        resp = client.get(
-                            "https://api.binance.com/api/v3/ticker/price",
-                            params={"symbol": sym}
-                        )
-                        if resp.status_code == 200:
-                            live_prices[sym] = float(resp.json()["price"])
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get("https://api.binance.com/api/v3/ticker/price")
+            if resp.status_code == 200:
+                for item in resp.json():
+                    live_prices[item["symbol"]] = float(item["price"])
+    except Exception as e:
+        print(f"[!] Binance price fetch failed: {e}")
 
     # Map to frontend Prediction interface
     result = []
@@ -990,10 +982,13 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         # Ensure confidence is 0.0-1.0 (backend returns 0-100)
         confidence = confidence_raw / 100.0 if confidence_raw > 1 else confidence_raw
 
-        # Use live price if available, otherwise use prediction's price
+        # Price: live Binance > prediction current_price > base_price fallback
         current_price = live_prices.get(symbol) or p.get("current_price") or 0
         change_pct = p.get("price_change_percent", 0)
-        target_price = current_price * (1 + change_pct / 100) if current_price > 0 else p.get("predicted_price", 0)
+        if current_price > 0:
+            target_price = current_price * (1 + change_pct / 100)
+        else:
+            target_price = p.get("predicted_price") or 0
 
         trend = p.get("trend", "SIDEWAYS")
         reasoning = (
@@ -1002,16 +997,24 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
             f"Strength: {p.get('recommendation_strength', 'N/A')}."
         )
 
+        # Determine decimal precision based on price magnitude
+        price_decimals = 2 if current_price >= 1 else 6
+
         result.append({
             "id": f"pred_{symbol.lower()}_{int(datetime.now().timestamp())}",
             "asset": p.get("asset_name") or symbol,
             "action": rec,
             "confidence": round(confidence, 3),
-            "price": round(current_price, 2),
-            "targetPrice": round(target_price, 2),
+            "price": round(current_price, price_decimals),
+            "targetPrice": round(target_price, price_decimals),
             "timestamp": p.get("timestamp", datetime.now().isoformat()),
             "reasoning": reasoning,
         })
+
+    print(f"[+] Predictions: {len(result)} items, live prices: {len(live_prices)} symbols from Binance")
+    if result:
+        sample = result[0]
+        print(f"[DEBUG] Sample prediction: asset={sample['asset']}, price={sample['price']}, targetPrice={sample['targetPrice']}")
 
     return result
 
