@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../mobile/src/services/apiClient';
-import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
@@ -142,11 +141,15 @@ export default function PredictionDetailsScreen() {
           <View style={styles.priceRow}>
             <View style={styles.priceCol}>
               <Text style={styles.priceLabel}>Current</Text>
-              <AnimatedCounter value={prediction.price} prefix="$" decimals={2} style={styles.priceValue} />
+              <Text style={styles.priceValue}>
+                ${prediction.price?.toFixed(2) ?? '0.00'}
+              </Text>
             </View>
             <View style={styles.priceCol}>
               <Text style={styles.priceLabel}>Target</Text>
-              <AnimatedCounter value={prediction.targetPrice} prefix="$" decimals={2} style={[styles.priceValue, { color: actionColor }]} />
+              <Text style={[styles.priceValue, { color: actionColor }]}>
+                ${prediction.targetPrice?.toFixed(2) ?? '0.00'}
+              </Text>
             </View>
           </View>
           <View style={styles.changeRow}>
