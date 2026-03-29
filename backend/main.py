@@ -137,24 +137,63 @@ async def rate_limit_middleware_wrapper(request: Request, call_next):
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time price updates"""
     await websocket.accept()
+    subscribed_assets: list = []
     try:
-        while True:
-            # Send price updates
-            await websocket.send_json({
-                "type": "price_update",
-                "payload": {
-                    "asset": "BTC/USD",
-                    "price": 42500.00,
-                    "change": 250.00,
-                    "changePercentage": 0.59,
-                    "timestamp": datetime.utcnow().isoformat() + "Z"
-                }
-            })
-            await asyncio.sleep(5)
+        # Task to send price updates
+        async def send_prices():
+            while True:
+                assets_to_send = subscribed_assets if subscribed_assets else ["Bitcoin", "Gold"]
+                for asset_name in assets_to_send:
+                    # Find symbol by name or use directly
+                    symbol = None
+                    for sym, info in asset_predictor.all_assets.items():
+                        if info.get("name") == asset_name or sym == asset_name:
+                            symbol = sym
+                            break
+                    price = asset_predictor.get_current_price(symbol) if symbol else 0
+                    if price > 0:
+                        await websocket.send_json({
+                            "type": "price_update",
+                            "payload": {
+                                "asset": asset_name,
+                                "price": price,
+                                "change": 0,
+                                "changePercentage": 0,
+                                "timestamp": datetime.utcnow().isoformat() + "Z"
+                            }
+                        })
+                await asyncio.sleep(5)
+
+        # Task to receive client messages
+        async def receive_messages():
+            nonlocal subscribed_assets
+            while True:
+                try:
+                    data = await websocket.receive_json()
+                    msg_type = data.get("type", "")
+                    payload = data.get("payload", data)
+                    if msg_type == "subscribe_prices":
+                        subscribed_assets = payload.get("assets", [])
+                    elif msg_type == "unsubscribe_prices":
+                        subscribed_assets = []
+                except Exception:
+                    break
+
+        # Run both tasks concurrently
+        send_task = asyncio.create_task(send_prices())
+        recv_task = asyncio.create_task(receive_messages())
+        done, pending = await asyncio.wait(
+            [send_task, recv_task], return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        await websocket.close()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 # User storage file
 USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")
@@ -921,6 +960,26 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     raw = asset_predictor.get_all_predictions(days, asset_type_enum)
     raw_predictions = raw.get("predictions", {})
 
+    # Try to fetch live prices for crypto from Binance (best effort)
+    live_prices: Dict[str, float] = {}
+    try:
+        import httpx
+        crypto_symbols = [s for s in raw_predictions if s.endswith("USDT")]
+        if crypto_symbols:
+            with httpx.Client(timeout=5.0) as client:
+                for sym in crypto_symbols[:10]:  # Limit to 10 to avoid slowdown
+                    try:
+                        resp = client.get(
+                            "https://api.binance.com/api/v3/ticker/price",
+                            params={"symbol": sym}
+                        )
+                        if resp.status_code == 200:
+                            live_prices[sym] = float(resp.json()["price"])
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
     # Map to frontend Prediction interface
     result = []
     for symbol, p in raw_predictions.items():
@@ -931,8 +990,12 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         # Ensure confidence is 0.0-1.0 (backend returns 0-100)
         confidence = confidence_raw / 100.0 if confidence_raw > 1 else confidence_raw
 
-        trend = p.get("trend", "SIDEWAYS")
+        # Use live price if available, otherwise use prediction's price
+        current_price = live_prices.get(symbol) or p.get("current_price") or 0
         change_pct = p.get("price_change_percent", 0)
+        target_price = current_price * (1 + change_pct / 100) if current_price > 0 else p.get("predicted_price", 0)
+
+        trend = p.get("trend", "SIDEWAYS")
         reasoning = (
             f"{p.get('asset_name', symbol)}: {trend} trend, "
             f"{'+' if change_pct >= 0 else ''}{change_pct:.1f}% expected in {days} days. "
@@ -944,8 +1007,8 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
             "asset": p.get("asset_name") or symbol,
             "action": rec,
             "confidence": round(confidence, 3),
-            "price": p.get("current_price", 0),
-            "targetPrice": p.get("predicted_price", 0),
+            "price": round(current_price, 2),
+            "targetPrice": round(target_price, 2),
             "timestamp": p.get("timestamp", datetime.now().isoformat()),
             "reasoning": reasoning,
         })
