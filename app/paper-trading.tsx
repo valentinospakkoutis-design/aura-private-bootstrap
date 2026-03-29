@@ -51,6 +51,30 @@ export default function PaperTradingScreen() {
   const [quantity, setQuantity] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [tradesResult, statsResult] = await Promise.all([
+        api.getPaperTrades().catch(() => []),
+        api.getPortfolioStats().catch(() => null),
+      ]);
+
+      setTrades(Array.isArray(tradesResult) ? tradesResult : []);
+      setStats(statsResult && typeof statsResult === 'object' ? statsResult : null);
+    } catch (err) {
+      console.error('Error loading paper trading data:', err);
+      setError('Δεν ήταν δυνατή η φόρτωση δεδομένων.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   const handlePlaceOrder = useCallback(async () => {
     const qty = parseFloat(quantity);
     if (!symbol.trim()) {
@@ -75,30 +99,6 @@ export default function PaperTradingScreen() {
       setSubmitting(false);
     }
   }, [symbol, side, quantity, showToast, loadData]);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [tradesResult, statsResult] = await Promise.all([
-        api.getPaperTrades().catch(() => []),
-        api.getPortfolioStats().catch(() => null),
-      ]);
-
-      setTrades(Array.isArray(tradesResult) ? tradesResult : []);
-      setStats(statsResult && typeof statsResult === 'object' ? statsResult : null);
-    } catch (err) {
-      console.error('Error loading paper trading data:', err);
-      setError('Δεν ήταν δυνατή η φόρτωση δεδομένων.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
