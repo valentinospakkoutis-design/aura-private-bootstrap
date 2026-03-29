@@ -187,8 +187,22 @@ class ApiClient {
     // Combine portfolio positions with history
     const portfolio = portfolioResponse.data || {};
     const history = historyResponse.data || {};
-    const trades = history.trades || portfolio.positions || [];
-    
+    const rawTrades = history.trades || portfolio.positions || [];
+
+    // Map backend fields to frontend PaperTrade interface
+    const trades = rawTrades.map((t: any) => ({
+      id: t.order_id || t.id || `trade_${Date.now()}`,
+      asset: t.symbol || t.asset || 'Unknown',
+      action: (t.side || t.action || 'buy').toLowerCase(),
+      amount: t.quantity || t.amount || 0,
+      price: t.price || t.avg_price || 0,
+      currentPrice: t.current_price || t.currentPrice || t.price || 0,
+      timestamp: t.executed_at || t.timestamp || new Date().toISOString(),
+      profit: t.pnl || t.profit || 0,
+      profitPercentage: t.pnl_percent || t.profitPercentage || 0,
+      status: (t.side || '').toUpperCase() === 'SELL' ? 'closed' : 'open',
+    }));
+
     await cacheService.set(CACHE_KEYS.PAPER_TRADES, trades, CACHE_TTL.SHORT);
     return trades;
   }
@@ -245,7 +259,16 @@ class ApiClient {
     // Try paper trading statistics first, then analytics
     try {
       const response = await this.client.get('/api/paper-trading/statistics');
-      return response.data;
+      const d = response.data || {};
+      // Map backend fields to frontend PortfolioStats interface
+      return {
+        totalValue: d.current_balance ?? d.totalValue ?? 0,
+        totalProfit: d.total_pnl ?? d.totalProfit ?? 0,
+        profitPercentage: d.total_pnl_percent ?? d.profitPercentage ?? 0,
+        openTrades: d.active_positions ?? d.openTrades ?? 0,
+        closedTrades: (d.total_trades ?? 0) - (d.active_positions ?? 0),
+        winRate: d.win_rate ?? d.winRate ?? 0,
+      };
     } catch {
       // Fallback to analytics performance
       const response = await this.client.get('/api/analytics/performance');
