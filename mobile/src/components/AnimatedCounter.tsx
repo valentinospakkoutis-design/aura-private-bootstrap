@@ -30,14 +30,15 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   const animatedValue = useSharedValue(0);
 
   useEffect(() => {
-    animatedValue.value = withTiming(value, {
+    const safeValue = value ?? 0;
+    animatedValue.value = withTiming(safeValue, {
       duration,
       easing: Easing.out(Easing.cubic),
     });
   }, [value, duration]);
 
   const animatedProps = useAnimatedProps(() => {
-    const displayValue = animatedValue.value.toFixed(decimals);
+    const displayValue = (animatedValue.value ?? 0).toFixed(decimals);
     return {
       text: `${prefix}${displayValue}${suffix}`,
     } as any;
