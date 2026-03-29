@@ -126,12 +126,20 @@ function AppContent() {
           }} 
         />
         
-        <Stack.Screen 
-          name="brokers" 
-          options={{ 
+        <Stack.Screen
+          name="brokers"
+          options={{
             title: '🔗 Brokers',
             headerShown: true,
-          }} 
+          }}
+        />
+
+        <Stack.Screen
+          name="prediction-details"
+          options={{
+            title: '🔍 Prediction Details',
+            headerShown: true,
+          }}
         />
 
         {/* Dev/Test Screens */}

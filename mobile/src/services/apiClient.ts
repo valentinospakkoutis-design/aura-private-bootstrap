@@ -119,7 +119,7 @@ class ApiClient {
   }
 
   async getPredictionById(id: string) {
-    const response = await this.client.get(`/api/ai/predict/${id}`);
+    const response = await this.client.get(`/api/ai/predictions/${id}`);
     return response.data;
   }
 

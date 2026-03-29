@@ -1041,6 +1041,63 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
 
     return result
 
+@app.get("/api/ai/predictions/{prediction_id}")
+def get_prediction_by_id(prediction_id: str):
+    """Return a single prediction by its generated id (pred_symbol_timestamp)"""
+    # Extract symbol from id: pred_btcusdt_1711648000 -> BTCUSDT
+    parts = prediction_id.replace("pred_", "").rsplit("_", 1)
+    symbol = parts[0].upper() if parts else ""
+
+    if symbol not in asset_predictor.all_assets:
+        raise HTTPException(status_code=404, detail=f"Prediction not found: {prediction_id}")
+
+    p = asset_predictor.predict_price(symbol, days=7)
+    if "error" in p:
+        raise HTTPException(status_code=404, detail=p["error"])
+
+    # Fetch live price
+    current_price = p.get("current_price", 0)
+    try:
+        import httpx
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get("https://api.binance.com/api/v3/ticker/price", params={"symbol": symbol})
+            if resp.status_code == 200:
+                current_price = float(resp.json()["price"])
+    except Exception:
+        pass
+
+    rec = (p.get("recommendation") or "HOLD").lower()
+    confidence_raw = p.get("confidence", 0)
+    confidence = confidence_raw / 100.0 if confidence_raw > 1 else confidence_raw
+    change_pct = p.get("price_change_percent", 0)
+    target_price = current_price * (1 + change_pct / 100) if current_price > 0 else p.get("predicted_price", 0)
+    trend = p.get("trend", "SIDEWAYS")
+    price_decimals = 2 if current_price >= 1 else 6
+
+    return {
+        "id": prediction_id,
+        "asset": p.get("asset_name") or symbol,
+        "symbol": symbol,
+        "action": rec,
+        "confidence": round(confidence, 3),
+        "price": round(current_price, price_decimals),
+        "targetPrice": round(target_price, price_decimals),
+        "timestamp": p.get("timestamp", datetime.now().isoformat()),
+        "reasoning": (
+            f"{p.get('asset_name', symbol)}: {trend} trend, "
+            f"{'+' if change_pct >= 0 else ''}{change_pct:.1f}% expected in 7 days. "
+            f"Strength: {p.get('recommendation_strength', 'N/A')}."
+        ),
+        "trend": trend,
+        "trendScore": p.get("trend_score", 0),
+        "priceChange": round(p.get("price_change", 0), price_decimals),
+        "priceChangePercent": round(change_pct, 2),
+        "recommendationStrength": p.get("recommendation_strength", "N/A"),
+        "pricePath": p.get("price_path", []),
+        "modelVersion": p.get("model_version", "v1.0"),
+    }
+
+
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
     """Επιστρέφει trading signal για οποιοδήποτε asset"""
