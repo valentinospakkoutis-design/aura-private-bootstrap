@@ -136,14 +136,21 @@ async def rate_limit_middleware_wrapper(request: Request, call_next):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time price updates"""
+    from starlette.websockets import WebSocketDisconnect, WebSocketState
+
     await websocket.accept()
+    print("[+] WebSocket client connected")
     subscribed_assets: list = []
-    try:
-        # Task to send price updates
-        async def send_prices():
-            while True:
+    closed = False
+
+    async def send_prices():
+        nonlocal closed
+        while not closed:
+            try:
                 assets_to_send = subscribed_assets if subscribed_assets else ["Bitcoin", "Gold"]
                 for asset_name in assets_to_send:
+                    if closed:
+                        return
                     # Find symbol by name or use directly
                     symbol = None
                     for sym, info in asset_predictor.all_assets.items():
@@ -163,37 +170,53 @@ async def websocket_endpoint(websocket: WebSocket):
                             }
                         })
                 await asyncio.sleep(5)
+            except Exception:
+                closed = True
+                return
 
-        # Task to receive client messages
-        async def receive_messages():
-            nonlocal subscribed_assets
-            while True:
-                try:
-                    data = await websocket.receive_json()
+    async def receive_messages():
+        nonlocal subscribed_assets, closed
+        while not closed:
+            try:
+                msg = await websocket.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    closed = True
+                    return
+                text = msg.get("text")
+                if text:
+                    import json as _json
+                    data = _json.loads(text)
                     msg_type = data.get("type", "")
                     payload = data.get("payload", data)
                     if msg_type == "subscribe_prices":
                         subscribed_assets = payload.get("assets", [])
+                        print(f"[ws] Subscribed to: {subscribed_assets}")
                     elif msg_type == "unsubscribe_prices":
                         subscribed_assets = []
-                except Exception:
-                    break
+            except (WebSocketDisconnect, RuntimeError):
+                closed = True
+                return
+            except Exception:
+                continue
 
-        # Run both tasks concurrently
+    try:
         send_task = asyncio.create_task(send_prices())
         recv_task = asyncio.create_task(receive_messages())
-        done, pending = await asyncio.wait(
+        await asyncio.wait(
             [send_task, recv_task], return_when=asyncio.FIRST_COMPLETED
         )
-        for task in pending:
-            task.cancel()
+        for t in [send_task, recv_task]:
+            if not t.done():
+                t.cancel()
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"[!] WebSocket error: {e}")
     finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+        print("[+] WebSocket client disconnected")
+        if websocket.client_state == WebSocketState.CONNECTED:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
 # User storage file
 USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")
