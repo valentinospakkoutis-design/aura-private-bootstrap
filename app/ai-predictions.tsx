@@ -4,7 +4,6 @@ import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
-import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
 import { SkeletonList } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
@@ -144,21 +143,15 @@ export default function AIPredictionsScreen() {
       <View style={styles.priceContainer}>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
-          <AnimatedCounter
-            value={item.price}
-            prefix="$"
-            decimals={2}
-            style={styles.priceValue}
-          />
+          <Text style={styles.priceValue}>
+            ${item.price?.toFixed(2) ?? '0.00'}
+          </Text>
         </View>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Στόχος:</Text>
-          <AnimatedCounter
-            value={item.targetPrice}
-            prefix="$"
-            decimals={2}
-            style={[styles.priceValue, { color: getActionColor(item.action) }]}
-          />
+          <Text style={[styles.priceValue, { color: getActionColor(item.action) }]}>
+            ${item.targetPrice?.toFixed(2) ?? '0.00'}
+          </Text>
         </View>
       </View>
 

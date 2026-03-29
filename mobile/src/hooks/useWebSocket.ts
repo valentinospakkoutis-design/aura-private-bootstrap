@@ -32,7 +32,8 @@ export function useWebSocket() {
 
     websocket.onError((error) => {
       logger.error('WebSocket error:', error);
-      showToast('Connection error', 'error');
+      // Don't show toast for WebSocket errors — they are expected in dev
+      // and would spam the user with "Connection error" on every reconnect
     });
 
     // Cleanup on unmount
