@@ -135,7 +135,7 @@ export default function AIPredictionsScreen() {
         <View style={[styles.actionBadge, { backgroundColor: getActionColor(item.action) + '20' }]}>
           <Text style={styles.actionIcon}>{getActionIcon(item.action)}</Text>
           <Text style={[styles.actionText, { color: getActionColor(item.action) }]}>
-            {item.action.toUpperCase()}
+            {item.action?.toUpperCase() ?? 'N/A'}
           </Text>
         </View>
       </View>
