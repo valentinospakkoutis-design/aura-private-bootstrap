@@ -1047,8 +1047,16 @@ def get_prediction_by_id(prediction_id: str):
     # Extract symbol from id: pred_btcusdt_1711648000 -> BTCUSDT
     parts = prediction_id.replace("pred_", "").rsplit("_", 1)
     symbol = parts[0].upper() if parts else ""
+    print(f"[DEBUG] Prediction detail request: id={prediction_id}, extracted symbol={symbol}")
 
     if symbol not in asset_predictor.all_assets:
+        # Try without the timestamp suffix (maybe id is just the symbol)
+        alt_symbol = prediction_id.upper().replace("PRED_", "")
+        if alt_symbol in asset_predictor.all_assets:
+            symbol = alt_symbol
+        else:
+            print(f"[!] Symbol not found: {symbol}, available: {list(asset_predictor.all_assets.keys())[:5]}...")
+            raise HTTPException(status_code=404, detail=f"Prediction not found: {prediction_id}")
         raise HTTPException(status_code=404, detail=f"Prediction not found: {prediction_id}")
 
     p = asset_predictor.predict_price(symbol, days=7)
@@ -1096,6 +1104,8 @@ def get_prediction_by_id(prediction_id: str):
         "pricePath": p.get("price_path", []),
         "modelVersion": p.get("model_version", "v1.0"),
     }
+    print(f"[DEBUG] Prediction detail response: asset={result['asset']}, price={result['price']}, targetPrice={result['targetPrice']}")
+    return result
 
 
 @app.get("/api/ai/signal/{symbol}")
