@@ -40,15 +40,43 @@ def get_metal_spot_price(binance_symbol: str) -> float | None:
     try:
         import yfinance as yf
         data = yf.Ticker(ticker)
-        info = data.fast_info
-        price = getattr(info, 'last_price', None) or getattr(info, 'regular_market_price', None)
+
+        # Try multiple approaches — yfinance API changes between versions
+        price = None
+
+        # Approach 1: fast_info
+        try:
+            info = data.fast_info
+            price = getattr(info, 'last_price', None) or getattr(info, 'regular_market_price', None)
+        except Exception:
+            pass
+
+        # Approach 2: info dict
+        if not price:
+            try:
+                info_dict = data.info
+                price = info_dict.get('regularMarketPrice') or info_dict.get('currentPrice') or info_dict.get('previousClose')
+            except Exception:
+                pass
+
+        # Approach 3: history (most reliable)
+        if not price:
+            try:
+                hist = data.history(period="1d")
+                if not hist.empty:
+                    price = float(hist['Close'].iloc[-1])
+            except Exception:
+                pass
+
         if price and price > 0:
             _price_cache[ticker] = float(price)
             _cache_timestamp[ticker] = now
-            logger.info(f"[metals] {binance_symbol} ({ticker}) = ${price:.2f}")
+            print(f"[metals] {binance_symbol} ({ticker}) = ${price:.2f}")
             return float(price)
+        else:
+            print(f"[metals] {binance_symbol} ({ticker}): all approaches returned None")
     except Exception as e:
-        logger.warning(f"[metals] Failed to fetch {ticker}: {e}")
+        print(f"[metals] Failed to fetch {ticker}: {e}")
 
     # Return stale cache if available
     if ticker in _price_cache:

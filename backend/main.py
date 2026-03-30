@@ -989,12 +989,7 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     raw = asset_predictor.get_all_predictions(days, asset_type_enum)
     raw_predictions = raw.get("predictions", {})
 
-    # Fetch live prices: metals from Yahoo Finance, crypto from Binance
-    from services.metals_price_service import get_all_metals_prices, is_metal
-
-    metals_prices = get_all_metals_prices()
-    print(f"[+] Metals spot prices: {metals_prices}")
-
+    # Step 1: Fetch crypto prices from Binance
     live_prices: Dict[str, float] = {}
     try:
         import httpx
@@ -1003,12 +998,21 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
             if resp.status_code == 200:
                 for item in resp.json():
                     live_prices[item["symbol"]] = float(item["price"])
+        print(f"[+] Binance: {len(live_prices)} prices loaded")
     except Exception as e:
         print(f"[!] Binance price fetch failed: {e}")
 
-    # Override metals with real spot prices (Binance XAUUSDT is a token, not spot)
-    for metal_sym, spot_price in metals_prices.items():
-        live_prices[metal_sym] = spot_price
+    # Step 2: Override metals with REAL spot prices from Yahoo Finance
+    # Binance XAUUSDT is a tokenized product (~$2,000), real gold is ~$3,000+
+    from services.metals_price_service import get_all_metals_prices, is_metal
+    metals_prices = get_all_metals_prices()
+    if metals_prices:
+        for metal_sym, spot_price in metals_prices.items():
+            old = live_prices.get(metal_sym, 0)
+            live_prices[metal_sym] = spot_price
+            print(f"[+] {metal_sym}: Binance ${old:.2f} → Spot ${spot_price:.2f}")
+    else:
+        print("[!] Yahoo Finance metals fetch returned empty — using Binance fallback")
 
     # Map to frontend Prediction interface
     result = []
