@@ -145,6 +145,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     async def send_prices():
         nonlocal closed
+        from services.metals_price_service import get_metal_spot_price, is_metal
         while not closed:
             try:
                 assets_to_send = subscribed_assets if subscribed_assets else ["Bitcoin", "Gold"]
@@ -157,7 +158,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         if info.get("name") == asset_name or sym == asset_name:
                             symbol = sym
                             break
-                    price = asset_predictor.get_current_price(symbol) if symbol else 0
+                    # Use real spot price for metals, simulated for others
+                    price = 0
+                    if symbol and is_metal(symbol):
+                        spot = get_metal_spot_price(symbol)
+                        if spot:
+                            price = spot
+                    if not price and symbol:
+                        price = asset_predictor.get_current_price(symbol)
                     if price > 0:
                         await websocket.send_json({
                             "type": "price_update",
