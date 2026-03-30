@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
@@ -46,11 +46,17 @@ export default function AIPredictionsScreen() {
     loadPredictions();
   }, []);
 
+  // Keep a ref to predictions to avoid infinite loop
+  const predictionsRef = useRef(predictions);
+  useEffect(() => {
+    predictionsRef.current = predictions;
+  }, [predictions]);
+
   // Update prediction prices in real-time
   useEffect(() => {
-    if (prices.size > 0 && predictions && predictions.length > 0) {
+    if (prices.size > 0 && predictionsRef.current && predictionsRef.current.length > 0) {
       setPredictions(
-        predictions.map((prediction) => {
+        predictionsRef.current.map((prediction) => {
           const priceUpdate = prices.get(prediction.asset);
           if (priceUpdate) {
             return {
@@ -63,7 +69,7 @@ export default function AIPredictionsScreen() {
         })
       );
     }
-  }, [prices, predictions, setPredictions]);
+  }, [prices, setPredictions]);
 
   const loadPredictions = async () => {
     try {

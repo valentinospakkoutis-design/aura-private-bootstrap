@@ -157,7 +157,7 @@ export class WebSocketService {
     this.clearReconnectTimeout();
     this.reconnectAttempts++;
 
-    const delay = this.config.reconnectInterval! * this.reconnectAttempts;
+    const delay = Math.max(3000, this.config.reconnectInterval! * this.reconnectAttempts);
     logger.info(`Scheduling reconnect attempt ${this.reconnectAttempts} in ${delay}ms`);
 
     this.reconnectTimeout = setTimeout(() => {
