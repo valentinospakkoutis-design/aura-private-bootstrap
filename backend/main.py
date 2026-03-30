@@ -1022,7 +1022,13 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
 
         # Price: metals spot > live Binance > prediction current_price > base_price fallback
         current_price = live_prices.get(symbol) or p.get("current_price") or 0
-        change_pct = p.get("price_change_percent", 0)
+
+        # Use the AI trend to compute target, NOT the pre-computed change_pct
+        # (change_pct was calculated against simulated base_price which may differ
+        #  significantly from the real price, especially for metals)
+        trend_score = p.get("trend_score", 0)  # -1 to +1
+        daily_change = trend_score * 0.005     # same formula as predict_price
+        change_pct = daily_change * days * 100  # convert to percentage over N days
         if current_price > 0:
             target_price = current_price * (1 + change_pct / 100)
         else:
@@ -1097,7 +1103,10 @@ def get_prediction_by_id(prediction_id: str):
     rec = (p.get("recommendation") or "HOLD").lower()
     confidence_raw = p.get("confidence", 0)
     confidence = confidence_raw / 100.0 if confidence_raw > 1 else confidence_raw
-    change_pct = p.get("price_change_percent", 0)
+    # Recalculate change from trend_score against real price (not pre-computed %)
+    trend_score = p.get("trend_score", 0)
+    daily_change = trend_score * 0.005
+    change_pct = daily_change * 7 * 100
     target_price = current_price * (1 + change_pct / 100) if current_price > 0 else p.get("predicted_price", 0)
     trend = p.get("trend", "SIDEWAYS")
     price_decimals = 2 if current_price >= 1 else 6
