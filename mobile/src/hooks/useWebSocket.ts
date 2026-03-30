@@ -13,7 +13,7 @@ interface PriceUpdate {
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
-  const { showToast } = useAppStore();
+  const failCountRef = { current: 0 };
 
   useEffect(() => {
     // Connect on mount
@@ -21,26 +21,31 @@ export function useWebSocket() {
 
     // Connection handlers
     websocket.onConnect(() => {
+      failCountRef.current = 0;
       setIsConnected(true);
       logger.info('WebSocket connected');
     });
 
     websocket.onDisconnect(() => {
-      setIsConnected(false);
-      logger.info('WebSocket disconnected');
+      failCountRef.current += 1;
+      // Only show as disconnected after 3 failed attempts
+      // This prevents the "Reconnecting" banner from flashing on startup
+      if (failCountRef.current >= 3) {
+        setIsConnected(false);
+      }
+      logger.info(`WebSocket disconnected (attempt ${failCountRef.current})`);
     });
 
     websocket.onError((error) => {
-      logger.error('WebSocket error:', error);
-      // Don't show toast for WebSocket errors — they are expected in dev
-      // and would spam the user with "Connection error" on every reconnect
+      logger.warn('WebSocket error (silent):', error);
+      // Never show toast — WebSocket is non-critical
     });
 
     // Cleanup on unmount
     return () => {
       websocket.disconnect();
     };
-  }, [showToast]);
+  }, []);
 
   const subscribe = useCallback((type: string, handler: (data: any) => void) => {
     return websocket.on(type, handler);

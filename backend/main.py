@@ -218,6 +218,12 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception:
                 pass
 
+# Alias: /ws/prices → same handler as /ws
+@app.websocket("/ws/prices")
+async def websocket_prices(websocket: WebSocket):
+    """Alias WebSocket endpoint for price updates"""
+    await websocket_endpoint(websocket)
+
 # User storage file
 USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")
 

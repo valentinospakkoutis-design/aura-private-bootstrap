@@ -176,23 +176,20 @@ export class WebSocketService {
 // Create singleton instance
 // Get WebSocket URL from environment config
 const getWebSocketUrl = () => {
-  if (__DEV__) {
-    return 'ws://localhost:8000/ws';
-  }
-  
-  // In production, use the API URL but with ws/wss protocol
+  // Always use the configured API base URL (works in both dev and production)
   try {
     const { getApiBaseUrl } = require('../config/environment');
     const apiUrl = getApiBaseUrl();
     if (apiUrl) {
-      // Convert http/https to ws/wss
-      return apiUrl.replace(/^http/, 'ws').replace(/^https/, 'wss') + '/ws';
+      // Convert https:// → wss://, http:// → ws://
+      const wsUrl = apiUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
+      return wsUrl + '/ws';
     }
   } catch (error) {
     console.warn('Failed to get API URL for WebSocket:', error);
   }
-  
-  return 'wss://api.aura.app/ws';
+
+  return 'wss://aura-private-bootstrap-production.up.railway.app/ws';
 };
 
 export const websocket = new WebSocketService({ 
