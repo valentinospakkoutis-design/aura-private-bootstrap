@@ -989,7 +989,12 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     raw = asset_predictor.get_all_predictions(days, asset_type_enum)
     raw_predictions = raw.get("predictions", {})
 
-    # Batch-fetch live crypto prices from Binance (single request)
+    # Fetch live prices: metals from Yahoo Finance, crypto from Binance
+    from services.metals_price_service import get_all_metals_prices, is_metal
+
+    metals_prices = get_all_metals_prices()
+    print(f"[+] Metals spot prices: {metals_prices}")
+
     live_prices: Dict[str, float] = {}
     try:
         import httpx
@@ -1001,6 +1006,10 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     except Exception as e:
         print(f"[!] Binance price fetch failed: {e}")
 
+    # Override metals with real spot prices (Binance XAUUSDT is a token, not spot)
+    for metal_sym, spot_price in metals_prices.items():
+        live_prices[metal_sym] = spot_price
+
     # Map to frontend Prediction interface
     result = []
     for symbol, p in raw_predictions.items():
@@ -1011,7 +1020,7 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         # Ensure confidence is 0.0-1.0 (backend returns 0-100)
         confidence = confidence_raw / 100.0 if confidence_raw > 1 else confidence_raw
 
-        # Price: live Binance > prediction current_price > base_price fallback
+        # Price: metals spot > live Binance > prediction current_price > base_price fallback
         current_price = live_prices.get(symbol) or p.get("current_price") or 0
         change_pct = p.get("price_change_percent", 0)
         if current_price > 0:
@@ -1063,22 +1072,27 @@ def get_prediction_by_id(prediction_id: str):
         else:
             print(f"[!] Symbol not found: {symbol}, available: {list(asset_predictor.all_assets.keys())[:5]}...")
             raise HTTPException(status_code=404, detail=f"Prediction not found: {prediction_id}")
-        raise HTTPException(status_code=404, detail=f"Prediction not found: {prediction_id}")
 
     p = asset_predictor.predict_price(symbol, days=7)
     if "error" in p:
         raise HTTPException(status_code=404, detail=p["error"])
 
-    # Fetch live price
+    # Fetch live price — use real spot for metals, Binance for crypto
+    from services.metals_price_service import get_metal_spot_price, is_metal
     current_price = p.get("current_price", 0)
-    try:
-        import httpx
-        with httpx.Client(timeout=3.0) as client:
-            resp = client.get("https://api.binance.com/api/v3/ticker/price", params={"symbol": symbol})
-            if resp.status_code == 200:
-                current_price = float(resp.json()["price"])
-    except Exception:
-        pass
+    if is_metal(symbol):
+        spot = get_metal_spot_price(symbol)
+        if spot:
+            current_price = spot
+    else:
+        try:
+            import httpx
+            with httpx.Client(timeout=3.0) as client:
+                resp = client.get("https://api.binance.com/api/v3/ticker/price", params={"symbol": symbol})
+                if resp.status_code == 200:
+                    current_price = float(resp.json()["price"])
+        except Exception:
+            pass
 
     rec = (p.get("recommendation") or "HOLD").lower()
     confidence_raw = p.get("confidence", 0)
