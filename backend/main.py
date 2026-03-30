@@ -1657,3 +1657,52 @@ def delete_all_read():
     count = notifications_service.delete_all_read()
     return {"status": "deleted", "count": count}
 
+
+# ── User Profile Endpoints ──────────────────────────────────────────
+_user_profile = {
+    "id": "user_default",
+    "name": "Trader",
+    "email": "trader@aura.app",
+    "phone": "",
+    "avatar": None,
+    "risk_profile": "moderate",
+    "currency": "USD",
+    "notifications_enabled": True,
+    "created_at": "2026-01-01T00:00:00Z",
+}
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    avatar: Optional[str] = None
+
+@app.get("/api/user/profile")
+def get_user_profile():
+    """Return user profile"""
+    return _user_profile
+
+@app.put("/api/user/profile")
+def update_user_profile(data: UpdateProfileRequest):
+    """Update user profile fields"""
+    if data.name is not None:
+        _user_profile["name"] = data.name
+    if data.email is not None:
+        _user_profile["email"] = data.email
+    if data.phone is not None:
+        _user_profile["phone"] = data.phone
+    if data.avatar is not None:
+        _user_profile["avatar"] = data.avatar
+    return _user_profile
+
+@app.put("/api/user/password")
+def update_user_password(data: dict):
+    """Placeholder — no real auth yet"""
+    return {"success": True, "message": "Password updated"}
+
+@app.put("/api/user/risk-profile")
+def update_user_risk_profile(data: dict):
+    """Update risk profile preference"""
+    _user_profile["risk_profile"] = data.get("risk_profile", "moderate")
+    return _user_profile
+
