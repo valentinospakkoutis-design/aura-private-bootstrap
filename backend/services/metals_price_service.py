@@ -8,18 +8,23 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Mapping: Binance symbol → Yahoo Finance ticker
+# Mapping: Binance symbol → Yahoo Finance ticker (primary)
 METALS_TICKERS = {
-    "XAUUSDT": "GC=F",   # Gold Futures (USD per troy oz)
-    "XAGUSDT": "SI=F",   # Silver Futures (USD per troy oz)
-    "XPTUSDT": "PL=F",   # Platinum Futures (USD per troy oz)
-    "XPDUSDT": "PA=F",   # Palladium Futures (USD per troy oz)
+    "XAUUSDT": "GC=F",    # Gold Futures ✅ ~$3,000+
+    "XAGUSDT": "XAG=X",   # Silver spot (forex) — SI=F returns contract price, not per-oz
+    "XPTUSDT": "PL=F",    # Platinum Futures
+    "XPDUSDT": "PA=F",    # Palladium Futures
+}
+
+# Fallback tickers if primary fails sanity check
+METALS_TICKERS_FALLBACK = {
+    "XAGUSDT": ["SI=F", "SIVR", "SLV"],
 }
 
 # Sanity limits — reject obviously wrong values
 PRICE_SANITY_LIMITS = {
     "XAUUSDT": (1000, 10000),   # Gold: $1,000-$10,000
-    "XAGUSDT": (10, 100),       # Silver: $10-$100
+    "XAGUSDT": (20, 50),        # Silver: $20-$50/oz (tightened)
     "XPTUSDT": (500, 5000),     # Platinum: $500-$5,000
     "XPDUSDT": (500, 5000),     # Palladium: $500-$5,000
 }
@@ -30,33 +35,17 @@ _cache_timestamp: dict[str, float] = {}
 CACHE_TTL_SECONDS = 120  # refresh every 2 minutes
 
 
-def get_metal_spot_price(binance_symbol: str) -> float | None:
-    """
-    Returns the real spot price for a metal symbol.
-    Returns None if Yahoo Finance fails or returns insane value.
-    """
-    ticker = METALS_TICKERS.get(binance_symbol)
-    if not ticker:
-        return None
-
-    now = datetime.utcnow().timestamp()
-
-    # Return cached price if still fresh
-    if ticker in _price_cache and (now - _cache_timestamp.get(ticker, 0)) < CACHE_TTL_SECONDS:
-        return _price_cache[ticker]
-
+def _fetch_yf_price(ticker: str, binance_symbol: str) -> float | None:
+    """Fetch price from a single Yahoo Finance ticker. Returns None on failure."""
     try:
         import yfinance as yf
         data = yf.Ticker(ticker)
-
-        # Try multiple approaches — yfinance API changes between versions
         price = None
 
         # Approach 1: fast_info
         try:
             info = data.fast_info
             price = getattr(info, 'last_price', None) or getattr(info, 'regular_market_price', None)
-            print(f"[metals DEBUG] {binance_symbol} fast_info raw = {price}")
         except Exception:
             pass
 
@@ -65,7 +54,6 @@ def get_metal_spot_price(binance_symbol: str) -> float | None:
             try:
                 info_dict = data.info
                 price = info_dict.get('regularMarketPrice') or info_dict.get('currentPrice') or info_dict.get('previousClose')
-                print(f"[metals DEBUG] {binance_symbol} info dict raw = {price}")
             except Exception:
                 pass
 
@@ -75,42 +63,59 @@ def get_metal_spot_price(binance_symbol: str) -> float | None:
                 hist = data.history(period="1d")
                 if not hist.empty:
                     price = float(hist['Close'].iloc[-1])
-                    print(f"[metals DEBUG] {binance_symbol} history raw = {price}")
             except Exception:
                 pass
 
         if price and price > 0:
-            price = float(price)
-
-            # Sanity check — reject obviously wrong values
-            limits = PRICE_SANITY_LIMITS.get(binance_symbol)
-            if limits:
-                min_price, max_price = limits
-                if not (min_price <= price <= max_price):
-                    print(f"[metals] {binance_symbol} price ${price:.2f} OUTSIDE sanity range ${min_price}-${max_price}, rejecting")
-                    # SI=F sometimes returns price per 5000 oz contract — divide
-                    if binance_symbol == "XAGUSDT" and price > 100:
-                        corrected = price / 5000 * 1000  # approximate per-oz
-                        if min_price <= corrected <= max_price:
-                            price = corrected
-                            print(f"[metals] {binance_symbol} corrected contract price → ${price:.2f}/oz")
-                        else:
-                            return _price_cache.get(ticker)  # stale cache or None
-                    else:
-                        return _price_cache.get(ticker)
-
-            _price_cache[ticker] = price
-            _cache_timestamp[ticker] = now
-            print(f"[metals] {binance_symbol} ({ticker}) = ${price:.2f}")
-            return price
-        else:
-            print(f"[metals] {binance_symbol} ({ticker}): all approaches returned None")
+            print(f"[metals DEBUG] {binance_symbol} raw price from {ticker} = {price}")
+            return float(price)
     except Exception as e:
         print(f"[metals] Failed to fetch {ticker}: {e}")
+    return None
+
+
+def _passes_sanity(binance_symbol: str, price: float) -> bool:
+    """Check if a price is within expected range."""
+    limits = PRICE_SANITY_LIMITS.get(binance_symbol)
+    if not limits:
+        return True
+    min_p, max_p = limits
+    return min_p <= price <= max_p
+
+
+def get_metal_spot_price(binance_symbol: str) -> float | None:
+    """
+    Returns the real spot price for a metal symbol.
+    Tries primary ticker, then fallbacks. Returns None if all fail.
+    """
+    primary_ticker = METALS_TICKERS.get(binance_symbol)
+    if not primary_ticker:
+        return None
+
+    now = datetime.utcnow().timestamp()
+
+    # Return cached price if still fresh (cache key = binance_symbol)
+    if binance_symbol in _price_cache and (now - _cache_timestamp.get(binance_symbol, 0)) < CACHE_TTL_SECONDS:
+        return _price_cache[binance_symbol]
+
+    # Build ticker list: primary first, then fallbacks
+    tickers_to_try = [primary_ticker] + METALS_TICKERS_FALLBACK.get(binance_symbol, [])
+
+    for ticker in tickers_to_try:
+        price = _fetch_yf_price(ticker, binance_symbol)
+        if price and _passes_sanity(binance_symbol, price):
+            _price_cache[binance_symbol] = price
+            _cache_timestamp[binance_symbol] = now
+            print(f"[metals] {binance_symbol} ({ticker}) = ${price:.2f} ✅")
+            return price
+        elif price:
+            print(f"[metals] {binance_symbol} ({ticker}) = ${price:.2f} — FAILED sanity check, trying next")
+
+    print(f"[metals] {binance_symbol}: all tickers failed")
 
     # Return stale cache if available
-    if ticker in _price_cache:
-        return _price_cache[ticker]
+    if binance_symbol in _price_cache:
+        return _price_cache[binance_symbol]
 
     return None
 
