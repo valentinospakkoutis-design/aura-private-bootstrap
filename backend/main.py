@@ -48,6 +48,17 @@ def healthz():
 def api_ping():
     return {"ok": True}
 
+@app.get("/api/debug/ip")
+async def get_server_ip():
+    """Returns the outbound IP of this Railway instance."""
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get("https://api.ipify.org?format=json")
+            return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 def _restore_broker_connections():
     """Restore broker connections from database on startup."""
     try:
