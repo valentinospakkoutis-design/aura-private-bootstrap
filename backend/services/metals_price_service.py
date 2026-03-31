@@ -8,25 +8,23 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Mapping: Binance symbol → Yahoo Finance ticker (primary)
+# Mapping: Binance symbol → Yahoo Finance ticker
 METALS_TICKERS = {
-    "XAUUSDT": "GC=F",    # Gold Futures ✅ ~$3,000+
-    "XAGUSDT": "XAG=X",   # Silver spot (forex) — SI=F returns contract price, not per-oz
+    "XAUUSDT": "GC=F",    # Gold Futures
+    "XAGUSDT": "SI=F",    # Silver Futures (valid ~$70-74)
     "XPTUSDT": "PL=F",    # Platinum Futures
     "XPDUSDT": "PA=F",    # Palladium Futures
 }
 
-# Fallback tickers if primary fails sanity check
-METALS_TICKERS_FALLBACK = {
-    "XAGUSDT": ["SI=F", "SIVR", "SLV"],
-}
+# No fallback chain needed — primary tickers work
+METALS_TICKERS_FALLBACK = {}
 
-# Sanity limits — reject obviously wrong values
+# Sanity limits — wide enough to accept real futures prices
 PRICE_SANITY_LIMITS = {
-    "XAUUSDT": (1000, 10000),   # Gold: $1,000-$10,000
-    "XAGUSDT": (20, 50),        # Silver: $20-$50/oz (tightened)
-    "XPTUSDT": (500, 5000),     # Platinum: $500-$5,000
-    "XPDUSDT": (500, 5000),     # Palladium: $500-$5,000
+    "XAUUSDT": (1000, 15000),
+    "XAGUSDT": (10, 500),
+    "XPTUSDT": (200, 10000),
+    "XPDUSDT": (200, 10000),
 }
 
 # Cache to avoid hitting Yahoo Finance on every request
