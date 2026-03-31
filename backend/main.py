@@ -1743,7 +1743,7 @@ def update_user_risk_profile(data: dict):
 
 
 # ── Live Trading Endpoints ───────────────────────────────────────────
-LIVE_ORDER_MAX_VALUE_USD = 1000.0  # Safety limit per order
+LIVE_ORDER_MAX_VALUE_USD = 100.0  # Safety limit per order — protects against accidental large orders
 
 def _get_live_broker():
     """Get the first connected broker or raise 400."""
