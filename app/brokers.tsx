@@ -196,9 +196,11 @@ export default function BrokersScreen() {
           // Delete from API
           await api.disconnectBroker(broker.id);
 
-          // Delete stored credentials
-          await SecureStore.deleteItemAsync(`${broker.id}_api_key`).catch(() => {});
-          await SecureStore.deleteItemAsync(`${broker.id}_api_secret`).catch(() => {});
+          // Delete stored credentials (native only)
+          if (Platform.OS !== 'web') {
+            await SecureStore.deleteItemAsync(`${broker.id}_api_key`).catch(() => {});
+            await SecureStore.deleteItemAsync(`${broker.id}_api_secret`).catch(() => {});
+          }
 
           // Remove from store
           removeBroker(broker.id);
