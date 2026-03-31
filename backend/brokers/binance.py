@@ -340,11 +340,138 @@ class BinanceAPI:
             "raw_response": response
         }
     
-    def get_open_orders(self) -> List[Dict]:
-        """Get list of open orders (simulated)"""
-        return []
-    
-    def get_trade_history(self) -> List[Dict]:
-        """Get trade history (simulated)"""
-        return []
+    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict]:
+        """Get real open orders from Binance."""
+        if not self.connected:
+            return []
+        params = {}
+        if symbol:
+            params["symbol"] = symbol.upper()
+        result = self._signed_request("GET", "/api/v3/openOrders", params)
+        if "error" in result:
+            return []
+        return result if isinstance(result, list) else []
+
+    def cancel_order(self, symbol: str, order_id: int) -> Dict:
+        """Cancel an open order."""
+        if not self.connected:
+            return {"error": "Not connected"}
+        return self._signed_request("DELETE", "/api/v3/order", {
+            "symbol": symbol.upper(),
+            "orderId": order_id,
+        })
+
+    def place_limit_order(
+        self, symbol: str, side: str, quantity: float,
+        price: float, time_in_force: str = "GTC"
+    ) -> Dict:
+        """Place a LIMIT order."""
+        if not self.connected:
+            return {"error": "Not connected", "status": "failed"}
+        payload = {
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "type": "LIMIT",
+            "timeInForce": time_in_force,
+            "quantity": quantity,
+            "price": str(price),
+        }
+        response = self._signed_request("POST", "/api/v3/order", payload, timeout=20.0)
+        if "error" in response:
+            return response
+        return {
+            "order_id": str(response.get("orderId")),
+            "symbol": response.get("symbol"),
+            "side": response.get("side"),
+            "type": "LIMIT",
+            "quantity": float(response.get("origQty", quantity)),
+            "price": float(response.get("price", price)),
+            "status": response.get("status"),
+            "broker": "binance",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def place_oco_order(
+        self, symbol: str, side: str, quantity: float,
+        price: float, stop_price: float, stop_limit_price: float
+    ) -> Dict:
+        """Place an OCO (One-Cancels-Other) order for SL/TP."""
+        if not self.connected:
+            return {"error": "Not connected", "status": "failed"}
+        payload = {
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "quantity": quantity,
+            "price": str(price),
+            "stopPrice": str(stop_price),
+            "stopLimitPrice": str(stop_limit_price),
+            "stopLimitTimeInForce": "GTC",
+        }
+        return self._signed_request("POST", "/api/v3/order/oco", payload, timeout=20.0)
+
+    def get_symbol_price(self, symbol: str) -> float:
+        """Get current price for a symbol."""
+        result = self._public_request("/api/v3/ticker/price", {"symbol": symbol.upper()})
+        if "error" in result:
+            return 0.0
+        return float(result.get("price", 0))
+
+    # ── Futures ──────────────────────────────────────────────────
+    def _futures_signed_request(self, method: str, path: str, params: Optional[Dict] = None, timeout: float = 10.0) -> Dict:
+        """Execute a signed Binance Futures request."""
+        if not self.api_key or not self.api_secret:
+            return {"error": "API credentials missing", "status": "failed"}
+        base = "https://testnet.binancefuture.com" if self.testnet else "https://fapi.binance.com"
+        payload = dict(params or {})
+        payload["timestamp"] = int(time.time() * 1000)
+        payload.setdefault("recvWindow", 5000)
+        query_string = urlencode(payload)
+        payload["signature"] = self._generate_signature(query_string)
+        try:
+            with httpx.Client(base_url=base, timeout=timeout) as client:
+                response = client.request(method.upper(), path, params=payload, headers=self._get_headers())
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = {}
+            try:
+                detail = exc.response.json()
+            except ValueError:
+                detail = {"message": exc.response.text}
+            return {"error": detail.get("msg", "Futures request failed"), "status": "failed", "code": detail.get("code"), "details": detail}
+        except Exception as exc:
+            return {"error": str(exc), "status": "failed"}
+
+    def futures_account(self) -> Dict:
+        """Get futures account info."""
+        return self._futures_signed_request("GET", "/fapi/v2/account")
+
+    def futures_positions(self) -> List[Dict]:
+        """Get futures positions."""
+        result = self._futures_signed_request("GET", "/fapi/v2/positionRisk")
+        if "error" in result:
+            return []
+        return [p for p in result if float(p.get("positionAmt", 0)) != 0] if isinstance(result, list) else []
+
+    def futures_create_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET") -> Dict:
+        """Place a futures order."""
+        payload = {
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "type": order_type.upper(),
+            "quantity": quantity,
+        }
+        return self._futures_signed_request("POST", "/fapi/v1/order", payload, timeout=20.0)
+
+    def get_trade_history(self, symbol: Optional[str] = None) -> List[Dict]:
+        """Get real trade history from Binance."""
+        if not self.connected:
+            return []
+        params = {"limit": 50}
+        if symbol:
+            params["symbol"] = symbol.upper()
+        result = self._signed_request("GET", "/api/v3/myTrades", params)
+        if "error" in result:
+            return []
+        return result if isinstance(result, list) else []
 

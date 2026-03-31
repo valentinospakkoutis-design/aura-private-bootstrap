@@ -1741,3 +1741,162 @@ def update_user_risk_profile(data: dict):
     _user_profile["risk_profile"] = data.get("risk_profile", "moderate")
     return _user_profile
 
+
+# ── Live Trading Endpoints ───────────────────────────────────────────
+LIVE_ORDER_MAX_VALUE_USD = 1000.0  # Safety limit per order
+
+def _get_live_broker():
+    """Get the first connected broker or raise 400."""
+    if not broker_instances:
+        _restore_broker_connections()
+    if not broker_instances:
+        raise HTTPException(status_code=400, detail="No broker connected. Use POST /api/brokers/connect first.")
+    return next(iter(broker_instances.values()))
+
+
+def _pre_order_safety_check(broker, symbol: str, quantity: float):
+    """Prevent accidental large orders."""
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be positive")
+    price = broker.get_symbol_price(symbol)
+    if price <= 0:
+        raise HTTPException(status_code=400, detail=f"Could not fetch price for {symbol}")
+    order_value = price * quantity
+    if order_value > LIVE_ORDER_MAX_VALUE_USD:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order value ${order_value:.2f} exceeds safety limit of ${LIVE_ORDER_MAX_VALUE_USD:.0f}"
+        )
+    return price
+
+
+class LiveOrderRequest(BaseModel):
+    symbol: str
+    side: str
+    quantity: float
+
+
+class LimitOrderRequest(BaseModel):
+    symbol: str
+    side: str
+    quantity: float
+    price: float
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+
+
+@app.get("/api/live-trading/portfolio")
+def get_live_portfolio():
+    """Returns real Binance account balance."""
+    broker = _get_live_broker()
+    balance = broker.get_account_balance()
+    if "error" in balance:
+        raise HTTPException(status_code=400, detail=balance["error"])
+    return balance
+
+
+@app.get("/api/live-trading/positions")
+def get_live_positions():
+    """Returns open orders from Binance."""
+    broker = _get_live_broker()
+    orders = broker.get_open_orders()
+    return {"positions": orders, "count": len(orders)}
+
+
+@app.post("/api/live-trading/order")
+def place_live_market_order(order: LiveOrderRequest):
+    """Place a real MARKET order on Binance Spot."""
+    broker = _get_live_broker()
+    price = _pre_order_safety_check(broker, order.symbol, order.quantity)
+    result = broker.place_live_order(
+        symbol=order.symbol,
+        side=order.side,
+        quantity=order.quantity,
+        order_type="MARKET"
+    )
+    if "error" in result:
+        parsed = _parse_binance_error(result)
+        raise HTTPException(status_code=400, detail=parsed)
+    return result
+
+
+@app.post("/api/live-trading/order/limit")
+def place_live_limit_order(order: LimitOrderRequest):
+    """Place a LIMIT order with optional SL/TP."""
+    broker = _get_live_broker()
+    _pre_order_safety_check(broker, order.symbol, order.quantity)
+    result = broker.place_limit_order(
+        symbol=order.symbol,
+        side=order.side,
+        quantity=order.quantity,
+        price=order.price,
+    )
+    if "error" in result:
+        parsed = _parse_binance_error(result)
+        raise HTTPException(status_code=400, detail=parsed)
+
+    # Place OCO for SL/TP if both provided
+    if order.stop_loss and order.take_profit:
+        exit_side = "SELL" if order.side.upper() == "BUY" else "BUY"
+        oco_result = broker.place_oco_order(
+            symbol=order.symbol,
+            side=exit_side,
+            quantity=order.quantity,
+            price=order.take_profit,
+            stop_price=order.stop_loss,
+            stop_limit_price=order.stop_loss,
+        )
+        result["oco_order"] = oco_result
+
+    return result
+
+
+@app.delete("/api/live-trading/order/{symbol}/{order_id}")
+def cancel_live_order(symbol: str, order_id: int):
+    """Cancel an open order."""
+    broker = _get_live_broker()
+    result = broker.cancel_order(symbol, order_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ── Futures Endpoints ────────────────────────────────────────────────
+@app.get("/api/live-trading/futures/portfolio")
+def get_futures_portfolio():
+    """Returns real Binance Futures account."""
+    broker = _get_live_broker()
+    account = broker.futures_account()
+    if "error" in account:
+        raise HTTPException(status_code=400, detail=account["error"])
+    return {
+        "totalWalletBalance": account.get("totalWalletBalance"),
+        "totalUnrealizedProfit": account.get("totalUnrealizedProfit"),
+        "totalMarginBalance": account.get("totalMarginBalance"),
+        "availableBalance": account.get("availableBalance"),
+    }
+
+
+@app.get("/api/live-trading/futures/positions")
+def get_futures_positions():
+    """Returns open futures positions."""
+    broker = _get_live_broker()
+    positions = broker.futures_positions()
+    return {"positions": positions, "count": len(positions)}
+
+
+@app.post("/api/live-trading/futures/order")
+def place_futures_order(order: LiveOrderRequest):
+    """Place a futures MARKET order."""
+    broker = _get_live_broker()
+    _pre_order_safety_check(broker, order.symbol, order.quantity)
+    result = broker.futures_create_order(
+        symbol=order.symbol,
+        side=order.side,
+        quantity=order.quantity,
+    )
+    if "error" in result:
+        parsed = _parse_binance_error(result)
+        raise HTTPException(status_code=400, detail=parsed)
+    return result
+

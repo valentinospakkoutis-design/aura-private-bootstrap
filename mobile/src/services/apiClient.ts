@@ -360,6 +360,57 @@ class ApiClient {
     return response.data;
   }
 
+  // ── Live Trading (real Binance) ────────────────────────────
+  async getLivePortfolio() {
+    const response = await this.client.get('/api/live-trading/portfolio');
+    return response.data;
+  }
+
+  async getLivePositions() {
+    const response = await this.client.get('/api/live-trading/positions');
+    return response.data;
+  }
+
+  async placeLiveOrder(symbol: string, side: 'BUY' | 'SELL', quantity: number) {
+    const response = await this.client.post('/api/live-trading/order', {
+      symbol, side, quantity,
+    });
+    return response.data;
+  }
+
+  async placeLiveOrderWithSLTP(
+    symbol: string, side: 'BUY' | 'SELL', quantity: number,
+    price: number, stop_loss?: number, take_profit?: number
+  ) {
+    const response = await this.client.post('/api/live-trading/order/limit', {
+      symbol, side, quantity, price, stop_loss, take_profit,
+    });
+    return response.data;
+  }
+
+  async cancelLiveOrder(symbol: string, orderId: number) {
+    const response = await this.client.delete(`/api/live-trading/order/${symbol}/${orderId}`);
+    return response.data;
+  }
+
+  // ── Futures ────────────────────────────────────────────────
+  async getFuturesPortfolio() {
+    const response = await this.client.get('/api/live-trading/futures/portfolio');
+    return response.data;
+  }
+
+  async getFuturesPositions() {
+    const response = await this.client.get('/api/live-trading/futures/positions');
+    return response.data;
+  }
+
+  async placeFuturesOrder(symbol: string, side: 'BUY' | 'SELL', quantity: number) {
+    const response = await this.client.post('/api/live-trading/futures/order', {
+      symbol, side, quantity,
+    });
+    return response.data;
+  }
+
   // Notifications
   async getNotifications(useCache: boolean = true) {
     if (useCache) {
