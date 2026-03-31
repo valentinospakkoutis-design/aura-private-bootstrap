@@ -156,7 +156,7 @@ class ApiClient {
   }
 
   async disconnectBroker(brokerId: string) {
-    const response = await this.client.delete(`/brokers/${brokerId}`);
+    const response = await this.client.delete(`/api/brokers/${brokerId}/disconnect`);
     // Invalidate brokers cache after disconnecting
     await cacheService.remove(CACHE_KEYS.BROKERS);
     return response.data;
