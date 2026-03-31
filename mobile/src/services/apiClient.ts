@@ -143,7 +143,7 @@ class ApiClient {
     return response.data;
   }
 
-  async connectBroker(brokerName: string, apiKey: string, apiSecret: string, testnet: boolean = true) {
+  async connectBroker(brokerName: string, apiKey: string, apiSecret: string, testnet: boolean = false) {
     const response = await this.client.post('/api/brokers/connect', {
       broker: brokerName,  // Fixed: backend expects 'broker' not 'broker_name'
       api_key: apiKey,

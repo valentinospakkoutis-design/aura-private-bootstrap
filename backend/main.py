@@ -579,6 +579,7 @@ broker_instances = {}  # Store active broker connections
 @app.post("/api/brokers/connect")
 async def connect_broker(connection: BrokerConnection):
     """Συνδέει broker API"""
+    print(f"[broker] Connect request: broker={connection.broker}, testnet={connection.testnet}")
     try:
         if connection.broker.lower() == "binance":
             broker = BinanceAPI(
@@ -586,7 +587,9 @@ async def connect_broker(connection: BrokerConnection):
                 api_secret=connection.api_secret,
                 testnet=connection.testnet
             )
+            print(f"[broker] Testing connection to {'testnet' if connection.testnet else 'LIVE'} Binance...")
             result = await asyncio.to_thread(broker.test_connection)
+            print(f"[broker] Connection result: {result.get('status', 'unknown')}")
 
             if result["status"] == "connected":
                 broker_instances[connection.broker.lower()] = broker
@@ -605,12 +608,14 @@ async def connect_broker(connection: BrokerConnection):
                     "timestamp": datetime.now().isoformat()
                 }
             else:
+                print(f"[broker] Connection FAILED: {result}")
                 raise HTTPException(status_code=400, detail=result)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported broker: {connection.broker}")
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[broker] Connection ERROR: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
