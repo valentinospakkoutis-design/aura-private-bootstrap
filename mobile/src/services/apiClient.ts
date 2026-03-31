@@ -451,6 +451,38 @@ class ApiClient {
     await cacheService.remove(key);
     logger.info(`Cache cleared for key: ${key}`);
   }
+
+  // ── Auto Trading ───────────────────────────────────────────
+  async getAutoTradingStatus() {
+    const response = await this.client.get('/api/auto-trading/status');
+    return response.data;
+  }
+
+  async enableAutoTrading() {
+    const response = await this.client.post('/api/auto-trading/enable');
+    return response.data;
+  }
+
+  async disableAutoTrading() {
+    const response = await this.client.post('/api/auto-trading/disable');
+    return response.data;
+  }
+
+  async updateAutoTradingConfig(config: {
+    confidence_threshold?: number;
+    position_size_pct?: number;
+    stop_loss_pct?: number;
+    max_positions?: number;
+    max_order_value_usd?: number;
+  }) {
+    const response = await this.client.put('/api/auto-trading/config', config);
+    return response.data;
+  }
+
+  async getAutoTradingPositions() {
+    const response = await this.client.get('/api/auto-trading/positions');
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

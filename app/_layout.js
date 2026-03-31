@@ -86,9 +86,17 @@ function AppContent() {
           }} 
         />
         
-        <Stack.Screen 
-          name="voice-briefing" 
-          options={{ 
+        <Stack.Screen
+          name="auto-trading"
+          options={{
+            title: '🤖 Auto Trading',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
+          name="voice-briefing"
+          options={{
             title: '🎙️ Voice Briefing',
             headerShown: true,
           }} 

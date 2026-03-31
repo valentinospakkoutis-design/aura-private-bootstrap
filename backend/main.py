@@ -106,10 +106,39 @@ async def startup_event():
     else:
         print("[!] Redis not configured - continuing without cache")
 
+    # Start auto trading engine (disabled by default, runs in background)
+    from services.auto_trading_engine import auto_trader as _auto_trader
+    if broker_instances:
+        _auto_trader.set_broker(next(iter(broker_instances.values())))
+
+    async def _get_predictions_for_auto_trader():
+        """Fetch predictions for auto trader loop."""
+        raw = asset_predictor.get_all_predictions(days=7)
+        raw_preds = raw.get("predictions", {})
+        result = []
+        for sym, p in raw_preds.items():
+            if "error" in p:
+                continue
+            conf = p.get("confidence", 0)
+            conf = conf / 100.0 if conf > 1 else conf
+            result.append({
+                "symbol": sym,
+                "action": (p.get("recommendation") or "HOLD").lower(),
+                "confidence": conf,
+                "price": p.get("current_price", 0),
+                "targetPrice": p.get("predicted_price", 0),
+            })
+        return result
+
+    asyncio.create_task(_auto_trader.run(_get_predictions_for_auto_trader))
+    print("[+] Auto trading engine initialized (disabled by default)")
+
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
+    from services.auto_trading_engine import auto_trader as _auto_trader
+    _auto_trader.stop()
     close_db()
     print("[+] Cleanup completed")
 
@@ -1915,4 +1944,70 @@ def place_futures_order(order: LiveOrderRequest):
         parsed = _parse_binance_error(result)
         raise HTTPException(status_code=400, detail=parsed)
     return result
+
+
+# ── Auto Trading Endpoints ───────────────────────────────────────────
+from services.auto_trading_engine import auto_trader
+
+
+class AutoTradingConfigUpdate(BaseModel):
+    confidence_threshold: Optional[float] = None
+    position_size_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = None
+    max_positions: Optional[int] = None
+    max_order_value_usd: Optional[float] = None
+
+
+@app.get("/api/auto-trading/status")
+def get_auto_trading_status():
+    """Get auto trading engine status and config."""
+    return auto_trader.get_status()
+
+
+@app.post("/api/auto-trading/enable")
+def enable_auto_trading():
+    """Enable auto trading — user must explicitly call this."""
+    if not broker_instances:
+        _restore_broker_connections()
+    if not broker_instances:
+        raise HTTPException(status_code=400, detail="No broker connected. Connect a broker first.")
+    broker = next(iter(broker_instances.values()))
+    auto_trader.set_broker(broker)
+    try:
+        auto_trader.enable()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"success": True, "message": "Auto trading enabled", "status": auto_trader.get_status()}
+
+
+@app.post("/api/auto-trading/disable")
+def disable_auto_trading():
+    """Disable auto trading."""
+    auto_trader.disable()
+    return {"success": True, "message": "Auto trading disabled"}
+
+
+@app.put("/api/auto-trading/config")
+def update_auto_trading_config(config: AutoTradingConfigUpdate):
+    """Update auto trading config (thresholds, limits)."""
+    if config.confidence_threshold is not None:
+        auto_trader.config["confidence_threshold"] = max(0.5, min(1.0, config.confidence_threshold))
+    if config.position_size_pct is not None:
+        auto_trader.config["position_size_pct"] = max(0.01, min(0.10, config.position_size_pct))
+    if config.stop_loss_pct is not None:
+        auto_trader.config["stop_loss_pct"] = max(0.01, min(0.10, config.stop_loss_pct))
+    if config.max_positions is not None:
+        auto_trader.config["max_positions"] = max(1, min(10, config.max_positions))
+    if config.max_order_value_usd is not None:
+        auto_trader.config["max_order_value_usd"] = max(10, min(500, config.max_order_value_usd))
+    return auto_trader.get_status()
+
+
+@app.get("/api/auto-trading/positions")
+def get_auto_trading_positions():
+    """Get positions opened by auto trader."""
+    return {
+        "positions": list(auto_trader.open_positions.values()),
+        "count": len(auto_trader.open_positions),
+    }
 
