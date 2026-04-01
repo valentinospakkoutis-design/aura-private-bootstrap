@@ -46,7 +46,7 @@ export default function PaperTradingScreen() {
   const [error, setError] = useState<string | null>(null);
 
   // Order form state
-  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [symbol, setSymbol] = useState('BTCUSDC');
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
   const [quantity, setQuantity] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -78,7 +78,7 @@ export default function PaperTradingScreen() {
   const handlePlaceOrder = useCallback(async () => {
     const qty = parseFloat(quantity);
     if (!symbol.trim()) {
-      showToast('Εισήγαγε symbol (π.χ. BTCUSDT)', 'error');
+      showToast('Εισήγαγε symbol (π.χ. BTCUSDC)', 'error');
       return;
     }
     if (isNaN(qty) || qty <= 0) {
@@ -162,7 +162,7 @@ export default function PaperTradingScreen() {
           style={styles.formInput}
           value={symbol}
           onChangeText={setSymbol}
-          placeholder="BTCUSDT"
+          placeholder="BTCUSDC"
           placeholderTextColor={theme.colors.text.secondary}
           autoCapitalize="characters"
         />

@@ -63,18 +63,18 @@ export default function AnalyticsScreen() {
       winRate: 68,
       averageProfit: 20,
       bestTrade: {
-        asset: 'BTC/USDT',
+        asset: 'BTC/USDC',
         profit: 250,
         percentage: 12.5,
       },
       worstTrade: {
-        asset: 'ETH/USDT',
+        asset: 'ETH/USDC',
         loss: -100,
         percentage: -5.2,
       },
       assetAllocation: [
-        { asset: 'BTC/USDT', percentage: 40, value: 4000 },
-        { asset: 'ETH/USDT', percentage: 30, value: 3000 },
+        { asset: 'BTC/USDC', percentage: 40, value: 4000 },
+        { asset: 'ETH/USDC', percentage: 30, value: 3000 },
         { asset: 'GOLD', percentage: 20, value: 2000 },
         { asset: 'SILVER', percentage: 10, value: 1000 },
       ],

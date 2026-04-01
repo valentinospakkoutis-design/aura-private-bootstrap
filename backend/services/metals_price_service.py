@@ -1,6 +1,6 @@
 """
 Real spot prices for precious metals via Yahoo Finance.
-Binance XAUUSDT is a tokenized product (~$2,000), not the real spot price (~$3,000+).
+Binance XAUUSDC is a tokenized product (~$2,000), not the real spot price (~$3,000+).
 """
 
 import logging
@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 # Mapping: Binance symbol → Yahoo Finance ticker
 METALS_TICKERS = {
-    "XAUUSDT": "GC=F",    # Gold Futures
-    "XAGUSDT": "SI=F",    # Silver Futures (valid ~$70-74)
-    "XPTUSDT": "PL=F",    # Platinum Futures
-    "XPDUSDT": "PA=F",    # Palladium Futures
+    "XAUUSDC": "GC=F",    # Gold Futures
+    "XAGUSDC": "SI=F",    # Silver Futures (valid ~$70-74)
+    "XPTUSDC": "PL=F",    # Platinum Futures
+    "XPDUSDC": "PA=F",    # Palladium Futures
 }
 
 # No fallback chain needed — primary tickers work
@@ -21,10 +21,10 @@ METALS_TICKERS_FALLBACK = {}
 
 # Sanity limits — wide enough to accept real futures prices
 PRICE_SANITY_LIMITS = {
-    "XAUUSDT": (1000, 15000),
-    "XAGUSDT": (10, 500),
-    "XPTUSDT": (200, 10000),
-    "XPDUSDT": (200, 10000),
+    "XAUUSDC": (1000, 15000),
+    "XAGUSDC": (10, 500),
+    "XPTUSDC": (200, 10000),
+    "XPDUSDC": (200, 10000),
 }
 
 # Cache to avoid hitting Yahoo Finance on every request

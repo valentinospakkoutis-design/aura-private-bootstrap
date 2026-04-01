@@ -15,8 +15,8 @@ def _normalize_symbol(symbol: str) -> str:
     """
     symbol = symbol.upper()
     
-    # Remove USDT suffix for crypto
-    if symbol.endswith("USDT"):
+    # Remove USDC/USDT suffix for crypto
+    if symbol.endswith("USDC") or symbol.endswith("USDT"):
         base = symbol[:-4]
         # Map to yfinance crypto symbols
         crypto_map = {
@@ -48,7 +48,7 @@ def get_price(symbol: str) -> Optional[Dict]:
     Get current price for a symbol using yfinance
     
     Args:
-        symbol: Asset symbol (e.g., "AAPL", "BTCUSDT", "EURUSD")
+        symbol: Asset symbol (e.g., "AAPL", "BTCUSDC", "EURUSD")
     
     Returns:
         Dict with price data or None if error

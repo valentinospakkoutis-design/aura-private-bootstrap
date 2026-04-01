@@ -32,10 +32,10 @@ class AssetPredictor:
     def __init__(self):
         # Precious Metals
         self.precious_metals = {
-            "XAUUSDT": {"name": "Gold", "symbol": "XAU", "base_price": 2050.0, "type": AssetType.PRECIOUS_METAL},
-            "XAGUSDT": {"name": "Silver", "symbol": "XAG", "base_price": 24.5, "type": AssetType.PRECIOUS_METAL},
-            "XPTUSDT": {"name": "Platinum", "symbol": "XPT", "base_price": 950.0, "type": AssetType.PRECIOUS_METAL},
-            "XPDUSDT": {"name": "Palladium", "symbol": "XPD", "base_price": 1200.0, "type": AssetType.PRECIOUS_METAL},
+            "XAUUSDC": {"name": "Gold", "symbol": "XAU", "base_price": 2050.0, "type": AssetType.PRECIOUS_METAL},
+            "XAGUSDC": {"name": "Silver", "symbol": "XAG", "base_price": 24.5, "type": AssetType.PRECIOUS_METAL},
+            "XPTUSDC": {"name": "Platinum", "symbol": "XPT", "base_price": 950.0, "type": AssetType.PRECIOUS_METAL},
+            "XPDUSDC": {"name": "Palladium", "symbol": "XPD", "base_price": 1200.0, "type": AssetType.PRECIOUS_METAL},
         }
         
         # Stocks (Major indices και popular stocks - eToro supported)
@@ -84,38 +84,38 @@ class AssetPredictor:
         # Cryptocurrencies (eToro supports 100+ cryptos, 70+ cryptoassets)
         self.cryptos = {
             # Major Cryptocurrencies (eToro Top)
-            "BTCUSDT": {"name": "Bitcoin", "symbol": "BTC", "base_price": 45000.0, "type": AssetType.CRYPTO},
-            "ETHUSDT": {"name": "Ethereum", "symbol": "ETH", "base_price": 2500.0, "type": AssetType.CRYPTO},
-            "BNBUSDT": {"name": "Binance Coin", "symbol": "BNB", "base_price": 300.0, "type": AssetType.CRYPTO},
-            "ADAUSDT": {"name": "Cardano", "symbol": "ADA", "base_price": 0.5, "type": AssetType.CRYPTO},
-            "SOLUSDT": {"name": "Solana", "symbol": "SOL", "base_price": 100.0, "type": AssetType.CRYPTO},
-            "XRPUSDT": {"name": "Ripple", "symbol": "XRP", "base_price": 0.6, "type": AssetType.CRYPTO},
-            "DOTUSDT": {"name": "Polkadot", "symbol": "DOT", "base_price": 7.0, "type": AssetType.CRYPTO},
-            "MATICUSDT": {"name": "Polygon", "symbol": "MATIC", "base_price": 0.8, "type": AssetType.CRYPTO},
-            "LINKUSDT": {"name": "Chainlink", "symbol": "LINK", "base_price": 15.0, "type": AssetType.CRYPTO},
-            "AVAXUSDT": {"name": "Avalanche", "symbol": "AVAX", "base_price": 35.0, "type": AssetType.CRYPTO},
+            "BTCUSDC": {"name": "Bitcoin", "symbol": "BTC", "base_price": 45000.0, "type": AssetType.CRYPTO},
+            "ETHUSDC": {"name": "Ethereum", "symbol": "ETH", "base_price": 2500.0, "type": AssetType.CRYPTO},
+            "BNBUSDC": {"name": "Binance Coin", "symbol": "BNB", "base_price": 300.0, "type": AssetType.CRYPTO},
+            "ADAUSDC": {"name": "Cardano", "symbol": "ADA", "base_price": 0.5, "type": AssetType.CRYPTO},
+            "SOLUSDC": {"name": "Solana", "symbol": "SOL", "base_price": 100.0, "type": AssetType.CRYPTO},
+            "XRPUSDC": {"name": "Ripple", "symbol": "XRP", "base_price": 0.6, "type": AssetType.CRYPTO},
+            "DOTUSDC": {"name": "Polkadot", "symbol": "DOT", "base_price": 7.0, "type": AssetType.CRYPTO},
+            "MATICUSDC": {"name": "Polygon", "symbol": "MATIC", "base_price": 0.8, "type": AssetType.CRYPTO},
+            "LINKUSDC": {"name": "Chainlink", "symbol": "LINK", "base_price": 15.0, "type": AssetType.CRYPTO},
+            "AVAXUSDC": {"name": "Avalanche", "symbol": "AVAX", "base_price": 35.0, "type": AssetType.CRYPTO},
             
             # eToro Popular Cryptos
-            "SHIBUSDT": {"name": "Shiba Inu", "symbol": "SHIB", "base_price": 0.000015, "type": AssetType.CRYPTO},
-            "DOGEUSDT": {"name": "Dogecoin", "symbol": "DOGE", "base_price": 0.08, "type": AssetType.CRYPTO},
-            "TRXUSDT": {"name": "TRON", "symbol": "TRX", "base_price": 0.1, "type": AssetType.CRYPTO},
-            "LTCUSDT": {"name": "Litecoin", "symbol": "LTC", "base_price": 70.0, "type": AssetType.CRYPTO},
-            "BCHUSDT": {"name": "Bitcoin Cash", "symbol": "BCH", "base_price": 250.0, "type": AssetType.CRYPTO},
-            "ETCUSDT": {"name": "Ethereum Classic", "symbol": "ETC", "base_price": 20.0, "type": AssetType.CRYPTO},
-            "XLMUSDT": {"name": "Stellar", "symbol": "XLM", "base_price": 0.12, "type": AssetType.CRYPTO},
-            "ALGOUSDT": {"name": "Algorand", "symbol": "ALGO", "base_price": 0.2, "type": AssetType.CRYPTO},
-            "ATOMUSDT": {"name": "Cosmos", "symbol": "ATOM", "base_price": 10.0, "type": AssetType.CRYPTO},
-            "NEARUSDT": {"name": "NEAR Protocol", "symbol": "NEAR", "base_price": 3.0, "type": AssetType.CRYPTO},
-            "FTMUSDT": {"name": "Fantom", "symbol": "FTM", "base_price": 0.4, "type": AssetType.CRYPTO},
-            "ICPUSDT": {"name": "Internet Computer", "symbol": "ICP", "base_price": 12.0, "type": AssetType.CRYPTO},
-            "FILUSDT": {"name": "Filecoin", "symbol": "FIL", "base_price": 5.0, "type": AssetType.CRYPTO},
-            "EOSUSDT": {"name": "EOS", "symbol": "EOS", "base_price": 0.7, "type": AssetType.CRYPTO},
-            "AAVEUSDT": {"name": "Aave", "symbol": "AAVE", "base_price": 100.0, "type": AssetType.CRYPTO},
-            "UNIUSDT": {"name": "Uniswap", "symbol": "UNI", "base_price": 6.0, "type": AssetType.CRYPTO},
-            "SANDUSDT": {"name": "The Sandbox", "symbol": "SAND", "base_price": 0.5, "type": AssetType.CRYPTO},
-            "MANAUSDT": {"name": "Decentraland", "symbol": "MANA", "base_price": 0.4, "type": AssetType.CRYPTO},
-            "AXSUSDT": {"name": "Axie Infinity", "symbol": "AXS", "base_price": 7.0, "type": AssetType.CRYPTO},
-            "THETAUSDT": {"name": "Theta Network", "symbol": "THETA", "base_price": 1.0, "type": AssetType.CRYPTO},
+            "SHIBUSDC": {"name": "Shiba Inu", "symbol": "SHIB", "base_price": 0.000015, "type": AssetType.CRYPTO},
+            "DOGEUSDC": {"name": "Dogecoin", "symbol": "DOGE", "base_price": 0.08, "type": AssetType.CRYPTO},
+            "TRXUSDC": {"name": "TRON", "symbol": "TRX", "base_price": 0.1, "type": AssetType.CRYPTO},
+            "LTCUSDC": {"name": "Litecoin", "symbol": "LTC", "base_price": 70.0, "type": AssetType.CRYPTO},
+            "BCHUSDC": {"name": "Bitcoin Cash", "symbol": "BCH", "base_price": 250.0, "type": AssetType.CRYPTO},
+            "ETCUSDC": {"name": "Ethereum Classic", "symbol": "ETC", "base_price": 20.0, "type": AssetType.CRYPTO},
+            "XLMUSDC": {"name": "Stellar", "symbol": "XLM", "base_price": 0.12, "type": AssetType.CRYPTO},
+            "ALGOUSDC": {"name": "Algorand", "symbol": "ALGO", "base_price": 0.2, "type": AssetType.CRYPTO},
+            "ATOMUSDC": {"name": "Cosmos", "symbol": "ATOM", "base_price": 10.0, "type": AssetType.CRYPTO},
+            "NEARUSDC": {"name": "NEAR Protocol", "symbol": "NEAR", "base_price": 3.0, "type": AssetType.CRYPTO},
+            "FTMUSDC": {"name": "Fantom", "symbol": "FTM", "base_price": 0.4, "type": AssetType.CRYPTO},
+            "ICPUSDC": {"name": "Internet Computer", "symbol": "ICP", "base_price": 12.0, "type": AssetType.CRYPTO},
+            "FILUSDC": {"name": "Filecoin", "symbol": "FIL", "base_price": 5.0, "type": AssetType.CRYPTO},
+            "EOSUSDC": {"name": "EOS", "symbol": "EOS", "base_price": 0.7, "type": AssetType.CRYPTO},
+            "AAVEUSDC": {"name": "Aave", "symbol": "AAVE", "base_price": 100.0, "type": AssetType.CRYPTO},
+            "UNIUSDC": {"name": "Uniswap", "symbol": "UNI", "base_price": 6.0, "type": AssetType.CRYPTO},
+            "SANDUSDC": {"name": "The Sandbox", "symbol": "SAND", "base_price": 0.5, "type": AssetType.CRYPTO},
+            "MANAUSDC": {"name": "Decentraland", "symbol": "MANA", "base_price": 0.4, "type": AssetType.CRYPTO},
+            "AXSUSDC": {"name": "Axie Infinity", "symbol": "AXS", "base_price": 7.0, "type": AssetType.CRYPTO},
+            "THETAUSDC": {"name": "Theta Network", "symbol": "THETA", "base_price": 1.0, "type": AssetType.CRYPTO},
         }
         
         # Derivatives (Futures, Options - eToro CFD Trading)

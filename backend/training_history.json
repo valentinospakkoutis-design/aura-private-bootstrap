@@ -1,9 +1,9 @@
 [
   {
-    "symbol": "XAUUSDT",
+    "symbol": "XAUUSDC",
     "model_type": "random_forest",
-    "model_path": "models\\XAUUSDT_random_forest_20251211_230434.pkl",
-    "scaler_path": "models\\XAUUSDT_random_forest_scaler.pkl",
+    "model_path": "models\\XAUUSDC_random_forest_20251211_230434.pkl",
+    "scaler_path": "models\\XAUUSDC_random_forest_scaler.pkl",
     "trained_at": "2025-12-11T23:04:34.765926",
     "training_samples": 286,
     "test_samples": 72,
@@ -23,10 +23,10 @@
     }
   },
   {
-    "symbol": "XAGUSDT",
+    "symbol": "XAGUSDC",
     "model_type": "random_forest",
-    "model_path": "models\\XAGUSDT_random_forest_20251211_230435.pkl",
-    "scaler_path": "models\\XAGUSDT_random_forest_scaler.pkl",
+    "model_path": "models\\XAGUSDC_random_forest_20251211_230435.pkl",
+    "scaler_path": "models\\XAGUSDC_random_forest_scaler.pkl",
     "trained_at": "2025-12-11T23:04:35.024620",
     "training_samples": 286,
     "test_samples": 72,
@@ -46,10 +46,10 @@
     }
   },
   {
-    "symbol": "XPTUSDT",
+    "symbol": "XPTUSDC",
     "model_type": "random_forest",
-    "model_path": "models\\XPTUSDT_random_forest_20251211_230435.pkl",
-    "scaler_path": "models\\XPTUSDT_random_forest_scaler.pkl",
+    "model_path": "models\\XPTUSDC_random_forest_20251211_230435.pkl",
+    "scaler_path": "models\\XPTUSDC_random_forest_scaler.pkl",
     "trained_at": "2025-12-11T23:04:35.309779",
     "training_samples": 286,
     "test_samples": 72,
@@ -69,10 +69,10 @@
     }
   },
   {
-    "symbol": "XPDUSDT",
+    "symbol": "XPDUSDC",
     "model_type": "random_forest",
-    "model_path": "models\\XPDUSDT_random_forest_20251211_230435.pkl",
-    "scaler_path": "models\\XPDUSDT_random_forest_scaler.pkl",
+    "model_path": "models\\XPDUSDC_random_forest_20251211_230435.pkl",
+    "scaler_path": "models\\XPDUSDC_random_forest_scaler.pkl",
     "trained_at": "2025-12-11T23:04:35.662917",
     "training_samples": 286,
     "test_samples": 72,

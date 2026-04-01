@@ -190,20 +190,20 @@ class BinanceAPI:
             if float(item["free"]) or float(item["locked"])
         }
 
-        usdt_total = balances.get("USDT", 0.0)
-        usdt_available = next(
+        usdc_total = balances.get("USDC", 0.0)
+        usdc_available = next(
             (
                 float(item["free"])
                 for item in account_info.get("balances", [])
-                if item["asset"] == "USDT"
+                if item["asset"] == "USDC"
             ),
             0.0
         )
-        usdt_locked = next(
+        usdc_locked = next(
             (
                 float(item["locked"])
                 for item in account_info.get("balances", [])
-                if item["asset"] == "USDT"
+                if item["asset"] == "USDC"
             ),
             0.0
         )
@@ -211,9 +211,9 @@ class BinanceAPI:
         return {
             "broker": "binance",
             "testnet": self.testnet,
-            "total_balance": usdt_total,
-            "available_balance": usdt_available,
-            "locked_balance": usdt_locked,
+            "total_balance": usdc_total,
+            "available_balance": usdc_available,
+            "locked_balance": usdc_locked,
             "currencies": balances,
             "timestamp": datetime.now().isoformat()
         }
@@ -223,7 +223,7 @@ class BinanceAPI:
         Get current market price for a symbol
         
         Args:
-            symbol: Trading pair (e.g., 'BTCUSDT')
+            symbol: Trading pair (e.g., 'BTCUSDC')
             
         Returns:
             Dict with price information
@@ -242,13 +242,9 @@ class BinanceAPI:
     def get_supported_symbols(self) -> List[str]:
         """Get list of supported trading symbols"""
         return [
-            "BTCUSDT",  # Bitcoin
-            "ETHUSDT",  # Ethereum
-            "BNBUSDT",  # Binance Coin
-            "XAUUSDT",  # Gold
-            "XAGUSDT",  # Silver
-            "XPTUSDT",  # Platinum
-            "XPDUSDT",  # Palladium
+            "BTCUSDC",  # Bitcoin
+            "ETHUSDC",  # Ethereum
+            "BNBUSDC",  # Binance Coin
         ]
     
     def place_paper_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET") -> Dict:

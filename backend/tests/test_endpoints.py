@@ -103,7 +103,7 @@ def main():
     
     # Price endpoints
     print_info("Testing Price Endpoints...")
-    test_symbols = ["AAPL", "BTCUSDT", "XAUUSDT"]
+    test_symbols = ["AAPL", "BTCUSDC", "XAUUSDC"]
     for symbol in test_symbols:
         results["total"] += 1
         if test_endpoint("GET", f"/api/v1/price/{symbol}"):

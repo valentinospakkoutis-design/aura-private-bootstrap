@@ -13,7 +13,7 @@ $endpoints = @(
     @{Name="Health"; Method="GET"; Path="/health"},
     @{Name="System Status"; Method="GET"; Path="/api/system-status"},
     @{Name="Quote of Day"; Method="GET"; Path="/api/quote-of-day"},
-    @{Name="AI Predict"; Method="GET"; Path="/api/ai/predict/XAUUSDT"},
+    @{Name="AI Predict"; Method="GET"; Path="/api/ai/predict/XAUUSDC"},
     @{Name="AI Predictions"; Method="GET"; Path="/api/ai/predictions"},
     @{Name="AI Signals"; Method="GET"; Path="/api/ai/signals"},
     @{Name="AI Assets"; Method="GET"; Path="/api/ai/assets"},

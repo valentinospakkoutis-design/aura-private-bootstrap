@@ -47,7 +47,7 @@ class ModelTrainer:
         Στο production, θα φορτώνει real market data από API
         
         Args:
-            symbol: Symbol (π.χ. XAUUSDT)
+            symbol: Symbol (π.χ. XAUUSDC)
             days: Πόσες ημέρες historical data
             base_price: Base price για το symbol
             
@@ -128,7 +128,7 @@ class ModelTrainer:
     def train_model(
         self,
         model_type: str = "random_forest",
-        symbol: str = "XAUUSDT",
+        symbol: str = "XAUUSDC",
         base_price: float = 2050.0,
         days: int = 365,
         test_size: float = 0.2,
@@ -293,10 +293,10 @@ class ModelTrainer:
             Dictionary με results για κάθε metal
         """
         metals = {
-            "XAUUSDT": 2050.0,  # Gold
-            "XAGUSDT": 24.5,    # Silver
-            "XPTUSDT": 950.0,   # Platinum
-            "XPDUSDT": 1200.0   # Palladium
+            "XAUUSDC": 2050.0,  # Gold
+            "XAGUSDC": 24.5,    # Silver
+            "XPTUSDC": 950.0,   # Platinum
+            "XPDUSDC": 1200.0   # Palladium
         }
         
         results = {}

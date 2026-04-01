@@ -319,9 +319,9 @@ def main():
     # Create annotation task
     task = tool.create_annotation_task(
         annotation_type=AnnotationType.PRICE_PREDICTION,
-        data_id="XAUUSDT_20251211",
+        data_id="XAUUSDC_20251211",
         data={
-            "symbol": "XAUUSDT",
+            "symbol": "XAUUSDC",
             "price": 2050.0,
             "features": {"sma_7": 2040, "volatility": 0.02}
         }

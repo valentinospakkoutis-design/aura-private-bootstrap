@@ -23,10 +23,10 @@ class PreciousMetalsPredictor:
     
     def __init__(self):
         self.metals = {
-            "XAUUSDT": {"name": "Gold", "symbol": "XAU", "base_price": 2050.0},
-            "XAGUSDT": {"name": "Silver", "symbol": "XAG", "base_price": 24.5},
-            "XPTUSDT": {"name": "Platinum", "symbol": "XPT", "base_price": 950.0},
-            "XPDUSDT": {"name": "Palladium", "symbol": "XPD", "base_price": 1200.0},
+            "XAUUSDC": {"name": "Gold", "symbol": "XAU", "base_price": 2050.0},
+            "XAGUSDC": {"name": "Silver", "symbol": "XAG", "base_price": 24.5},
+            "XPTUSDC": {"name": "Platinum", "symbol": "XPT", "base_price": 950.0},
+            "XPDUSDC": {"name": "Palladium", "symbol": "XPD", "base_price": 1200.0},
         }
         self.prediction_history = {}
         
@@ -119,7 +119,7 @@ class PreciousMetalsPredictor:
         Predict price for a metal over N days using trained ML models
         
         Args:
-            symbol: Metal symbol (XAUUSDT, XAGUSDT, etc.)
+            symbol: Metal symbol (XAUUSDC, XAGUSDC, etc.)
             days: Prediction horizon in days
             
         Returns:

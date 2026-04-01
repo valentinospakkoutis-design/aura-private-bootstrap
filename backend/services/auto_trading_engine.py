@@ -11,6 +11,17 @@ from typing import Optional, Dict, List, Callable
 
 logger = logging.getLogger(__name__)
 
+# Only USDC crypto pairs are allowed for auto trading.
+# Metals (XAU, XAG, XPT, XPD) are excluded — no USDC pairs on Binance for Cyprus.
+ALLOWED_AUTO_TRADE_SYMBOLS = {
+    "BTCUSDC", "ETHUSDC", "BNBUSDC", "ADAUSDC", "SOLUSDC",
+    "XRPUSDC", "DOTUSDC", "MATICUSDC", "LINKUSDC", "AVAXUSDC",
+    "SHIBUSDC", "DOGEUSDC", "TRXUSDC", "LTCUSDC", "BCHUSDC",
+    "ETCUSDC", "XLMUSDC", "ALGOUSDC", "ATOMUSDC", "NEARUSDC",
+    "FTMUSDC", "ICPUSDC", "FILUSDC", "EOSUSDC", "AAVEUSDC",
+    "UNIUSDC", "SANDUSDC", "MANAUSDC", "AXSUSDC", "THETAUSDC",
+}
+
 
 class AutoTradingEngine:
     def __init__(self):
@@ -68,17 +79,12 @@ class AutoTradingEngine:
             self.trade_log = self.trade_log[-100:]
 
     def _get_available_balance(self) -> float:
-        """Get available stablecoin balance (USDC or USDT)"""
+        """Get available USDC balance"""
         try:
             account = self.broker.get_account_balance()
-            # Try USDC first
             if isinstance(account, dict) and "balances" in account:
                 for balance in account["balances"]:
                     if balance["asset"] == "USDC":
-                        return float(balance["free"])
-                # Fallback to USDT if USDC not found
-                for balance in account["balances"]:
-                    if balance["asset"] == "USDT":
                         return float(balance["free"])
             else:
                 return account.get("available_balance", 0)
@@ -87,13 +93,10 @@ class AutoTradingEngine:
             return 0.0
 
     def get_trading_symbol(self, asset_symbol: str) -> str:
-        """Try USDC pair first, fallback to USDT pair."""
-        usdc_symbol = asset_symbol.replace("USDT", "USDC")
-        try:
-            self.broker.client.get_symbol_ticker(symbol=usdc_symbol)
-            return usdc_symbol  # USDC pair exists
-        except Exception:
-            return asset_symbol  # fallback to USDT pair
+        """Ensure symbol uses USDC pair."""
+        if asset_symbol.endswith("USDT"):
+            return asset_symbol[:-4] + "USDC"
+        return asset_symbol
 
     def _calculate_position_size(self, price: float) -> float:
         """Calculate quantity based on position_size_pct of portfolio."""
@@ -120,6 +123,13 @@ class AutoTradingEngine:
         # ── Safety checks ────────────────────────────────────────
         if not self.config["enabled"]:
             return None
+
+        # Only trade allowed USDC crypto pairs
+        trading_symbol = self.get_trading_symbol(symbol)
+        if trading_symbol not in ALLOWED_AUTO_TRADE_SYMBOLS:
+            self._log_event("SKIP", f"{symbol}: not in allowed auto-trade symbols")
+            return None
+        symbol = trading_symbol
 
         if not self.broker or not self.broker.connected:
             self._log_event("SKIP", f"{symbol}: broker not connected")

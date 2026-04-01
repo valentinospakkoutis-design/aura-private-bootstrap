@@ -46,7 +46,7 @@ interface LiveStats {
 
 export default function LiveTradingScreen() {
   const router = useRouter();
-  const { user, brokers, showToast, showModal } = useAppStore();
+  const { user, brokers, setBrokers, showToast, showModal } = useAppStore();
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,6 +63,11 @@ export default function LiveTradingScreen() {
   } = useApi(() => api.getPortfolioStats(), { showLoading: false, showToast: false });
 
   const {
+    loading: loadingBrokers,
+    execute: fetchBrokers,
+  } = useApi(() => api.getBrokers(), { showLoading: false, showToast: false });
+
+  const {
     loading: closingTrade,
     execute: closeTrade,
   } = useApi((tradeId: string) => {
@@ -76,9 +81,10 @@ export default function LiveTradingScreen() {
 
   const loadData = async () => {
     try {
-      const [tradesData, statsData] = await Promise.all([
+      const [tradesData, statsData, brokersData] = await Promise.all([
         fetchTrades().catch(() => []),
         fetchStats().catch(() => null),
+        fetchBrokers().catch(() => null),
       ]);
 
       if (Array.isArray(tradesData)) {
@@ -86,6 +92,15 @@ export default function LiveTradingScreen() {
       }
       if (statsData && typeof statsData === 'object') {
         setStats(statsData as LiveStats);
+      }
+      if (brokersData) {
+        const brokerList = brokersData?.brokers ?? (Array.isArray(brokersData) ? brokersData : []);
+        const mapped = brokerList.map((b: any) => ({
+          id: b.broker || b.id,
+          name: (b.broker || b.id || '').charAt(0).toUpperCase() + (b.broker || b.id || '').slice(1),
+          connected: b.connected ?? false,
+        }));
+        setBrokers(mapped);
       }
     } catch (err) {
       console.error('Failed to load live trading data:', err);
@@ -133,7 +148,7 @@ export default function LiveTradingScreen() {
   // Check if user has connected brokers
   const hasConnectedBrokers = brokers && brokers.some((b) => b.connected);
 
-  if (!hasConnectedBrokers) {
+  if (!hasConnectedBrokers && !loadingBrokers) {
     return (
       <PageTransition type="fade">
         <View style={styles.container}>
@@ -156,7 +171,7 @@ export default function LiveTradingScreen() {
     );
   }
 
-  if ((loadingTrades || loadingStats) && !refreshing && !trades.length) {
+  if ((loadingTrades || loadingStats || loadingBrokers) && !refreshing && !trades.length) {
     return (
       <PageTransition type="fade">
         <View style={styles.container}>

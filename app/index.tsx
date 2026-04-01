@@ -152,7 +152,7 @@ export default function HomeScreen() {
         <AnimatedCard delay={100} animationType="slideUp">
           <Text style={styles.sectionTitle}>📊 Σήμερα</Text>
           <View style={styles.statsRow}>
-            <View style={styles.statItem}>
+            <TouchableOpacity style={styles.statItem} activeOpacity={0.7} onPress={() => router.push('/analytics')}>
               <Text style={styles.statLabel}>Portfolio</Text>
               <AnimatedCounter
                 value={12450.75}
@@ -163,19 +163,19 @@ export default function HomeScreen() {
               <Text style={[styles.statChange, { color: theme.colors.market.bullish }]}>
                 +2.5%
               </Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
+            <TouchableOpacity style={styles.statItem} activeOpacity={0.7} onPress={() => router.push('/live-trading')}>
               <Text style={styles.statLabel}>Ανοιχτά Trades</Text>
               <Text style={styles.statValue}>5</Text>
               <Text style={styles.statChange}>3 winning</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
+            <TouchableOpacity style={styles.statItem} activeOpacity={0.7} onPress={() => router.push('/ai-predictions')}>
               <Text style={styles.statLabel}>AI Predictions</Text>
               <Text style={styles.statValue}>12</Text>
               <Text style={styles.statChange}>νέες σήμερα</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </AnimatedCard>
 

@@ -40,7 +40,7 @@ export default {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#6366F1"
       },
-      package: "com.aura.app",
+      package: "com.aura.trading",
       backgroundColor: "#6366F1",
       versionCode: 1,
       permissions: [

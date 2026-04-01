@@ -71,7 +71,7 @@ def test_empty_inputs():
     try:
         response = requests.post(
             f"{API_BASE}/portfolio/buy",
-            json={"asset_id": "XAUUSDT", "quantity": -10, "price": 2000},
+            json={"asset_id": "XAUUSDC", "quantity": -10, "price": 2000},
             headers=get_headers(),
             timeout=5
         )
@@ -86,7 +86,7 @@ def test_empty_inputs():
     try:
         response = requests.post(
             f"{API_BASE}/portfolio/buy",
-            json={"asset_id": "XAUUSDT", "quantity": 1, "price": 0},
+            json={"asset_id": "XAUUSDC", "quantity": 1, "price": 0},
             headers=get_headers(),
             timeout=5
         )
@@ -179,7 +179,7 @@ def test_large_inputs():
     try:
         response = requests.post(
             f"{API_BASE}/portfolio/buy",
-            json={"asset_id": "XAUUSDT", "quantity": 1e10, "price": 2000},
+            json={"asset_id": "XAUUSDC", "quantity": 1e10, "price": 2000},
             headers=get_headers(),
             timeout=5
         )

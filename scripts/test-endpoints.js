@@ -12,9 +12,9 @@ const ENDPOINTS = {
   quoteOfDay: { method: 'GET', path: '/api/quote-of-day', auth: false },
   
   // AI Predictions
-  aiPredict: { method: 'GET', path: '/api/ai/predict/XAUUSDT', auth: false },
+  aiPredict: { method: 'GET', path: '/api/ai/predict/XAUUSDC', auth: false },
   aiPredictions: { method: 'GET', path: '/api/ai/predictions', auth: false },
-  aiSignal: { method: 'GET', path: '/api/ai/signal/XAUUSDT', auth: false },
+  aiSignal: { method: 'GET', path: '/api/ai/signal/XAUUSDC', auth: false },
   aiSignals: { method: 'GET', path: '/api/ai/signals', auth: false },
   aiAssets: { method: 'GET', path: '/api/ai/assets', auth: false },
   aiStatus: { method: 'GET', path: '/api/ai/status', auth: false },

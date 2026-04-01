@@ -116,8 +116,8 @@ export const testData = {
     total_value: 10000,
     cash: 5000,
     positions: [
-      { symbol: 'BTCUSDT', quantity: 0.5, value: 20000 },
-      { symbol: 'ETHUSDT', quantity: 10, value: 30000 },
+      { symbol: 'BTCUSDC', quantity: 0.5, value: 20000 },
+      { symbol: 'ETHUSDC', quantity: 10, value: 30000 },
     ],
   },
   
@@ -131,7 +131,7 @@ export const testData = {
   },
   
   prediction: {
-    symbol: 'XAUUSDT',
+    symbol: 'XAUUSDC',
     current_price: 2000,
     predicted_price: 2050,
     confidence: 0.85,

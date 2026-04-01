@@ -331,7 +331,7 @@ def create_example_model():
     
     # Generate training data
     trainer = ModelTrainer()
-    df = trainer.generate_synthetic_data("XAUUSDT", days=365, base_price=2050.0)
+    df = trainer.generate_synthetic_data("XAUUSDC", days=365, base_price=2050.0)
     
     # Prepare features and targets
     X, y = trainer.prepare_features(df)

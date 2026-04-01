@@ -181,7 +181,7 @@ def test_assets():
         print_test("Get All Assets", "FAIL", str(e))
     
     # Get Asset Price
-    test_assets = ["XAUUSDT", "BTCUSDT", "AAPL"]
+    test_assets = ["XAUUSDC", "BTCUSDC", "AAPL"]
     for asset in test_assets:
         try:
             response = requests.get(
@@ -205,7 +205,7 @@ def test_predictions():
     print("Testing Prediction Endpoints")
     print("="*60)
     
-    test_assets = ["XAUUSDT", "BTCUSDT"]
+    test_assets = ["XAUUSDC", "BTCUSDC"]
     for asset in test_assets:
         try:
             response = requests.post(
@@ -285,7 +285,7 @@ def test_accuracy():
     # Get Asset Accuracy
     try:
         response = requests.get(
-            f"{API_BASE}/accuracy/XAUUSDT",
+            f"{API_BASE}/accuracy/XAUUSDC",
             headers=get_headers(),
             timeout=5
         )

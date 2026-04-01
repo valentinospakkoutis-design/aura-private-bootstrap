@@ -112,12 +112,15 @@ async def startup_event():
         _auto_trader.set_broker(next(iter(broker_instances.values())))
 
     async def _get_predictions_for_auto_trader():
-        """Fetch predictions for auto trader loop."""
-        raw = asset_predictor.get_all_predictions(days=7)
+        """Fetch predictions for auto trader loop. Only USDC crypto pairs."""
+        from services.auto_trading_engine import ALLOWED_AUTO_TRADE_SYMBOLS
+        raw = asset_predictor.get_all_predictions(days=7, asset_type=AssetType.CRYPTO)
         raw_preds = raw.get("predictions", {})
         result = []
         for sym, p in raw_preds.items():
             if "error" in p:
+                continue
+            if sym not in ALLOWED_AUTO_TRADE_SYMBOLS:
                 continue
             conf = p.get("confidence", 0)
             conf = conf / 100.0 if conf > 1 else conf
@@ -1056,7 +1059,7 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         print(f"[!] Binance price fetch failed: {e}")
 
     # Step 2: Override metals with REAL spot prices from Yahoo Finance
-    # Binance XAUUSDT is a tokenized product (~$2,000), real gold is ~$3,000+
+    # Binance XAUUSDC is a tokenized product (~$2,000), real gold is ~$3,000+
     from services.metals_price_service import get_all_metals_prices, is_metal
     metals_prices = get_all_metals_prices()
     if metals_prices:
@@ -1122,7 +1125,7 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
 @app.get("/api/ai/predictions/{prediction_id}")
 def get_prediction_by_id(prediction_id: str):
     """Return a single prediction by its generated id (pred_symbol_timestamp)"""
-    # Extract symbol from id: pred_btcusdt_1711648000 -> BTCUSDT
+    # Extract symbol from id: pred_btcusdc_1711648000 -> BTCUSDC
     parts = prediction_id.replace("pred_", "").rsplit("_", 1)
     symbol = parts[0].upper() if parts else ""
     print(f"[DEBUG] Prediction detail request: id={prediction_id}, extracted symbol={symbol}")
@@ -1420,10 +1423,10 @@ def train_model_endpoint(
         if symbol:
             # Train single symbol
             base_prices = {
-                "XAUUSDT": 2050.0,
-                "XAGUSDT": 24.5,
-                "XPTUSDT": 950.0,
-                "XPDUSDT": 1200.0
+                "XAUUSDC": 2050.0,
+                "XAGUSDC": 24.5,
+                "XPTUSDC": 950.0,
+                "XPDUSDC": 1200.0
             }
             base_price = base_prices.get(symbol, 100.0)
             
