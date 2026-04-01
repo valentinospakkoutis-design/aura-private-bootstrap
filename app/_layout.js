@@ -53,18 +53,26 @@ function AppContent() {
           animation: 'slide_from_right',
         }}
       >
-        {/* Main Screens */}
-        <Stack.Screen 
-          name="index" 
-          options={{ 
+        {/* Tab Navigator */}
+        <Stack.Screen
+          name="(tabs)"
+          options={{
+            headerShown: false,
+          }}
+        />
+
+        {/* Keep original screens for direct navigation */}
+        <Stack.Screen
+          name="index"
+          options={{
             title: 'AURA',
             headerShown: true,
-          }} 
+          }}
         />
-        
-        <Stack.Screen 
-          name="ai-predictions" 
-          options={{ 
+
+        <Stack.Screen
+          name="ai-predictions"
+          options={{
             title: '🤖 AI Predictions',
             headerShown: true,
           }} 
