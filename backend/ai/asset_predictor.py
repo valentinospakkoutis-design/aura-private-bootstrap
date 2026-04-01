@@ -12,7 +12,13 @@ import numpy as np
 import pandas as pd
 import random
 import math
+import time
+import logging
 from enum import Enum
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class AssetType(str, Enum):
@@ -155,7 +161,11 @@ class AssetPredictor:
         self.all_assets.update(self.derivatives)
         
         self.prediction_history = {}
-        
+
+        # Price cache: {symbol: {"prices": [...], "fetched_at": timestamp}}
+        self._price_cache: Dict[str, dict] = {}
+        self._price_cache_ttl = 300  # 5 minutes
+
         # Load trained models
         self.models = {}
         self.scalers = {}
@@ -190,6 +200,75 @@ class AssetPredictor:
             except Exception as e:
                 print(f"[-] Error loading model {model_path}: {e}")
     
+    def _fetch_binance_klines(self, symbol: str, days: int = 7) -> Optional[List[float]]:
+        """Fetch daily closing prices from Binance public API (no auth needed)."""
+        try:
+            params = {
+                "symbol": symbol.upper(),
+                "interval": "1d",
+                "limit": days + 1,  # +1 to include today's partial candle
+            }
+            with httpx.Client(base_url="https://api.binance.com", timeout=10.0) as client:
+                resp = client.get("/api/v3/klines", params=params)
+                resp.raise_for_status()
+                klines = resp.json()
+
+            if not klines or len(klines) < 2:
+                return None
+
+            # Binance kline format: [open_time, open, high, low, close, volume, ...]
+            closes = [float(k[4]) for k in klines]
+            return closes
+        except Exception as e:
+            logger.debug(f"Binance klines failed for {symbol}: {e}")
+            return None
+
+    def _fetch_yfinance_closes(self, symbol: str, days: int = 7) -> Optional[List[float]]:
+        """Fetch daily closing prices from Yahoo Finance as fallback."""
+        try:
+            from market_data.yfinance_client import _normalize_symbol
+            import yfinance as yf
+
+            yf_symbol = _normalize_symbol(symbol)
+            ticker = yf.Ticker(yf_symbol)
+            hist = ticker.history(period=f"{days + 3}d", interval="1d")
+
+            if hist.empty or len(hist) < 2:
+                return None
+
+            closes = [float(c) for c in hist["Close"].values[-(days + 1):]]
+            return closes
+        except Exception as e:
+            logger.debug(f"yfinance failed for {symbol}: {e}")
+            return None
+
+    def _get_real_prices(self, symbol: str, days: int = 7) -> Optional[List[float]]:
+        """
+        Get real closing prices for a symbol.
+        Tries Binance first, then yfinance. Results cached for 5 minutes.
+        Returns list of daily closing prices (oldest first), or None.
+        """
+        # Check cache
+        cached = self._price_cache.get(symbol)
+        if cached and (time.time() - cached["fetched_at"]) < self._price_cache_ttl:
+            return cached["prices"]
+
+        # Try Binance (works for USDC crypto pairs)
+        prices = self._fetch_binance_klines(symbol, days)
+
+        # Fallback to yfinance (works for stocks, metals, forex, and crypto via -USD pairs)
+        if prices is None:
+            prices = self._fetch_yfinance_closes(symbol, days)
+
+        if prices and len(prices) >= 2:
+            self._price_cache[symbol] = {
+                "prices": prices,
+                "fetched_at": time.time(),
+            }
+            return prices
+
+        return None
+
     def _calculate_features(self, prices: List[float]) -> np.ndarray:
         """Calculate features from price history"""
         if len(prices) < 7:
@@ -221,33 +300,21 @@ class AssetPredictor:
         return features
     
     def get_current_price(self, symbol: str) -> float:
-        """Get simulated current price with small variations"""
+        """Get current price from real market data, fallback to base_price."""
         if symbol not in self.all_assets:
             return 0.0
-        
+
+        real_prices = self._get_real_prices(symbol, days=1)
+        if real_prices:
+            return round(real_prices[-1], 8)
+
+        # Fallback to base_price with small variation
         asset = self.all_assets[symbol]
         base_price = asset["base_price"]
-        
         if base_price <= 0:
             return 0.0
-        
-        # Simulate price movement (±2%)
-        variation = random.uniform(-0.02, 0.02)
-        price = base_price * (1 + variation)
-        
-        # Ensure price is never zero or negative
-        # For very small prices, use tighter variation
-        if base_price < 0.001:
-            # For micro prices, use ±1% variation and ensure minimum
-            variation = random.uniform(-0.01, 0.01)
-            price = base_price * (1 + variation)
-            price = max(price, base_price * 0.99)  # Minimum 99% of base
-        else:
-            # For normal prices, ensure minimum 98% of base
-            if price <= 0:
-                price = base_price * 0.98
-        
-        return round(price, 8)  # Round to 8 decimal places for precision
+        variation = random.uniform(-0.005, 0.005)
+        return round(base_price * (1 + variation), 8)
     
     def get_asset_info(self, symbol: str) -> Optional[Dict]:
         """Get asset information"""
@@ -302,13 +369,19 @@ class AssetPredictor:
         
         if use_ml_model:
             try:
-                # Generate historical prices
-                historical_prices = []
-                for i in range(7):
-                    variation = random.uniform(-0.02, 0.02)
-                    hist_price = asset["base_price"] * (1 + variation)
-                    historical_prices.append(hist_price)
-                historical_prices.append(current_price)
+                # Fetch real historical prices from Binance/yfinance
+                real_prices = self._get_real_prices(symbol, days=7)
+                if real_prices and len(real_prices) >= 7:
+                    historical_prices = real_prices
+                else:
+                    # Fallback: use base_price with variation if real data unavailable
+                    logger.warning(f"[predictor] No real price data for {symbol}, using base_price fallback")
+                    historical_prices = []
+                    for i in range(7):
+                        variation = random.uniform(-0.02, 0.02)
+                        hist_price = asset["base_price"] * (1 + variation)
+                        historical_prices.append(hist_price)
+                    historical_prices.append(current_price)
                 
                 # Calculate features
                 features = self._calculate_features(historical_prices)
