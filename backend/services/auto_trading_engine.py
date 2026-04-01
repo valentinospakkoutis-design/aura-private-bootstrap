@@ -18,7 +18,7 @@ class AutoTradingEngine:
         self.broker = None  # BinanceAPI instance
         self.check_interval = 300  # check every 5 minutes
         self.config = {
-            "confidence_threshold": 0.90,   # only trade >= 90% confidence
+            "confidence_threshold": 0.85,   # only trade >= 85% confidence
             "position_size_pct": 0.05,      # 5% of portfolio per trade
             "stop_loss_pct": 0.03,          # 3% stop loss
             "max_positions": 5,             # max concurrent positions
