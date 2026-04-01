@@ -68,13 +68,32 @@ class AutoTradingEngine:
             self.trade_log = self.trade_log[-100:]
 
     def _get_available_balance(self) -> float:
-        """Get available USDT balance from broker."""
+        """Get available stablecoin balance (USDC or USDT)"""
         try:
-            balance_info = self.broker.get_account_balance()
-            return balance_info.get("available_balance", 0)
+            account = self.broker.get_account_balance()
+            # Try USDC first
+            if isinstance(account, dict) and "balances" in account:
+                for balance in account["balances"]:
+                    if balance["asset"] == "USDC":
+                        return float(balance["free"])
+                # Fallback to USDT if USDC not found
+                for balance in account["balances"]:
+                    if balance["asset"] == "USDT":
+                        return float(balance["free"])
+            else:
+                return account.get("available_balance", 0)
         except Exception as e:
             logger.error(f"[auto-trader] Failed to get balance: {e}")
             return 0.0
+
+    def get_trading_symbol(self, asset_symbol: str) -> str:
+        """Try USDC pair first, fallback to USDT pair."""
+        usdc_symbol = asset_symbol.replace("USDT", "USDC")
+        try:
+            self.broker.client.get_symbol_ticker(symbol=usdc_symbol)
+            return usdc_symbol  # USDC pair exists
+        except Exception:
+            return asset_symbol  # fallback to USDT pair
 
     def _calculate_position_size(self, price: float) -> float:
         """Calculate quantity based on position_size_pct of portfolio."""
