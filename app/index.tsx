@@ -60,6 +60,13 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
   {
     id: '6',
+    title: 'Auto Trading',
+    icon: '🤖',
+    route: '/auto-trading',
+    color: theme.colors.semantic.error,
+  },
+  {
+    id: '7',
     title: 'Settings',
     icon: '⚙️',
     route: '/settings',
