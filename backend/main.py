@@ -1955,7 +1955,7 @@ from services.auto_trading_engine import auto_trader
 
 class AutoTradingConfigUpdate(BaseModel):
     confidence_threshold: Optional[float] = None
-    position_size_pct: Optional[float] = None
+    fixed_order_value_usd: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     max_positions: Optional[int] = None
     max_order_value_usd: Optional[float] = None
@@ -1995,8 +1995,8 @@ def update_auto_trading_config(config: AutoTradingConfigUpdate):
     """Update auto trading config (thresholds, limits)."""
     if config.confidence_threshold is not None:
         auto_trader.config["confidence_threshold"] = max(0.5, min(1.0, config.confidence_threshold))
-    if config.position_size_pct is not None:
-        auto_trader.config["position_size_pct"] = max(0.01, min(0.10, config.position_size_pct))
+    if config.fixed_order_value_usd is not None:
+        auto_trader.config["fixed_order_value_usd"] = max(5.0, min(100.0, config.fixed_order_value_usd))
     if config.stop_loss_pct is not None:
         auto_trader.config["stop_loss_pct"] = max(0.01, min(0.10, config.stop_loss_pct))
     if config.max_positions is not None:

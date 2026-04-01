@@ -29,8 +29,8 @@ class AutoTradingEngine:
         self.broker = None  # BinanceAPI instance
         self.check_interval = 300  # check every 5 minutes
         self.config = {
-            "confidence_threshold": 0.85,   # only trade >= 85% confidence
-            "position_size_pct": 0.05,      # 5% of portfolio per trade
+            "confidence_threshold": 0.80,   # only trade >= 80% confidence
+            "fixed_order_value_usd": 10.0,  # fixed $10 USDC per trade
             "stop_loss_pct": 0.03,          # 3% stop loss
             "max_positions": 5,             # max concurrent positions
             "max_order_value_usd": 100.0,   # hard safety limit per order
@@ -99,16 +99,17 @@ class AutoTradingEngine:
         return asset_symbol
 
     def _calculate_position_size(self, price: float) -> float:
-        """Calculate quantity based on position_size_pct of portfolio."""
-        balance = self._get_available_balance()
-        position_value = balance * self.config["position_size_pct"]
-
-        # Hard safety limit
-        if position_value > self.config["max_order_value_usd"]:
-            position_value = self.config["max_order_value_usd"]
-
+        """Calculate quantity for a fixed $10 USDC order."""
         if price <= 0:
             return 0.0
+
+        position_value = self.config["fixed_order_value_usd"]
+
+        # Verify we have enough balance
+        balance = self._get_available_balance()
+        if balance < position_value:
+            return 0.0
+
         quantity = position_value / price
         return round(quantity, 6)
 
