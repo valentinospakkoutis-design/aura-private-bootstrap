@@ -12,7 +12,7 @@ interface AutoTradingStatus {
   is_running: boolean;
   config: {
     confidence_threshold: number;
-    position_size_pct: number;
+    fixed_order_value_usd: number;
     stop_loss_pct: number;
     max_positions: number;
     max_order_value_usd: number;
@@ -130,7 +130,7 @@ export default function AutoTradingScreen() {
             </View>
             <View style={styles.configRow}>
               <Text style={styles.configLabel}>Position Size</Text>
-              <Text style={styles.configValue}>{(config.position_size_pct * 100).toFixed(0)}% of portfolio</Text>
+              <Text style={styles.configValue}>Fixed ${config.fixed_order_value_usd ?? 10} per trade</Text>
             </View>
             <View style={styles.configRow}>
               <Text style={styles.configLabel}>Stop Loss</Text>

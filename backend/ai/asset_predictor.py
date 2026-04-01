@@ -97,7 +97,7 @@ class AssetPredictor:
             "SOLUSDC": {"name": "Solana", "symbol": "SOL", "base_price": 100.0, "type": AssetType.CRYPTO},
             "XRPUSDC": {"name": "Ripple", "symbol": "XRP", "base_price": 0.6, "type": AssetType.CRYPTO},
             "DOTUSDC": {"name": "Polkadot", "symbol": "DOT", "base_price": 7.0, "type": AssetType.CRYPTO},
-            "MATICUSDC": {"name": "Polygon", "symbol": "MATIC", "base_price": 0.8, "type": AssetType.CRYPTO},
+            "POLUSDC": {"name": "Polygon", "symbol": "POL", "base_price": 0.4, "type": AssetType.CRYPTO},
             "LINKUSDC": {"name": "Chainlink", "symbol": "LINK", "base_price": 15.0, "type": AssetType.CRYPTO},
             "AVAXUSDC": {"name": "Avalanche", "symbol": "AVAX", "base_price": 35.0, "type": AssetType.CRYPTO},
             
@@ -112,14 +112,11 @@ class AssetPredictor:
             "ALGOUSDC": {"name": "Algorand", "symbol": "ALGO", "base_price": 0.2, "type": AssetType.CRYPTO},
             "ATOMUSDC": {"name": "Cosmos", "symbol": "ATOM", "base_price": 10.0, "type": AssetType.CRYPTO},
             "NEARUSDC": {"name": "NEAR Protocol", "symbol": "NEAR", "base_price": 3.0, "type": AssetType.CRYPTO},
-            "FTMUSDC": {"name": "Fantom", "symbol": "FTM", "base_price": 0.4, "type": AssetType.CRYPTO},
             "ICPUSDC": {"name": "Internet Computer", "symbol": "ICP", "base_price": 12.0, "type": AssetType.CRYPTO},
             "FILUSDC": {"name": "Filecoin", "symbol": "FIL", "base_price": 5.0, "type": AssetType.CRYPTO},
-            "EOSUSDC": {"name": "EOS", "symbol": "EOS", "base_price": 0.7, "type": AssetType.CRYPTO},
             "AAVEUSDC": {"name": "Aave", "symbol": "AAVE", "base_price": 100.0, "type": AssetType.CRYPTO},
             "UNIUSDC": {"name": "Uniswap", "symbol": "UNI", "base_price": 6.0, "type": AssetType.CRYPTO},
             "SANDUSDC": {"name": "The Sandbox", "symbol": "SAND", "base_price": 0.5, "type": AssetType.CRYPTO},
-            "MANAUSDC": {"name": "Decentraland", "symbol": "MANA", "base_price": 0.4, "type": AssetType.CRYPTO},
             "AXSUSDC": {"name": "Axie Infinity", "symbol": "AXS", "base_price": 7.0, "type": AssetType.CRYPTO},
             "THETAUSDC": {"name": "Theta Network", "symbol": "THETA", "base_price": 1.0, "type": AssetType.CRYPTO},
         }

@@ -470,7 +470,7 @@ class ApiClient {
 
   async updateAutoTradingConfig(config: {
     confidence_threshold?: number;
-    position_size_pct?: number;
+    fixed_order_value_usd?: number;
     stop_loss_pct?: number;
     max_positions?: number;
     max_order_value_usd?: number;

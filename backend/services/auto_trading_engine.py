@@ -13,13 +13,15 @@ logger = logging.getLogger(__name__)
 
 # Only USDC crypto pairs are allowed for auto trading.
 # Metals (XAU, XAG, XPT, XPD) are excluded — no USDC pairs on Binance for Cyprus.
+# Removed: MANAUSDC, MATICUSDC, FTMUSDC, EOSUSDC (delisted from Binance)
+# MATIC rebranded to POL
 ALLOWED_AUTO_TRADE_SYMBOLS = {
     "BTCUSDC", "ETHUSDC", "BNBUSDC", "ADAUSDC", "SOLUSDC",
-    "XRPUSDC", "DOTUSDC", "MATICUSDC", "LINKUSDC", "AVAXUSDC",
+    "XRPUSDC", "DOTUSDC", "POLUSDC", "LINKUSDC", "AVAXUSDC",
     "SHIBUSDC", "DOGEUSDC", "TRXUSDC", "LTCUSDC", "BCHUSDC",
     "ETCUSDC", "XLMUSDC", "ALGOUSDC", "ATOMUSDC", "NEARUSDC",
-    "FTMUSDC", "ICPUSDC", "FILUSDC", "EOSUSDC", "AAVEUSDC",
-    "UNIUSDC", "SANDUSDC", "MANAUSDC", "AXSUSDC", "THETAUSDC",
+    "ICPUSDC", "FILUSDC", "AAVEUSDC",
+    "UNIUSDC", "SANDUSDC", "AXSUSDC", "THETAUSDC",
 }
 
 
