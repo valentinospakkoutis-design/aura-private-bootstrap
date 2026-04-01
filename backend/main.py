@@ -1959,6 +1959,7 @@ class AutoTradingConfigUpdate(BaseModel):
     stop_loss_pct: Optional[float] = None
     max_positions: Optional[int] = None
     max_order_value_usd: Optional[float] = None
+    smart_score_threshold: Optional[int] = None
 
 
 @app.get("/api/auto-trading/status")
@@ -2003,7 +2004,16 @@ def update_auto_trading_config(config: AutoTradingConfigUpdate):
         auto_trader.config["max_positions"] = max(1, min(10, config.max_positions))
     if config.max_order_value_usd is not None:
         auto_trader.config["max_order_value_usd"] = max(10, min(500, config.max_order_value_usd))
+    if config.smart_score_threshold is not None:
+        auto_trader.config["smart_score_threshold"] = max(50, min(95, config.smart_score_threshold))
     return auto_trader.get_status()
+
+
+@app.get("/api/auto-trading/smart-score/{symbol}")
+def get_smart_score(symbol: str):
+    """Calculate Smart Score for a symbol — shows all signal breakdowns."""
+    from services.smart_score import smart_score_calculator
+    return smart_score_calculator.calculate_smart_score(symbol.upper())
 
 
 @app.get("/api/auto-trading/positions")

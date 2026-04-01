@@ -36,6 +36,7 @@ class AutoTradingEngine:
             "stop_loss_pct": 0.03,          # 3% stop loss
             "max_positions": 5,             # max concurrent positions
             "max_order_value_usd": 100.0,   # hard safety limit per order
+            "smart_score_threshold": 75,    # only trade when Smart Score > 75
             "enabled": False,               # OFF by default
         }
         self.open_positions: Dict[str, dict] = {}
@@ -141,6 +142,29 @@ class AutoTradingEngine:
         if confidence < self.config["confidence_threshold"]:
             return None  # silent skip — most predictions won't pass
 
+        # ── Smart Score gate ─────────────────────────────────────
+        from services.smart_score import smart_score_calculator
+        score_result = smart_score_calculator.calculate_smart_score(symbol)
+        smart_score = score_result.get("smart_score", 0)
+        signals = score_result.get("signals", {})
+
+        # Block trades during extreme fear
+        fear_greed = signals.get("fear_greed", {}).get("score", 50)
+        if fear_greed < 25:
+            self._log_event("SKIP", f"{symbol}: extreme fear (F&G={fear_greed:.0f}), market too risky")
+            return None
+
+        if smart_score < self.config["smart_score_threshold"]:
+            self._log_event("SKIP",
+                f"{symbol}: Smart Score {smart_score:.1f} < {self.config['smart_score_threshold']} "
+                f"[news={signals.get('news_sentiment',{}).get('score',0):.0f} "
+                f"F&G={fear_greed:.0f} "
+                f"RSI={signals.get('rsi',{}).get('score',0):.0f} "
+                f"vol={signals.get('volume',{}).get('score',0):.0f} "
+                f"MTF={signals.get('multi_timeframe',{}).get('score',0):.0f} "
+                f"pred={signals.get('prediction',{}).get('score',0):.0f}]")
+            return None
+
         if len(self.open_positions) >= self.config["max_positions"]:
             self._log_event("SKIP", f"{symbol}: max positions reached ({self.config['max_positions']})")
             return None
@@ -170,8 +194,11 @@ class AutoTradingEngine:
 
         # ── Place order ──────────────────────────────────────────
         try:
-            self._log_event("ORDER_ATTEMPT", f"{side} {quantity} {symbol} @ ~${price:.2f} (confidence {confidence:.0%})")
-            logger.info(f"[auto-trader] Placing {side} {symbol} qty={quantity} confidence={confidence:.0%}")
+            self._log_event("ORDER_ATTEMPT",
+                f"{side} {quantity} {symbol} @ ~${price:.2f} "
+                f"(confidence {confidence:.0%}, Smart Score {smart_score:.1f})")
+            logger.info(f"[auto-trader] Placing {side} {symbol} qty={quantity} "
+                f"confidence={confidence:.0%} smart_score={smart_score:.1f}")
 
             result = self.broker.place_live_order(
                 symbol=symbol,
@@ -200,6 +227,8 @@ class AutoTradingEngine:
                 "target_price": target_price,
                 "stop_loss": round(stop_loss_price, 2),
                 "confidence": confidence,
+                "smart_score": smart_score,
+                "smart_score_signals": signals,
                 "order_id": result.get("order_id"),
                 "opened_at": datetime.utcnow().isoformat(),
                 "status": "open",
@@ -217,6 +246,7 @@ class AutoTradingEngine:
 
     async def run(self, get_predictions_func: Callable):
         """Main loop — checks predictions every check_interval seconds."""
+        from services.smart_score import smart_score_calculator
         self.is_running = True
         self._log_event("ENGINE_START", "Auto trading engine started (disabled by default)")
         logger.info("[auto-trader] Engine started (disabled by default)")
@@ -230,7 +260,15 @@ class AutoTradingEngine:
                         if p.get("confidence", 0) >= self.config["confidence_threshold"]
                     ]
                     if high_conf:
-                        self._log_event("SCAN", f"Found {len(high_conf)} high-confidence predictions")
+                        # Log scan with Smart Score preview for each candidate
+                        score_previews = []
+                        for p in high_conf[:5]:
+                            sym = self.get_trading_symbol(p.get("symbol", ""))
+                            ss = smart_score_calculator.calculate_smart_score(sym)
+                            score_previews.append(f"{sym}={ss['smart_score']:.0f}")
+                        self._log_event("SCAN",
+                            f"Found {len(high_conf)} high-confidence predictions | "
+                            f"Smart Scores: {', '.join(score_previews)}")
                     for prediction in high_conf:
                         self.place_auto_order(prediction)
             except Exception as e:
