@@ -12,8 +12,13 @@ from fastapi import HTTPException, status
 from utils.error_handler import AuthenticationError
 
 
-# JWT Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "aura-secret-key-change-in-production-2025")
+# JWT Configuration — no default; MUST be set via environment variable
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    import warnings
+    warnings.warn("JWT_SECRET_KEY not set — using random key (tokens will not survive restarts)")
+    import secrets as _secrets
+    SECRET_KEY = _secrets.token_urlsafe(64)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
 REFRESH_TOKEN_EXPIRE_DAYS = 7  # 7 days

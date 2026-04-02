@@ -41,6 +41,10 @@ class SecurityManager:
                 key = key.encode()
                 key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
 
+        if isinstance(key, bytes):
+            self._master_key_bytes = key
+        else:
+            self._master_key_bytes = key.encode() if isinstance(key, str) else key
         self.cipher = Fernet(key)
     
     def _get_machine_id(self) -> str:
@@ -77,33 +81,51 @@ class SecurityManager:
     
     def encrypt_api_key(self, api_key: str) -> str:
         """
-        Encrypt API key using Fernet (AES-128)
-        
-        Args:
-            api_key: Plain text API key
-        
-        Returns:
-            Encrypted API key (base64)
+        Encrypt API key using Fernet (AES-128).
+        Prepends a random 16-byte salt for per-key uniqueness.
         """
-        encrypted = self.cipher.encrypt(api_key.encode())
-        return base64.urlsafe_b64encode(encrypted).decode()
-    
+        salt = os.urandom(16)
+        # Derive a per-key Fernet cipher from the master key + salt
+        per_key_cipher = self._derive_cipher(salt)
+        encrypted = per_key_cipher.encrypt(api_key.encode())
+        # Store salt + encrypted together
+        combined = salt + encrypted
+        return base64.urlsafe_b64encode(combined).decode()
+
     def decrypt_api_key(self, encrypted_key: str) -> str:
         """
-        Decrypt API key
-        
-        Args:
-            encrypted_key: Encrypted API key
-        
-        Returns:
-            Plain text API key
+        Decrypt API key. Supports both new (salted) and legacy (unsalted) formats.
         """
         try:
+            combined = base64.urlsafe_b64decode(encrypted_key.encode())
+            # New format: first 16 bytes are salt
+            if len(combined) > 16:
+                salt = combined[:16]
+                encrypted = combined[16:]
+                try:
+                    per_key_cipher = self._derive_cipher(salt)
+                    return per_key_cipher.decrypt(encrypted).decode()
+                except Exception:
+                    pass  # fall through to legacy
+            # Legacy format: no salt, use master cipher
             encrypted_bytes = base64.urlsafe_b64decode(encrypted_key.encode())
-            decrypted = self.cipher.decrypt(encrypted_bytes)
-            return decrypted.decode()
+            return self.cipher.decrypt(encrypted_bytes).decode()
         except Exception as e:
-            raise ValueError(f"Failed to decrypt API key: {e}")
+            raise ValueError(f"Failed to decrypt API key")
+
+    def _derive_cipher(self, salt: bytes) -> Fernet:
+        """Derive a Fernet cipher from master key + per-key salt."""
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+            backend=default_backend()
+        )
+        # Use the master key's encoded form as input to derive a per-key key
+        master_key_bytes = self._master_key_bytes
+        derived = base64.urlsafe_b64encode(kdf.derive(master_key_bytes))
+        return Fernet(derived)
     
     @staticmethod
     def hash_password(password: str) -> str:

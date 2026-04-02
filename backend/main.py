@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Request, Form, WebSocket
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -40,6 +41,22 @@ app = FastAPI(
     description="Backend για το AURA - AI Trading Assistant",
     version="1.0.0"
 )
+
+# ── JWT Auth Dependency ──────────────────────────────────────────
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme)):
+    """Dependency that enforces JWT authentication on protected endpoints."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    try:
+        from auth.jwt_handler import verify_token
+        payload = verify_token(credentials.credentials, "access")
+        return payload
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
@@ -47,17 +64,6 @@ def healthz():
 @app.get("/api/ping")
 def api_ping():
     return {"ok": True}
-
-@app.get("/api/debug/ip")
-async def get_server_ip():
-    """Returns the outbound IP of this Railway instance."""
-    try:
-        import httpx
-        async with httpx.AsyncClient() as client:
-            response = await client.get("https://api.ipify.org?format=json")
-            return response.json()
-    except Exception as e:
-        return {"error": str(e)}
 
 def _restore_broker_connections():
     """Restore broker connections from database on startup."""
@@ -183,14 +189,26 @@ print(f"[+] Loaded mettal endpoints: {len(mettal_router.routes)} routes")
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
 
-# CORS Configuration - Επιτρέπει requests από το mobile app
+# CORS Configuration
+_allowed_origins = os.getenv("CORS_ORIGINS", "https://aura-private-bootstrap-production.up.railway.app").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Στο production: περιόρισε σε specific domains
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
 )
+
+# Security Headers Middleware
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 # Rate Limiting Middleware
 @app.middleware("http")
@@ -203,9 +221,19 @@ async def rate_limit_middleware_wrapper(request: Request, call_next):
 
 # WebSocket endpoint for real-time price updates
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time price updates"""
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(default=None)):
+    """WebSocket endpoint for real-time price updates (requires JWT token)"""
     from starlette.websockets import WebSocketDisconnect, WebSocketState
+
+    # Verify JWT token before accepting connection
+    if token:
+        try:
+            from auth.jwt_handler import verify_token
+            verify_token(token, "access")
+        except Exception:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+    # Allow unauthenticated connections for public price data (read-only)
 
     await websocket.accept()
     print("[+] WebSocket client connected")
@@ -297,9 +325,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # Alias: /ws/prices → same handler as /ws
 @app.websocket("/ws/prices")
-async def websocket_prices(websocket: WebSocket):
+async def websocket_prices(websocket: WebSocket, token: str = Query(default=None)):
     """Alias WebSocket endpoint for price updates"""
-    await websocket_endpoint(websocket)
+    await websocket_endpoint(websocket, token=token)
 
 # User storage file
 USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")
@@ -422,15 +450,6 @@ def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-@app.get("/debug/users")
-def debug_users():
-    """Debug endpoint - Shows registered users (remove in production!)"""
-    return {
-        "total_users": len(users_db),
-        "users": {email: {"name": data["name"], "password_length": len(data["password"])} 
-                  for email, data in users_db.items()}
-    }
-
 # Authentication Models
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -453,34 +472,18 @@ async def login(
     email = email.lower().strip()
     password = password.strip()
     
-    # Debug: Print received data
-    print(f"=== LOGIN ATTEMPT ===")
-    print(f"Email (normalized): '{email}'")
-    print(f"Password length: {len(password)}")
-    print(f"Users in DB: {list(users_db.keys())}")
-    
     # Check if user exists
     if email not in users_db:
-        print(f"❌ User not found: '{email}'")
-        print(f"Available users: {list(users_db.keys())}")
         error_msg = quote("Λάθος email ή κωδικός")
         return RedirectResponse(
             url=f"/?error={error_msg}",
             status_code=303
         )
     
-    # Check password (in production, use hashed passwords)
     stored_password = users_db[email]["password"]
     stored_name = users_db[email]["name"]
-    
-    print(f"Stored password length: {len(stored_password)}")
-    print(f"Input password length: {len(password)}")
-    print(f"Passwords match: {stored_password == password}")
-    
+
     if stored_password != password:
-        print(f"❌ Password mismatch for '{email}'")
-        print(f"Stored: '{stored_password}' (len={len(stored_password)})")
-        print(f"Input: '{password}' (len={len(password)})")
         error_msg = quote("Λάθος κωδικός")
         return RedirectResponse(
             url=f"/?error={error_msg}",
@@ -488,7 +491,6 @@ async def login(
         )
     
     # Successful login - create session
-    print(f"✅ Login successful for '{email}' (Name: {stored_name})")
     session_id = create_session(email)
     
     # Redirect to dashboard with session cookie
@@ -517,16 +519,8 @@ async def register(
     password = password.strip()
     confirmPassword = confirmPassword.strip()
     
-    # Debug: Print received data
-    print(f"=== REGISTER ATTEMPT ===")
-    print(f"Name: '{name}'")
-    print(f"Email (normalized): '{email}'")
-    print(f"Password length: {len(password)}")
-    print(f"Confirm password length: {len(confirmPassword)}")
-    
     # Validate passwords match
     if password != confirmPassword:
-        print(f"❌ Passwords don't match")
         error_msg = quote("Οι κωδικοί δεν ταιριάζουν")
         return RedirectResponse(
             url=f"/?error={error_msg}",
@@ -535,16 +529,14 @@ async def register(
     
     # Check if user already exists
     if email in users_db:
-        print(f"❌ Email already exists: '{email}'")
         error_msg = quote("Το email χρησιμοποιείται ήδη")
         return RedirectResponse(
             url=f"/?error={error_msg}",
             status_code=303
         )
     
-    # Validate password strength (basic check)
+    # Validate password strength
     if len(password) < 6:
-        print(f"❌ Password too short: {len(password)} characters")
         error_msg = quote("Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες")
         return RedirectResponse(
             url=f"/?error={error_msg}",
@@ -558,12 +550,7 @@ async def register(
     }
     
     # Save to file
-    if save_users_db(users_db):
-        print(f"✅ User registered successfully: '{email}' (Name: {name}, Password: '{password}' len={len(password)})")
-        print(f"Total users in DB: {len(users_db)}")
-        print(f"All users: {list(users_db.keys())}")
-    else:
-        print(f"⚠️ User registered but failed to save to file: '{email}'")
+    save_users_db(users_db)
     
     success_msg = quote("Επιτυχής εγγραφή! Μπορείτε τώρα να συνδεθείτε")
     return RedirectResponse(
@@ -646,7 +633,7 @@ class OrderRequest(BaseModel):
 broker_instances = {}  # Store active broker connections
 
 @app.post("/api/brokers/connect")
-async def connect_broker(connection: BrokerConnection):
+async def connect_broker(connection: BrokerConnection, _user=Depends(require_auth)):
     """Συνδέει broker API"""
     print(f"[broker] Connect request: broker={connection.broker}, testnet={connection.testnet}")
     try:
@@ -740,7 +727,7 @@ def get_broker_status():
     }
 
 @app.get("/api/brokers/{broker_name}/balance")
-def get_broker_balance(broker_name: str):
+def get_broker_balance(broker_name: str, _user=Depends(require_auth)):
     """Επιστρέφει balance από broker"""
     if broker_name.lower() not in broker_instances:
         raise HTTPException(status_code=404, detail="Broker not connected")
@@ -801,7 +788,7 @@ def _parse_binance_error(execution_result: Dict) -> Dict:
 
 
 @app.post("/api/brokers/order")
-def place_order(order: OrderRequest):
+def place_order(order: OrderRequest, _user=Depends(require_auth)):
     """Τοποθετεί order σε paper ή live mode"""
     broker_key = order.broker.lower()
 
@@ -934,7 +921,7 @@ def get_positions():
     }
 
 @app.delete("/api/brokers/{broker_name}/disconnect")
-def disconnect_broker(broker_name: str):
+def disconnect_broker(broker_name: str, _user=Depends(require_auth)):
     """Αποσυνδέει broker"""
     if broker_name.lower() in broker_instances:
         del broker_instances[broker_name.lower()]
@@ -1508,7 +1495,7 @@ def get_trading_mode():
     return live_trading_service.get_trading_mode()
 
 @app.post("/api/trading/mode")
-def set_trading_mode(request: TradingModeRequest):
+def set_trading_mode(request: TradingModeRequest, _user=Depends(require_auth)):
     """Ορίζει trading mode (paper/live)"""
     if request.mode == "live" and not broker_instances:
         # Try auto-reload from DB before rejecting
@@ -1878,7 +1865,7 @@ def get_live_positions():
 
 
 @app.post("/api/live-trading/order")
-def place_live_market_order(order: LiveOrderRequest):
+def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)):
     """Place a real MARKET order on Binance Spot."""
     broker = _get_live_broker()
     price = _pre_order_safety_check(broker, order.symbol, order.quantity)
@@ -1895,7 +1882,7 @@ def place_live_market_order(order: LiveOrderRequest):
 
 
 @app.post("/api/live-trading/order/limit")
-def place_live_limit_order(order: LimitOrderRequest):
+def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)):
     """Place a LIMIT order with optional SL/TP."""
     broker = _get_live_broker()
     _pre_order_safety_check(broker, order.symbol, order.quantity)
@@ -1926,7 +1913,7 @@ def place_live_limit_order(order: LimitOrderRequest):
 
 
 @app.delete("/api/live-trading/order/{symbol}/{order_id}")
-def cancel_live_order(symbol: str, order_id: int):
+def cancel_live_order(symbol: str, order_id: int, _user=Depends(require_auth)):
     """Cancel an open order."""
     broker = _get_live_broker()
     result = broker.cancel_order(symbol, order_id)
@@ -1960,7 +1947,7 @@ def get_futures_positions():
 
 
 @app.post("/api/live-trading/futures/order")
-def place_futures_order(order: LiveOrderRequest):
+def place_futures_order(order: LiveOrderRequest, _user=Depends(require_auth)):
     """Place a futures MARKET order."""
     broker = _get_live_broker()
     _pre_order_safety_check(broker, order.symbol, order.quantity)
@@ -1995,7 +1982,7 @@ def get_auto_trading_status():
 
 
 @app.post("/api/auto-trading/enable")
-def enable_auto_trading():
+def enable_auto_trading(_user=Depends(require_auth)):
     """Enable auto trading — user must explicitly call this."""
     if not broker_instances:
         _restore_broker_connections()
@@ -2011,14 +1998,14 @@ def enable_auto_trading():
 
 
 @app.post("/api/auto-trading/disable")
-def disable_auto_trading():
+def disable_auto_trading(_user=Depends(require_auth)):
     """Disable auto trading."""
     auto_trader.disable()
     return {"success": True, "message": "Auto trading disabled"}
 
 
 @app.put("/api/auto-trading/config")
-def update_auto_trading_config(config: AutoTradingConfigUpdate):
+def update_auto_trading_config(config: AutoTradingConfigUpdate, _user=Depends(require_auth)):
     """Update auto trading config (thresholds, limits)."""
     if config.confidence_threshold is not None:
         auto_trader.config["confidence_threshold"] = max(0.5, min(1.0, config.confidence_threshold))
@@ -2054,7 +2041,7 @@ def get_auto_trading_positions():
 # ── Model Training Endpoints ────────────────────────────────
 
 @app.post("/api/ml/train/{symbol}")
-def train_single_model(symbol: str):
+def train_single_model(symbol: str, _user=Depends(require_auth)):
     """Train XGBoost model for a single symbol using real Binance data."""
     from ml.auto_trainer import train_symbol
     result = train_symbol(symbol.upper())
@@ -2066,7 +2053,7 @@ def train_single_model(symbol: str):
 
 
 @app.post("/api/ml/train-all")
-def train_all_models():
+def train_all_models(_user=Depends(require_auth)):
     """Train XGBoost models for all 27 USDC crypto pairs. Takes several minutes."""
     from ml.auto_trainer import train_all_symbols
     results = train_all_symbols()

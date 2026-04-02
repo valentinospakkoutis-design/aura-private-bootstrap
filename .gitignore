@@ -10,6 +10,11 @@ backend/*.pyc
 .env.*.local
 .env.production
 .env.staging
+backend/.env
+
+# Secrets & Credentials
+credentials.json
+credentials/
 
 # Expo
 .expo/
