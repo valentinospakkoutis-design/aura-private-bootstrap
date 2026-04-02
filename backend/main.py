@@ -136,6 +136,24 @@ async def startup_event():
     asyncio.create_task(_auto_trader.run(_get_predictions_for_auto_trader))
     print("[+] Auto trading engine initialized (disabled by default)")
 
+    # Train missing models in background (survives ephemeral filesystem wipes)
+    async def _train_missing_on_startup():
+        """Train any missing XGBoost models, then reload into predictor."""
+        try:
+            from ml.auto_trainer import train_missing_models
+            results = await asyncio.to_thread(train_missing_models)
+            if results:
+                asset_predictor._load_models()
+                trained = len([r for r in results if "metrics" in r])
+                print(f"[+] Startup training done: {trained} models trained and loaded")
+            else:
+                print("[+] All models already present, skipping startup training")
+        except Exception as e:
+            print(f"[!] Startup training failed: {e}")
+
+    asyncio.create_task(_train_missing_on_startup())
+    print("[*] Checking for missing models in background...")
+
     # Start weekly model retraining scheduler
     try:
         from ml.auto_trainer import setup_weekly_retraining

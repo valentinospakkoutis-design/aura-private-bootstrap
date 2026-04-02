@@ -415,6 +415,40 @@ def train_all_symbols(days: int = 730) -> List[Dict]:
     return results
 
 
+def train_missing_models(days: int = 730) -> List[Dict]:
+    """
+    Check which symbols are missing a trained model and train only those.
+    Called on startup to recover from ephemeral filesystem wipes.
+    """
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    missing = []
+    for symbol in TRAINING_SYMBOLS:
+        model_path = os.path.join(MODELS_DIR, f"{symbol}_xgboost_latest.pkl")
+        if not os.path.exists(model_path):
+            missing.append(symbol)
+
+    if not missing:
+        logger.info(f"[trainer] All {len(TRAINING_SYMBOLS)} models present, no training needed")
+        return []
+
+    logger.info(f"[trainer] {len(missing)}/{len(TRAINING_SYMBOLS)} models missing, training: {', '.join(missing)}")
+
+    results = []
+    for symbol in missing:
+        try:
+            result = train_symbol(symbol, days=days)
+            if result:
+                results.append(result)
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"[trainer] Failed training {symbol}: {e}")
+            results.append({"symbol": symbol, "error": str(e)})
+
+    succeeded = len([r for r in results if "metrics" in r])
+    logger.info(f"[trainer] Startup training complete: {succeeded}/{len(missing)} succeeded")
+    return results
+
+
 def setup_weekly_retraining():
     """Schedule retraining every Sunday at 00:00 UTC using APScheduler."""
     try:
