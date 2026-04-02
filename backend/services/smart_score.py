@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 BINANCE_BASE = "https://api.binance.com"
 
-# Weights for each signal — must sum to 1.0
-WEIGHTS = {
+# Base weights for each signal — must sum to 1.0
+# prediction weight is dynamically boosted for high-accuracy symbols
+BASE_WEIGHTS = {
     "news_sentiment": 0.15,
     "fear_greed": 0.10,
     "rsi": 0.20,
@@ -50,47 +51,14 @@ class SmartScoreCalculator:
     # ── Signal 1: News Sentiment (CryptoPanic) ──────────────
 
     def _get_news_sentiment(self, symbol: str) -> float:
-        """Fetch news sentiment from CryptoPanic. Returns 0-100."""
-        cache_key = f"news:{symbol}"
-        cached = self._cache_get(cache_key, ttl=600)
-        if cached is not None:
-            return cached
-
+        """Get news sentiment from news_fetcher (3 sources + VADER). Returns 0-100."""
         try:
-            base = symbol.replace("USDC", "").replace("USDT", "")
-            url = "https://cryptopanic.com/api/free/v1/posts/"
-            params = {"currencies": base, "filter": "important", "public": "true"}
-
-            with httpx.Client(timeout=10.0) as client:
-                resp = client.get(url, params=params)
-                resp.raise_for_status()
-                data = resp.json()
-
-            results = data.get("results", [])
-            if not results:
-                self._cache_set(cache_key, 50.0)
-                return 50.0
-
-            positive = 0
-            negative = 0
-            for post in results[:15]:
-                votes = post.get("votes", {})
-                positive += votes.get("positive", 0) + votes.get("liked", 0)
-                negative += votes.get("negative", 0) + votes.get("disliked", 0)
-
-            total = positive + negative
-            if total == 0:
-                score = 50.0
-            else:
-                score = (positive / total) * 100.0
-
-            score = max(0.0, min(100.0, score))
-            self._cache_set(cache_key, score)
-            return score
-
+            from services.news_fetcher import news_fetcher
+            result = news_fetcher.get_symbol_sentiment(symbol)
+            return result.get("score", 50.0)
         except Exception as e:
-            logger.debug(f"CryptoPanic failed for {symbol}: {e}")
-            return 50.0  # neutral fallback
+            logger.debug(f"News sentiment failed for {symbol}: {e}")
+            return 50.0
 
     # ── Signal 2: Fear & Greed Index ─────────────────────────
 
@@ -318,16 +286,34 @@ class SmartScoreCalculator:
         signals["multi_timeframe"] = self._get_multi_timeframe_score(symbol)
         signals["prediction"] = self._get_prediction_score(symbol)
 
-        composite = sum(signals[k] * WEIGHTS[k] for k in WEIGHTS)
+        # Dynamic weighting: boost prediction weight for high-accuracy symbols
+        weights = dict(BASE_WEIGHTS)
+        rolling_accuracy = 0.5
+        try:
+            from services.accuracy_tracker import accuracy_tracker
+            rolling_accuracy = accuracy_tracker.get_rolling_accuracy(symbol, days=30)
+            if rolling_accuracy >= 0.70:
+                # Boost prediction from 0.25 to 0.40, reduce others proportionally
+                boost = 0.15
+                weights["prediction"] = BASE_WEIGHTS["prediction"] + boost
+                reduction = boost / 5
+                for k in weights:
+                    if k != "prediction":
+                        weights[k] = max(0.05, BASE_WEIGHTS[k] - reduction)
+        except Exception:
+            pass
+
+        composite = sum(signals[k] * weights[k] for k in weights)
         composite = round(max(0.0, min(100.0, composite)), 1)
 
         return {
             "symbol": symbol,
             "smart_score": composite,
             "signals": {
-                k: {"score": round(v, 1), "weight": WEIGHTS[k]}
+                k: {"score": round(v, 1), "weight": round(weights[k], 3)}
                 for k, v in signals.items()
             },
+            "rolling_accuracy": round(rolling_accuracy, 3),
             "recommendation": "TRADE" if composite > 75 else "WAIT",
             "calculated_at": time.time(),
         }

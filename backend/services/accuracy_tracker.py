@@ -107,6 +107,77 @@ class AccuracyTracker:
         
         self._save_accuracy_data()
     
+    def record_outcome(self, asset_id: str, trade_side: str,
+                       entry_price: float, exit_price: float,
+                       profit: float, opened_at: str, closed_at: str):
+        """
+        Record trade outcome for feedback loop.
+        Called when a trade closes (profit or loss).
+        """
+        if asset_id not in self.accuracy_data:
+            self.accuracy_data[asset_id] = {
+                "predictions": [],
+                "accuracy_history": [],
+                "trade_outcomes": [],
+            }
+
+        if "trade_outcomes" not in self.accuracy_data[asset_id]:
+            self.accuracy_data[asset_id]["trade_outcomes"] = []
+
+        correct = (trade_side == "BUY" and exit_price > entry_price) or \
+                  (trade_side == "SELL" and exit_price < entry_price)
+
+        self.accuracy_data[asset_id]["trade_outcomes"].append({
+            "side": trade_side,
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "profit": profit,
+            "correct_direction": correct,
+            "opened_at": opened_at,
+            "closed_at": closed_at,
+            "recorded_at": datetime.now().isoformat(),
+        })
+
+        # Keep only last 100 outcomes per symbol
+        outcomes = self.accuracy_data[asset_id]["trade_outcomes"]
+        if len(outcomes) > 100:
+            self.accuracy_data[asset_id]["trade_outcomes"] = outcomes[-100:]
+
+        self._save_accuracy_data()
+
+    def get_rolling_accuracy(self, asset_id: str, days: int = 30) -> float:
+        """
+        Get rolling direction accuracy for a symbol over last N days.
+        Returns 0.0-1.0 (e.g. 0.7 = 70% correct).
+        Used by Smart Score to weight ML prediction signal.
+        """
+        if asset_id not in self.accuracy_data:
+            return 0.5  # no data, assume 50%
+
+        outcomes = self.accuracy_data[asset_id].get("trade_outcomes", [])
+        if not outcomes:
+            # Fall back to prediction accuracy
+            preds = self.accuracy_data[asset_id].get("predictions", [])
+            evaluated = [p for p in preds if "actual_price" in p]
+            if not evaluated:
+                return 0.5
+
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            recent = [p for p in evaluated if p.get("recorded_at", "") >= cutoff]
+            if not recent:
+                return 0.5
+
+            avg_acc = sum(p.get("accuracy", 50) for p in recent) / len(recent)
+            return min(1.0, avg_acc / 100.0)
+
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        recent = [o for o in outcomes if o.get("closed_at", "") >= cutoff]
+        if not recent:
+            return 0.5
+
+        correct = sum(1 for o in recent if o.get("correct_direction", False))
+        return correct / len(recent)
+
     def get_accuracy(self, asset_id: Optional[str] = None) -> Dict:
         """
         Get accuracy statistics

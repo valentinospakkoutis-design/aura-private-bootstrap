@@ -136,6 +136,14 @@ async def startup_event():
     asyncio.create_task(_auto_trader.run(_get_predictions_for_auto_trader))
     print("[+] Auto trading engine initialized (disabled by default)")
 
+    # Start weekly model retraining scheduler
+    try:
+        from ml.auto_trainer import setup_weekly_retraining
+        setup_weekly_retraining()
+        print("[+] Weekly model retraining scheduled (Sunday 00:00 UTC)")
+    except Exception as e:
+        print(f"[!] Failed to setup retraining scheduler: {e}")
+
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -2023,4 +2031,61 @@ def get_auto_trading_positions():
         "positions": list(auto_trader.open_positions.values()),
         "count": len(auto_trader.open_positions),
     }
+
+
+# ── Model Training Endpoints ────────────────────────────────
+
+@app.post("/api/ml/train/{symbol}")
+def train_single_model(symbol: str):
+    """Train XGBoost model for a single symbol using real Binance data."""
+    from ml.auto_trainer import train_symbol
+    result = train_symbol(symbol.upper())
+    if result and "metrics" in result:
+        # Reload models in predictor
+        asset_predictor._load_models()
+        return result
+    raise HTTPException(status_code=500, detail=f"Training failed for {symbol}")
+
+
+@app.post("/api/ml/train-all")
+def train_all_models():
+    """Train XGBoost models for all 27 USDC crypto pairs. Takes several minutes."""
+    from ml.auto_trainer import train_all_symbols
+    results = train_all_symbols()
+    # Reload models
+    asset_predictor._load_models()
+    succeeded = [r for r in results if "metrics" in r]
+    failed = [r for r in results if "error" in r]
+    return {
+        "total": len(results),
+        "succeeded": len(succeeded),
+        "failed": len(failed),
+        "results": results,
+    }
+
+
+# ── News Intelligence Endpoints ─────────────────────────────
+
+@app.get("/api/news/sentiment/{symbol}")
+def get_news_sentiment(symbol: str):
+    """Get real news sentiment for a symbol from 3 sources + VADER."""
+    from services.news_fetcher import news_fetcher
+    return news_fetcher.get_symbol_sentiment(symbol.upper())
+
+
+# ── Accuracy Tracking Endpoints ─────────────────────────────
+
+@app.get("/api/accuracy")
+def get_prediction_accuracy(symbol: Optional[str] = None):
+    """Get prediction accuracy stats, optionally filtered by symbol."""
+    from services.accuracy_tracker import accuracy_tracker
+    return accuracy_tracker.get_accuracy(symbol.upper() if symbol else None)
+
+
+@app.get("/api/accuracy/{symbol}/rolling")
+def get_rolling_accuracy(symbol: str, days: int = 30):
+    """Get rolling direction accuracy for a symbol."""
+    from services.accuracy_tracker import accuracy_tracker
+    acc = accuracy_tracker.get_rolling_accuracy(symbol.upper(), days=days)
+    return {"symbol": symbol.upper(), "rolling_accuracy": round(acc, 3), "days": days}
 

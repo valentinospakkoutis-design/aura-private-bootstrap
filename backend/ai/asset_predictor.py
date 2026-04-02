@@ -166,36 +166,54 @@ class AssetPredictor:
         # Load trained models
         self.models = {}
         self.scalers = {}
+        self.model_features: Dict[str, List[str]] = {}  # XGBoost feature columns
         self._load_models()
     
     def _load_models(self):
-        """Load trained ML models from disk"""
+        """Load trained ML models from disk (XGBoost preferred, Random Forest fallback)"""
         models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
-        
+
         if not os.path.exists(models_dir):
             print(f"[!] Models directory not found: {models_dir}")
             return
-        
-        # Find all model files (exclude scaler files)
-        model_files = glob.glob(os.path.join(models_dir, "*_random_forest_*.pkl"))
-        model_files = [f for f in model_files if "scaler" not in os.path.basename(f)]
-        
-        for model_path in model_files:
+
+        # 1) Load XGBoost "latest" models first (from auto_trainer)
+        xgb_files = glob.glob(os.path.join(models_dir, "*_xgboost_latest.pkl"))
+        for model_path in xgb_files:
+            try:
+                filename = os.path.basename(model_path)
+                symbol = filename.split("_xgboost")[0]
+
+                with open(model_path, "rb") as f:
+                    model_data = pickle.load(f)
+                    self.models[symbol] = model_data["model"]
+                    self.scalers[symbol] = model_data["scaler"]
+                    self.model_features[symbol] = model_data.get("feature_cols", [])
+
+                print(f"[+] Loaded XGBoost model for {symbol}")
+            except Exception as e:
+                print(f"[-] Error loading XGBoost model {model_path}: {e}")
+
+        # 2) Fallback: load Random Forest models for symbols not yet covered
+        rf_files = glob.glob(os.path.join(models_dir, "*_random_forest_*.pkl"))
+        rf_files = [f for f in rf_files if "scaler" not in os.path.basename(f)]
+
+        for model_path in rf_files:
             try:
                 filename = os.path.basename(model_path)
                 symbol = filename.split("_")[0]
-                
+
                 if symbol in self.models:
-                    continue
-                
-                with open(model_path, 'rb') as f:
+                    continue  # XGBoost already loaded
+
+                with open(model_path, "rb") as f:
                     model_data = pickle.load(f)
-                    self.models[symbol] = model_data['model']
-                    self.scalers[symbol] = model_data['scaler']
-                
-                print(f"[+] Loaded model for {symbol}")
+                    self.models[symbol] = model_data["model"]
+                    self.scalers[symbol] = model_data["scaler"]
+
+                print(f"[+] Loaded RF model for {symbol} (fallback)")
             except Exception as e:
-                print(f"[-] Error loading model {model_path}: {e}")
+                print(f"[-] Error loading RF model {model_path}: {e}")
     
     def _fetch_binance_klines(self, symbol: str, days: int = 7) -> Optional[List[float]]:
         """Fetch daily closing prices from Binance public API (no auth needed)."""
@@ -296,6 +314,53 @@ class AssetPredictor:
         
         return features
     
+    def _predict_xgboost(self, symbol: str, current_price: float):
+        """
+        Run prediction using XGBoost model with full feature engineering.
+        Returns (predicted_price, trend_score, confidence).
+        """
+        from ml.auto_trainer import fetch_binance_ohlcv, engineer_features
+
+        # Fetch recent data for feature engineering
+        df = fetch_binance_ohlcv(symbol, interval="1d", days=250)
+        if df is None or len(df) < 50:
+            raise ValueError(f"Insufficient data for XGBoost prediction: {symbol}")
+
+        feat = engineer_features(df)
+        if feat.empty:
+            raise ValueError(f"Feature engineering produced no rows: {symbol}")
+
+        feature_cols = self.model_features[symbol]
+        # Use only columns that exist in both the feature set and model
+        available = [c for c in feature_cols if c in feat.columns]
+        if len(available) < len(feature_cols) * 0.8:
+            raise ValueError(f"Too many missing features for {symbol}")
+
+        # Get the last row (most recent day)
+        last_row = feat[available].iloc[-1:].values
+
+        scaler = self.scalers[symbol]
+        model = self.models[symbol]
+
+        # Pad missing columns with 0 if needed
+        if len(available) < len(feature_cols):
+            full_row = np.zeros((1, len(feature_cols)))
+            for i, col in enumerate(feature_cols):
+                if col in available:
+                    idx = available.index(col)
+                    full_row[0, i] = last_row[0, idx]
+            last_row = full_row
+
+        scaled = scaler.transform(last_row)
+        predicted_price = float(model.predict(scaled)[0])
+
+        price_change = predicted_price - current_price
+        price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
+        trend_score = float(np.clip(price_change_pct / 5.0, -1, 1))
+        confidence = min(95.0, 85.0 + abs(trend_score) * 8)
+
+        return predicted_price, trend_score, confidence
+
     def get_current_price(self, symbol: str) -> float:
         """Get current price from real market data, fallback to base_price."""
         if symbol not in self.all_assets:
@@ -366,41 +431,40 @@ class AssetPredictor:
         
         if use_ml_model:
             try:
-                # Fetch real historical prices from Binance/yfinance
-                real_prices = self._get_real_prices(symbol, days=7)
-                if real_prices and len(real_prices) >= 7:
-                    historical_prices = real_prices
+                is_xgboost = symbol in self.model_features and len(self.model_features[symbol]) > 10
+
+                if is_xgboost:
+                    # XGBoost path: use auto_trainer's feature engineering
+                    predicted_price, trend_score, confidence = self._predict_xgboost(symbol, current_price)
                 else:
-                    # Fallback: use base_price with variation if real data unavailable
-                    logger.warning(f"[predictor] No real price data for {symbol}, using base_price fallback")
-                    historical_prices = []
-                    for i in range(7):
-                        variation = random.uniform(-0.02, 0.02)
-                        hist_price = asset["base_price"] * (1 + variation)
-                        historical_prices.append(hist_price)
-                    historical_prices.append(current_price)
-                
-                # Calculate features
-                features = self._calculate_features(historical_prices)
-                features = features.reshape(1, -1)
-                
-                # Scale features
-                scaler = self.scalers[symbol]
-                features_scaled = scaler.transform(features)
-                
-                # Get prediction from model
-                model = self.models[symbol]
-                predicted_price = model.predict(features_scaled)[0]
-                
-                # Calculate trend
-                price_change = predicted_price - current_price
-                price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
-                trend_score = np.clip(price_change_pct / 5.0, -1, 1)
-                
-                base_confidence = 88.8
-                confidence = min(95, base_confidence + abs(trend_score) * 5)
+                    # Legacy RF path: 8-feature model
+                    real_prices = self._get_real_prices(symbol, days=7)
+                    if real_prices and len(real_prices) >= 7:
+                        historical_prices = real_prices
+                    else:
+                        logger.warning(f"[predictor] No real price data for {symbol}, using base_price fallback")
+                        historical_prices = []
+                        for i in range(7):
+                            variation = random.uniform(-0.02, 0.02)
+                            hist_price = asset["base_price"] * (1 + variation)
+                            historical_prices.append(hist_price)
+                        historical_prices.append(current_price)
+
+                    features = self._calculate_features(historical_prices)
+                    features = features.reshape(1, -1)
+                    scaler = self.scalers[symbol]
+                    features_scaled = scaler.transform(features)
+                    model = self.models[symbol]
+                    predicted_price = model.predict(features_scaled)[0]
+
+                    price_change = predicted_price - current_price
+                    price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
+                    trend_score = np.clip(price_change_pct / 5.0, -1, 1)
+                    base_confidence = 88.8
+                    confidence = min(95, base_confidence + abs(trend_score) * 5)
+
                 daily_change = trend_score * 0.005
-                
+
             except Exception as e:
                 print(f"[-] Error using ML model for {symbol}: {e}")
                 use_ml_model = False
@@ -469,7 +533,20 @@ class AssetPredictor:
         
         # Store in history
         self.prediction_history[symbol] = prediction
-        
+
+        # Record prediction for accuracy tracking (feedback loop)
+        try:
+            from services.accuracy_tracker import accuracy_tracker
+            predicted_date = datetime.now() + timedelta(days=days)
+            accuracy_tracker.record_prediction(
+                asset_id=symbol,
+                predicted_price=round(predicted_price, 2),
+                predicted_date=predicted_date,
+                confidence=round(confidence, 1),
+            )
+        except Exception:
+            pass  # don't let tracking failures block predictions
+
         return prediction
     
     def get_all_predictions(self, days: int = 7, asset_type: Optional[AssetType] = None) -> Dict:
