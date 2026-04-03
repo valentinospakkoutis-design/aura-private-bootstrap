@@ -76,6 +76,38 @@ def healthz():
 def api_ping():
     return {"ok": True}
 
+@app.get("/api/debug/db-login-test")
+def debug_db_login_test():
+    """Temporary debug endpoint — remove after login is fixed."""
+    import os
+    result = {"db_url_set": bool(os.getenv("DATABASE_URL")), "steps": []}
+    try:
+        import psycopg2
+        result["steps"].append("psycopg2 imported")
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            result["steps"].append("DATABASE_URL is empty!")
+            return result
+        conn = psycopg2.connect(db_url)
+        result["steps"].append("connected to DB")
+        cur = conn.cursor()
+        cur.execute("SELECT id, email, length(password_hash) FROM users WHERE email='valentinos.pakkoutis@gmail.com'")
+        row = cur.fetchone()
+        result["steps"].append(f"query result: {row}")
+        if row:
+            from utils.security import security_manager
+            ok = security_manager.verify_password("admin123", row[2] if isinstance(row[2], str) else "")
+            result["steps"].append(f"verify_password on hash_len={row[2]}: WRONG_COLUMN")
+            # re-fetch actual hash
+            cur.execute("SELECT password_hash FROM users WHERE email='valentinos.pakkoutis@gmail.com'")
+            h = cur.fetchone()[0]
+            ok = security_manager.verify_password("admin123", h)
+            result["steps"].append(f"verify_password: {ok}")
+        conn.close()
+    except Exception as e:
+        result["steps"].append(f"ERROR: {type(e).__name__}: {e}")
+    return result
+
 def _restore_broker_connections():
     """Restore broker connections from database on startup."""
     try:
