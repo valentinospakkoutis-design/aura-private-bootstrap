@@ -42,6 +42,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# ── Global exception handler for AuraError ───────────────────────
+from starlette.responses import JSONResponse
+from utils.error_handler import AuraError
+
+@app.exception_handler(AuraError)
+async def aura_error_handler(request: Request, exc: AuraError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message, "code": exc.code},
+    )
+
 # ── JWT Auth Dependency ──────────────────────────────────────────
 _bearer_scheme = HTTPBearer(auto_error=False)
 
