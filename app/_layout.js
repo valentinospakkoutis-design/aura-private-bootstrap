@@ -165,9 +165,16 @@ function AppContent() {
           }} 
         />
         
-        <Stack.Screen 
-          name="profile" 
-          options={{ 
+        <Stack.Screen
+          name="change-password"
+          options={{
+            headerShown: false,
+          }}
+        />
+
+        <Stack.Screen
+          name="profile"
+          options={{
             title: '👤 Edit Profile',
             headerShown: true,
           }} 

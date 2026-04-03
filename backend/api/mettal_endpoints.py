@@ -221,6 +221,47 @@ async def logout(request: Request):
         "note": "Please remove tokens from client storage"
     }
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put("/auth/change-password")
+async def change_password(request: Request, body: ChangePasswordRequest):
+    """Change password for the authenticated user."""
+    from database.connection import SessionLocal
+    from database.models import User as DBUser
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise AuthenticationError("Missing or invalid authorization header")
+
+    token = auth_header.split(" ")[1]
+    user_info = get_user_from_token(token)
+
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    if len(body.new_password) < 8:
+        raise ValidationError("New password must be at least 8 characters")
+
+    db = SessionLocal()
+    try:
+        db_user = db.query(DBUser).filter(DBUser.email == user_info["email"]).first()
+        if not db_user:
+            raise AuthenticationError("User not found")
+
+        if not security_manager.verify_password(body.current_password, db_user.password_hash):
+            raise AuthenticationError("Current password is incorrect")
+
+        db_user.password_hash = security_manager.hash_password(body.new_password)
+        db.commit()
+
+        return {"message": "Password changed successfully"}
+    finally:
+        db.close()
+
+
 # ============================================
 # 2FA ENDPOINTS
 # ============================================

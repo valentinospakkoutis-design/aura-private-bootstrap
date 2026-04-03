@@ -120,6 +120,14 @@ class ApiClient {
     }
   }
 
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await this.client.put('/api/v1/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    return response.data;
+  }
+
   async logout() {
     try {
       await deleteSecureItem('auth_token');
