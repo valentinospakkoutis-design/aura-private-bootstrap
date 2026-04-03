@@ -3,12 +3,25 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 const getSecureItem = async (key: string): Promise<string | null> => {
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS === 'web') {
+    try { return localStorage.getItem(key); } catch { return null; }
+  }
   return SecureStore.getItemAsync(key);
 };
 
+const setSecureItem = async (key: string, value: string): Promise<void> => {
+  if (Platform.OS === 'web') {
+    try { localStorage.setItem(key, value); } catch {}
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+};
+
 const deleteSecureItem = async (key: string): Promise<void> => {
-  if (Platform.OS === 'web') return;
+  if (Platform.OS === 'web') {
+    try { localStorage.removeItem(key); } catch {}
+    return;
+  }
   await SecureStore.deleteItemAsync(key);
 };
 import { getApiBaseUrl } from '../config/environment';
@@ -79,13 +92,13 @@ class ApiClient {
   async login(email: string, password: string) {
     const response = await this.client.post('/auth/login', { email, password });
     const { token, user } = response.data;
-    await SecureStore.setItemAsync('auth_token', token);
+    await setSecureItem('auth_token', token);
     return user;
   }
 
   async logout() {
     try {
-      await SecureStore.deleteItemAsync('auth_token');
+      await deleteSecureItem('auth_token');
       logger.info('User logged out');
     } catch (error) {
       logger.warn('Error deleting auth token:', error);

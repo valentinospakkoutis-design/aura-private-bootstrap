@@ -190,7 +190,10 @@ templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
 
 # CORS Configuration
-_allowed_origins = os.getenv("CORS_ORIGINS", "https://aura-private-bootstrap-production.up.railway.app").split(",")
+_allowed_origins = os.getenv(
+    "CORS_ORIGINS",
+    "https://aura-private-bootstrap-production.up.railway.app,http://localhost:8081,http://localhost:19006"
+).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
