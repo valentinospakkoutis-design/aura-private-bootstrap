@@ -73,15 +73,26 @@ class ApiClient {
       },
       async (error: AxiosError) => {
         logger.error('API Error:', error.response?.status, error.message);
-        
+
         if (error.response?.status === 401) {
-          // Unauthorized - clear token and redirect to login
+          // Unauthorized - clear token, reset user, redirect to login
           try {
             await deleteSecureItem('auth_token');
           } catch (e) {
             logger.warn('Error deleting auth token:', e);
           }
-          // You can add navigation logic here
+          try {
+            const { useAppStore } = require('../stores/appStore');
+            useAppStore.getState().setUser(null);
+          } catch (e) {
+            logger.warn('Error clearing user state:', e);
+          }
+          try {
+            const { router } = require('expo-router');
+            router.replace('/');
+          } catch (e) {
+            logger.warn('Error redirecting to login:', e);
+          }
         }
         return Promise.reject(error);
       }
