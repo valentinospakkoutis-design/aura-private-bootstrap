@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr
 # yfinance is now available via market_data module
 from market_data.yfinance_client import get_price as yf_get_price, get_historical_prices as yf_get_historical_prices
 # Error handling and security
-from utils.error_handler import handle_error, ValidationError, NotFoundError, get_error_message
+from utils.error_handler import handle_error, ValidationError, NotFoundError, AuthenticationError, get_error_message
 from utils.security import security_manager
 # JWT Authentication
 from auth.jwt_handler import create_access_token, create_refresh_token, verify_token, get_user_from_token, refresh_access_token
