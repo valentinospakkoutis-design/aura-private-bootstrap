@@ -76,34 +76,6 @@ def healthz():
 def api_ping():
     return {"ok": True}
 
-@app.get("/api/debug/db-login-test")
-def debug_db_login_test():
-    """Temporary debug endpoint — remove after login is fixed."""
-    import os
-    db_url = os.getenv("DATABASE_URL", "")
-    # Mask password in URL for safety
-    masked = db_url.split("@")[-1] if "@" in db_url else "not set"
-    result = {"db_host": masked, "steps": []}
-    try:
-        import psycopg2
-        conn = psycopg2.connect(db_url)
-        cur = conn.cursor()
-        # Check all tables
-        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
-        tables = [r[0] for r in cur.fetchall()]
-        result["steps"].append(f"tables: {tables}")
-        # Check users count
-        if "users" in tables:
-            cur.execute("SELECT count(*) FROM users")
-            result["steps"].append(f"users count: {cur.fetchone()[0]}")
-            cur.execute("SELECT id, email FROM users LIMIT 5")
-            result["steps"].append(f"users: {cur.fetchall()}")
-        else:
-            result["steps"].append("NO users table!")
-        conn.close()
-    except Exception as e:
-        result["steps"].append(f"ERROR: {type(e).__name__}: {e}")
-    return result
 
 def _restore_broker_connections():
     """Restore broker connections from database on startup."""
