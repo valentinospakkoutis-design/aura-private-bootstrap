@@ -132,18 +132,24 @@ async def login(user_login: UserLogin):
     # Fallback: check PostgreSQL users table
     if not password_valid:
         try:
-            from database.connection import SessionLocal
-            from database.models import User as DBUser
-            db = SessionLocal()
-            db_user = db.query(DBUser).filter(DBUser.email == email_lower).first()
-            if db_user and db_user.password_hash:
-                password_valid = security_manager.verify_password(user_login.password, db_user.password_hash)
-                if password_valid:
-                    user_id = str(db_user.id)
-                    full_name = db_user.full_name or ""
-            db.close()
-        except Exception:
-            pass  # DB not available, skip
+            import os, psycopg2
+            db_url = os.getenv("DATABASE_URL")
+            if db_url:
+                conn = psycopg2.connect(db_url)
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id, password_hash, full_name FROM users WHERE email = %s",
+                    (email_lower,)
+                )
+                row = cur.fetchone()
+                if row and row[1]:
+                    password_valid = security_manager.verify_password(user_login.password, row[1])
+                    if password_valid:
+                        user_id = str(row[0])
+                        full_name = row[2] or ""
+                conn.close()
+        except Exception as e:
+            print(f"[!] DB login fallback error: {e}")
 
     if not password_valid:
         raise AuthenticationError("Invalid email or password")
