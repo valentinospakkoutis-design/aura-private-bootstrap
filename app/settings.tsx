@@ -125,7 +125,7 @@ export default function SettingsScreen() {
           await api.logout();
           setUser(null);
           showToast('Αποσυνδέθηκες επιτυχώς', 'success');
-          router.replace('/login');
+          router.replace('/');
         } catch (err) {
           showToast('Αποτυχία αποσύνδεσης', 'error');
         }
@@ -156,7 +156,7 @@ export default function SettingsScreen() {
                     try {
                       // await api.deleteAccount();
                       showToast('Ο λογαριασμός διαγράφηκε', 'success');
-                      router.replace('/login');
+                      router.replace('/');
                     } catch (err) {
                       showToast('Αποτυχία διαγραφής', 'error');
                     }
