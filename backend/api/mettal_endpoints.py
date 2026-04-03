@@ -47,127 +47,101 @@ class RefreshTokenRequest(BaseModel):
 @router.post("/auth/register", response_model=Token, status_code=201)
 async def register(user_create: UserCreate):
     """
-    Register a new user (JWT-based)
-    
+    Register a new user (JWT-based, PostgreSQL)
+
     Returns access token (15 min) and refresh token (7 days)
     """
-    from main import users_db, save_users_db
-    
-    # Check if user already exists
+    from database.connection import SessionLocal
+    from database.models import User as DBUser
+
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
     email_lower = user_create.email.lower().strip()
-    if email_lower in users_db:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "USER_EXISTS", "message": "User already exists"}
-        )
-    
-    # Validate password
+
     if len(user_create.password) < 8:
         raise ValidationError("Password must be at least 8 characters")
-    
-    # Hash password
-    password_hash = security_manager.hash_password(user_create.password)
-    
-    # Create user
-    user_id = len(users_db) + 1
-    users_db[email_lower] = {
-        "id": user_id,
-        "email": email_lower,
-        "password_hash": password_hash,
-        "full_name": user_create.full_name,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    # Save to database
-    save_users_db(users_db)
-    
-    # Create tokens
-    token_data = {
-        "sub": str(user_id),
-        "email": email_lower,
-        "full_name": user_create.full_name
-    }
-    
-    access_token = create_access_token(token_data)
-    refresh_token = create_refresh_token(token_data)
-    
-    return Token(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer"
-    )
+
+    db = SessionLocal()
+    try:
+        existing = db.query(DBUser).filter(DBUser.email == email_lower).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "USER_EXISTS", "message": "User already exists"}
+            )
+
+        password_hash = security_manager.hash_password(user_create.password)
+
+        new_user = DBUser(
+            email=email_lower,
+            password_hash=password_hash,
+            full_name=user_create.full_name,
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        token_data = {
+            "sub": str(new_user.id),
+            "email": email_lower,
+            "full_name": user_create.full_name or "",
+        }
+
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+
+        return Token(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+        )
+    finally:
+        db.close()
 
 @router.post("/auth/login", response_model=Token)
 async def login(user_login: UserLogin):
     """
-    Login with email and password (JWT-based)
+    Login with email and password (JWT-based, PostgreSQL)
 
     Returns access token (15 min) and refresh token (7 days)
-    Checks both JSON users_db and PostgreSQL users table.
     """
-    from main import users_db
+    from database.connection import SessionLocal
+    from database.models import User as DBUser
+
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
 
     email_lower = user_login.email.lower().strip()
 
-    user = None
-    user_id = "0"
-    full_name = ""
-    password_valid = False
+    db = SessionLocal()
+    try:
+        db_user = db.query(DBUser).filter(DBUser.email == email_lower).first()
 
-    # Check JSON users_db first
-    if email_lower in users_db:
-        user = users_db[email_lower]
-        user_id = str(user.get("id", user.get("user_id", 0)))
-        full_name = user.get("full_name", user.get("name", ""))
+        if not db_user or not db_user.password_hash:
+            raise AuthenticationError("Invalid email or password")
 
-        if "password_hash" in user:
-            password_valid = security_manager.verify_password(user_login.password, user["password_hash"])
-        elif "password" in user:
-            password_valid = (user["password"] == user_login.password)
-            if password_valid:
-                user["password_hash"] = security_manager.hash_password(user_login.password)
-                from main import save_users_db
-                save_users_db(users_db)
+        if not security_manager.verify_password(user_login.password, db_user.password_hash):
+            raise AuthenticationError("Invalid email or password")
 
-    # Fallback: check PostgreSQL users table
-    if not password_valid:
-        try:
-            import os, psycopg2
-            db_url = os.getenv("DATABASE_URL")
-            if db_url:
-                conn = psycopg2.connect(db_url)
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT id, password_hash, full_name FROM users WHERE email = %s",
-                    (email_lower,)
-                )
-                row = cur.fetchone()
-                if row and row[1]:
-                    password_valid = security_manager.verify_password(user_login.password, row[1])
-                    if password_valid:
-                        user_id = str(row[0])
-                        full_name = row[2] or ""
-                conn.close()
-        except Exception as e:
-            print(f"[!] DB login fallback error: {e}")
+        token_data = {
+            "sub": str(db_user.id),
+            "email": email_lower,
+            "full_name": db_user.full_name or "",
+        }
 
-    if not password_valid:
-        raise AuthenticationError("Invalid email or password")
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
 
-    token_data = {
-        "sub": user_id,
-        "email": email_lower,
-        "full_name": full_name,
-    }
-
-    access_token = create_access_token(token_data)
-    refresh_token = create_refresh_token(token_data)
-
-    return Token(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer"
-    )
+        return Token(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+        )
+    finally:
+        db.close()
 
 @router.post("/auth/refresh", response_model=Token)
 async def refresh_token_endpoint(refresh_request: RefreshTokenRequest):

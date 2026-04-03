@@ -118,6 +118,29 @@ async def startup_event():
         print(f"[!] Database initialization error: {e}")
         print("[!] Continuing without database")
     
+    # Seed default user if users table is empty
+    try:
+        if SessionLocal:
+            from database.models import User as _User
+            db = SessionLocal()
+            if db.query(_User).count() == 0:
+                from utils.security import security_manager as _sm
+                seed = _User(
+                    email="valentinos.pakkoutis@gmail.com",
+                    password_hash=_sm.hash_password("Aura2024!"),
+                    full_name="Valentinos",
+                    is_active=True,
+                    is_verified=True,
+                )
+                db.add(seed)
+                db.commit()
+                print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
+            else:
+                print(f"[+] Users table has {db.query(_User).count()} user(s), skipping seed")
+            db.close()
+    except Exception as e:
+        print(f"[!] Seed user error: {e}")
+
     print("[*] Checking Redis connection...")
     if check_redis_connection():
         print("[+] Redis connected")
