@@ -101,45 +101,62 @@ async def register(user_create: UserCreate):
 async def login(user_login: UserLogin):
     """
     Login with email and password (JWT-based)
-    
+
     Returns access token (15 min) and refresh token (7 days)
+    Checks both JSON users_db and PostgreSQL users table.
     """
     from main import users_db
-    
+
     email_lower = user_login.email.lower().strip()
-    
-    # Check if user exists
-    if email_lower not in users_db:
-        raise AuthenticationError("Invalid email or password")
-    
-    user = users_db[email_lower]
-    
-    # Verify password - check both old format (plain) and new format (hashed)
+
+    user = None
+    user_id = "0"
+    full_name = ""
     password_valid = False
-    if "password_hash" in user:
-        password_valid = security_manager.verify_password(user_login.password, user["password_hash"])
-    elif "password" in user:
-        # Legacy: plain password (for migration)
-        password_valid = (user["password"] == user_login.password)
-        # Upgrade to hashed
-        if password_valid:
-            user["password_hash"] = security_manager.hash_password(user_login.password)
-            from main import save_users_db
-            save_users_db(users_db)
-    
+
+    # Check JSON users_db first
+    if email_lower in users_db:
+        user = users_db[email_lower]
+        user_id = str(user.get("id", user.get("user_id", 0)))
+        full_name = user.get("full_name", user.get("name", ""))
+
+        if "password_hash" in user:
+            password_valid = security_manager.verify_password(user_login.password, user["password_hash"])
+        elif "password" in user:
+            password_valid = (user["password"] == user_login.password)
+            if password_valid:
+                user["password_hash"] = security_manager.hash_password(user_login.password)
+                from main import save_users_db
+                save_users_db(users_db)
+
+    # Fallback: check PostgreSQL users table
+    if not password_valid:
+        try:
+            from database.connection import SessionLocal
+            from database.models import User as DBUser
+            db = SessionLocal()
+            db_user = db.query(DBUser).filter(DBUser.email == email_lower).first()
+            if db_user and db_user.password_hash:
+                password_valid = security_manager.verify_password(user_login.password, db_user.password_hash)
+                if password_valid:
+                    user_id = str(db_user.id)
+                    full_name = db_user.full_name or ""
+            db.close()
+        except Exception:
+            pass  # DB not available, skip
+
     if not password_valid:
         raise AuthenticationError("Invalid email or password")
-    
-    # Create tokens
+
     token_data = {
-        "sub": str(user.get("id", user.get("user_id", 0))),
+        "sub": user_id,
         "email": email_lower,
-        "full_name": user.get("full_name", user.get("name", ""))
+        "full_name": full_name,
     }
-    
+
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
-    
+
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,

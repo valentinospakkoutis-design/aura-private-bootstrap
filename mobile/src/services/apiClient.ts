@@ -81,17 +81,12 @@ class ApiClient {
           } catch (e) {
             logger.warn('Error deleting auth token:', e);
           }
+          // Clear user state — AuthGuard in _layout.js auto-redirects to /login
           try {
             const { useAppStore } = require('../stores/appStore');
             useAppStore.getState().setUser(null);
           } catch (e) {
             logger.warn('Error clearing user state:', e);
-          }
-          try {
-            const { router } = require('expo-router');
-            router.replace('/');
-          } catch (e) {
-            logger.warn('Error redirecting to login:', e);
           }
         }
         return Promise.reject(error);
@@ -101,10 +96,28 @@ class ApiClient {
 
   // Auth
   async login(email: string, password: string) {
-    const response = await this.client.post('/auth/login', { email, password });
-    const { token, user } = response.data;
-    await setSecureItem('auth_token', token);
-    return user;
+    const response = await this.client.post('/api/v1/auth/login', { email, password });
+    const { access_token, refresh_token } = response.data;
+    await setSecureItem('auth_token', access_token);
+    if (refresh_token) {
+      await setSecureItem('refresh_token', refresh_token);
+    }
+    // Fetch user profile from /auth/me
+    try {
+      const meResponse = await this.client.get('/api/v1/auth/me', {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+      const me = meResponse.data;
+      return {
+        id: String(me.id || '1'),
+        name: me.full_name || email.split('@')[0],
+        email: me.email || email,
+        voiceCloned: false,
+        riskProfile: 'moderate',
+      };
+    } catch {
+      return { id: '1', name: email.split('@')[0], email, voiceCloned: false, riskProfile: 'moderate' };
+    }
   }
 
   async logout() {

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
@@ -9,8 +9,29 @@ import OfflineBanner from '../mobile/src/components/OfflineBanner';
 import { StatusBar } from 'expo-status-bar';
 import { initMonitoring } from '../mobile/src/services/monitoring';
 import * as SplashScreen from 'expo-splash-screen';
+import { useAppStore } from '../mobile/src/stores/appStore';
 
 SplashScreen.preventAutoHideAsync();
+
+function AuthGuard({ children }) {
+  const { user } = useAppStore();
+  const router = useRouter();
+  const segments = useSegments();
+
+  useEffect(() => {
+    const inLoginScreen = segments[0] === 'login';
+
+    if (!user && !inLoginScreen) {
+      // Not logged in and not on login screen — redirect
+      router.replace('/login');
+    } else if (user && inLoginScreen) {
+      // Logged in but on login screen — go to app
+      router.replace('/(tabs)');
+    }
+  }, [user, segments]);
+
+  return children;
+}
 
 function AppContent() {
   const { theme, isDark } = useTheme();
@@ -36,6 +57,7 @@ function AppContent() {
     <>
       <OfflineBanner />
       <StatusBar style={isDark ? 'light' : 'dark'} />
+      <AuthGuard>
       <Stack
         screenOptions={{
           headerStyle: {
@@ -53,6 +75,15 @@ function AppContent() {
           animation: 'slide_from_right',
         }}
       >
+        {/* Login Screen */}
+        <Stack.Screen
+          name="login"
+          options={{
+            headerShown: false,
+            animation: 'fade',
+          }}
+        />
+
         {/* Tab Navigator */}
         <Stack.Screen
           name="(tabs)"
@@ -202,6 +233,7 @@ function AppContent() {
           }} 
         />
       </Stack>
+      </AuthGuard>
     </>
   );
 }

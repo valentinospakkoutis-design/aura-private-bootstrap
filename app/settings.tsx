@@ -123,15 +123,14 @@ export default function SettingsScreen() {
       async () => {
         try {
           await api.logout();
-          setUser(null);
           showToast('Αποσυνδέθηκες επιτυχώς', 'success');
-          router.replace('/');
+          setUser(null); // AuthGuard in _layout.js handles redirect to /login
         } catch (err) {
           showToast('Αποτυχία αποσύνδεσης', 'error');
         }
       }
     );
-  }, [showModal, setUser, showToast, router]);
+  }, [showModal, setUser, showToast]);
 
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
@@ -156,7 +155,7 @@ export default function SettingsScreen() {
                     try {
                       // await api.deleteAccount();
                       showToast('Ο λογαριασμός διαγράφηκε', 'success');
-                      router.replace('/');
+                      setUser(null); // AuthGuard handles redirect
                     } catch (err) {
                       showToast('Αποτυχία διαγραφής', 'error');
                     }
