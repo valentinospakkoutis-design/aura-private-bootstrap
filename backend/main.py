@@ -80,29 +80,26 @@ def api_ping():
 def debug_db_login_test():
     """Temporary debug endpoint — remove after login is fixed."""
     import os
-    result = {"db_url_set": bool(os.getenv("DATABASE_URL")), "steps": []}
+    db_url = os.getenv("DATABASE_URL", "")
+    # Mask password in URL for safety
+    masked = db_url.split("@")[-1] if "@" in db_url else "not set"
+    result = {"db_host": masked, "steps": []}
     try:
         import psycopg2
-        result["steps"].append("psycopg2 imported")
-        db_url = os.getenv("DATABASE_URL")
-        if not db_url:
-            result["steps"].append("DATABASE_URL is empty!")
-            return result
         conn = psycopg2.connect(db_url)
-        result["steps"].append("connected to DB")
         cur = conn.cursor()
-        cur.execute("SELECT id, email, length(password_hash) FROM users WHERE email='valentinos.pakkoutis@gmail.com'")
-        row = cur.fetchone()
-        result["steps"].append(f"query result: {row}")
-        if row:
-            from utils.security import security_manager
-            ok = security_manager.verify_password("admin123", row[2] if isinstance(row[2], str) else "")
-            result["steps"].append(f"verify_password on hash_len={row[2]}: WRONG_COLUMN")
-            # re-fetch actual hash
-            cur.execute("SELECT password_hash FROM users WHERE email='valentinos.pakkoutis@gmail.com'")
-            h = cur.fetchone()[0]
-            ok = security_manager.verify_password("admin123", h)
-            result["steps"].append(f"verify_password: {ok}")
+        # Check all tables
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
+        tables = [r[0] for r in cur.fetchall()]
+        result["steps"].append(f"tables: {tables}")
+        # Check users count
+        if "users" in tables:
+            cur.execute("SELECT count(*) FROM users")
+            result["steps"].append(f"users count: {cur.fetchone()[0]}")
+            cur.execute("SELECT id, email FROM users LIMIT 5")
+            result["steps"].append(f"users: {cur.fetchall()}")
+        else:
+            result["steps"].append("NO users table!")
         conn.close()
     except Exception as e:
         result["steps"].append(f"ERROR: {type(e).__name__}: {e}")
