@@ -103,33 +103,26 @@ def _restore_broker_connections():
 
 
 def _seed_default_user():
-    """Ensure seed user exists with a valid password. One-time migration for broken hashes."""
+    """Create seed user only if not exists. Never modifies existing users."""
     try:
         from database.models import User as _User
+        import bcrypt
 
         db = SessionLocal()
         existing = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
-        if existing:
-            # One-time fix: verify password works, delete+recreate if not
-            if security_manager.verify_password("Aura2024!", existing.password_hash or ""):
-                print(f"[+] Seed user OK (id={existing.id})")
-                db.close()
-                return
-            else:
-                print(f"[!] Seed user has broken hash (id={existing.id}), recreating...")
-                db.delete(existing)
-                db.commit()
-
-        user = _User(
-            email="valentinos.pakkoutis@gmail.com",
-            password_hash=security_manager.hash_password("Aura2024!"),
-            full_name="Valentinos",
-            is_active=True,
-            is_verified=True,
-        )
-        db.add(user)
-        db.commit()
-        print(f"[+] Seed user created: valentinos.pakkoutis@gmail.com (id={user.id})")
+        if not existing:
+            hashed = bcrypt.hashpw(b"Aura2024!", bcrypt.gensalt()).decode("utf-8")
+            db.add(_User(
+                email="valentinos.pakkoutis@gmail.com",
+                password_hash=hashed,
+                full_name="Valentinos",
+                is_active=True,
+                is_verified=True,
+            ))
+            db.commit()
+            print("[+] Seed user created")
+        else:
+            print(f"[+] Seed user exists (id={existing.id}) — NOT touching password")
         db.close()
     except Exception as e:
         print(f"[!] Seed user error: {e}")
