@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
@@ -41,6 +41,7 @@ interface AnalyticsData {
     date: string;
     value: number;
   }[];
+  hasData?: boolean;
 }
 
 export default function AnalyticsScreen() {
@@ -53,34 +54,7 @@ export default function AnalyticsScreen() {
     loading,
     error,
     execute: fetchAnalytics,
-  } = useApi(() => {
-    // Placeholder - implement actual API call
-    return Promise.resolve({
-      totalValue: 10000,
-      totalProfit: 500,
-      profitPercentage: 5,
-      totalTrades: 25,
-      winRate: 68,
-      averageProfit: 20,
-      bestTrade: {
-        asset: 'BTC/USDC',
-        profit: 250,
-        percentage: 12.5,
-      },
-      worstTrade: {
-        asset: 'ETH/USDC',
-        loss: -100,
-        percentage: -5.2,
-      },
-      assetAllocation: [
-        { asset: 'BTC/USDC', percentage: 40, value: 4000 },
-        { asset: 'ETH/USDC', percentage: 30, value: 3000 },
-        { asset: 'GOLD', percentage: 20, value: 2000 },
-        { asset: 'SILVER', percentage: 10, value: 1000 },
-      ],
-      performanceHistory: [],
-    } as AnalyticsData);
-  }, { showLoading: false, showToast: false });
+  } = useApi(() => api.getAnalyticsSummary(timeRange), { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadAnalytics();
@@ -90,7 +64,23 @@ export default function AnalyticsScreen() {
     try {
       const data = await fetchAnalytics();
       if (data && typeof data === 'object') {
-        setAnalytics(data as AnalyticsData);
+        setAnalytics({
+          totalValue: data.total_value || 0,
+          totalProfit: (data.total_value || 0) - 10000,
+          profitPercentage: data.pnl_percent || 0,
+          totalTrades: data.total_trades || 0,
+          winRate: data.win_rate || 0,
+          averageProfit: data.avg_profit || 0,
+          bestTrade: data.best_trade
+            ? { asset: data.best_trade.symbol, profit: data.best_trade.profit, percentage: data.best_trade.percent }
+            : { asset: '-', profit: 0, percentage: 0 },
+          worstTrade: data.worst_trade
+            ? { asset: data.worst_trade.symbol, loss: data.worst_trade.profit, percentage: data.worst_trade.percent }
+            : { asset: '-', loss: 0, percentage: 0 },
+          assetAllocation: data.asset_allocation || [],
+          performanceHistory: [],
+          hasData: data.has_data ?? false,
+        });
       }
     } catch (err) {
       console.error('Failed to load analytics:', err);
@@ -106,12 +96,9 @@ export default function AnalyticsScreen() {
   if (loading && !refreshing && !analytics) {
     return (
       <PageTransition type="fade">
-        <View style={styles.container}>
-          <View style={styles.content}>
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+          <Text style={styles.loadingText}>Φόρτωση analytics...</Text>
         </View>
       </PageTransition>
     );
@@ -127,6 +114,18 @@ export default function AnalyticsScreen() {
 
   if (!analytics) {
     return null;
+  }
+
+  if (!analytics.hasData) {
+    return (
+      <PageTransition type="fade">
+        <View style={styles.loadingContainer}>
+          <Text style={{ fontSize: 48, marginBottom: 16 }}>📊</Text>
+          <Text style={styles.emptyTitle}>Δεν υπάρχουν δεδομένα ακόμα</Text>
+          <Text style={styles.emptySubtitle}>Κάνε το πρώτο σου trade για να δεις analytics</Text>
+        </View>
+      </PageTransition>
+    );
   }
 
   const profitColor = analytics.totalProfit >= 0 
@@ -286,6 +285,29 @@ export default function AnalyticsScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: theme.spacing.xl,
+  },
+  loadingText: {
+    marginTop: theme.spacing.md,
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.secondary,
+  },
+  emptyTitle: {
+    fontSize: theme.typography.sizes.xl,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  emptySubtitle: {
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,

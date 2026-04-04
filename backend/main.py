@@ -1641,6 +1641,80 @@ def get_symbol_performance():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/api/analytics/summary")
+def get_analytics_summary(period: str = "all"):
+    """Analytics summary aggregating paper + auto trades. period: 7d|30d|90d|all"""
+    trades = paper_trading_service.get_trade_history(limit=10000)
+    portfolio = paper_trading_service.get_portfolio()
+
+    # Filter by period
+    if period != "all":
+        days_map = {"7d": 7, "30d": 30, "90d": 90}
+        days = days_map.get(period, 9999)
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        trades = [t for t in trades if t.get("timestamp", "") >= cutoff]
+
+    total_trades = len(trades)
+
+    if total_trades == 0:
+        return {
+            "total_value": portfolio.get("total_value", 0),
+            "pnl_percent": 0,
+            "total_trades": 0,
+            "win_rate": 0,
+            "avg_profit": 0,
+            "best_trade": None,
+            "worst_trade": None,
+            "asset_allocation": [],
+            "has_data": False,
+        }
+
+    # Calculate win rate and profits from sell trades (realized P/L)
+    sells = [t for t in trades if t.get("side") == "SELL"]
+    profits = [t.get("profit", t.get("pnl", 0)) for t in sells]
+    wins = [p for p in profits if p > 0]
+    win_rate = (len(wins) / len(sells) * 100) if sells else 0
+    avg_profit = sum(profits) / len(profits) if profits else 0
+
+    # Best and worst
+    best = max(sells, key=lambda t: t.get("profit", t.get("pnl", 0)), default=None) if sells else None
+    worst = min(sells, key=lambda t: t.get("profit", t.get("pnl", 0)), default=None) if sells else None
+
+    # Asset allocation from current positions
+    positions = portfolio.get("positions", [])
+    total_pos_value = sum(p.get("value", 0) for p in positions) or 1
+    allocation = [
+        {
+            "asset": p["symbol"],
+            "percentage": round(p.get("value", 0) / total_pos_value * 100, 1),
+            "value": round(p.get("value", 0), 2),
+        }
+        for p in positions
+    ]
+
+    pnl_pct = portfolio.get("total_pnl_percent", 0)
+
+    return {
+        "total_value": round(portfolio.get("total_value", 0), 2),
+        "pnl_percent": round(pnl_pct, 2),
+        "total_trades": total_trades,
+        "win_rate": round(win_rate, 1),
+        "avg_profit": round(avg_profit, 2),
+        "best_trade": {
+            "symbol": best.get("symbol", ""),
+            "profit": round(best.get("profit", best.get("pnl", 0)), 2),
+            "percent": round(best.get("profit_pct", best.get("pnl_percent", 0)), 2),
+        } if best else None,
+        "worst_trade": {
+            "symbol": worst.get("symbol", ""),
+            "profit": round(worst.get("profit", worst.get("pnl", 0)), 2),
+            "percent": round(worst.get("profit_pct", worst.get("pnl_percent", 0)), 2),
+        } if worst else None,
+        "asset_allocation": allocation,
+        "has_data": True,
+    }
+
+
 # Scheduler Endpoints
 class ScheduleCreate(BaseModel):
     schedule_type: str

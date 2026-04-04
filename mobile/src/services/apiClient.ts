@@ -326,19 +326,8 @@ class ApiClient {
     return response.data;
   }
 
-  async getAnalytics(timeRange: '7d' | '30d' | '90d' | 'all', useCache: boolean = true) {
-    const cacheKey = `${CACHE_KEYS.ANALYTICS}_${timeRange}`;
-    
-    if (useCache) {
-      const cached = await cacheService.get(cacheKey);
-      if (cached) {
-        logger.info('Using cached analytics');
-        return cached;
-      }
-    }
-
-    const response = await this.client.get(`/api/analytics/performance?range=${timeRange}`);
-    await cacheService.set(cacheKey, response.data, CACHE_TTL.LONG);
+  async getAnalyticsSummary(period: '7d' | '30d' | '90d' | 'all' = 'all') {
+    const response = await this.client.get(`/api/analytics/summary?period=${period}`);
     return response.data;
   }
 
