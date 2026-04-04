@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
@@ -14,21 +15,60 @@ import { useAppStore } from '../mobile/src/stores/appStore';
 SplashScreen.preventAutoHideAsync();
 
 function AuthGuard({ children }) {
-  const { user } = useAppStore();
+  const { user, setUser } = useAppStore();
   const router = useRouter();
   const segments = useSegments();
+  const [isRestoring, setIsRestoring] = useState(true);
 
+  // On startup: restore session from stored token
   useEffect(() => {
+    (async () => {
+      try {
+        let token = null;
+        if (Platform.OS === 'web') {
+          try { token = localStorage.getItem('auth_token'); } catch {}
+        } else {
+          const SecureStore = require('expo-secure-store');
+          token = await SecureStore.getItemAsync('auth_token');
+        }
+
+        if (token) {
+          const { api } = require('../mobile/src/services/apiClient');
+          const meResponse = await api.client.get('/api/v1/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const me = meResponse.data;
+          setUser({
+            id: String(me.id || '1'),
+            name: me.full_name || me.email.split('@')[0],
+            email: me.email,
+            voiceCloned: false,
+            riskProfile: 'moderate',
+          });
+        }
+      } catch {
+        // Token invalid or expired — stay logged out
+      } finally {
+        setIsRestoring(false);
+      }
+    })();
+  }, []);
+
+  // Redirect logic — skip while restoring session
+  useEffect(() => {
+    if (isRestoring) return;
+
     const inLoginScreen = segments[0] === 'login';
 
     if (!user && !inLoginScreen) {
-      // Not logged in and not on login screen — redirect
       router.replace('/login');
     } else if (user && inLoginScreen) {
-      // Logged in but on login screen — go to app
       router.replace('/(tabs)');
     }
-  }, [user, segments]);
+  }, [user, segments, isRestoring]);
+
+  // Show nothing while checking token (splash screen is still visible)
+  if (isRestoring) return null;
 
   return children;
 }

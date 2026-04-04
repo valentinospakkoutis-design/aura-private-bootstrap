@@ -103,17 +103,16 @@ def _restore_broker_connections():
 
 
 def _seed_default_user():
-    """Create seed user in PostgreSQL if not exists. Runs after init_db()."""
+    """Create seed user in PostgreSQL if not exists. Never overwrites existing user."""
     try:
         from database.models import User as _User
 
         db = SessionLocal()
         existing = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
-        hashed = security_manager.hash_password("Aura2024!")
         if not existing:
             user = _User(
                 email="valentinos.pakkoutis@gmail.com",
-                password_hash=hashed,
+                password_hash=security_manager.hash_password("Aura2024!"),
                 full_name="Valentinos",
                 is_active=True,
                 is_verified=True,
@@ -122,10 +121,7 @@ def _seed_default_user():
             db.commit()
             print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
         else:
-            # Always reset password on startup to ensure it matches
-            existing.password_hash = hashed
-            db.commit()
-            print(f"[+] Seed user password synced (id={existing.id})")
+            print(f"[+] Seed user already exists (id={existing.id}), skipping")
         db.close()
     except Exception as e:
         print(f"[!] Seed user error: {e}")
