@@ -1,29 +1,27 @@
 import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 
 const TOKEN_KEY = 'auth_token';
 
-export async function getToken(): Promise<string | null> {
+export const saveToken = async (token: string): Promise<void> => {
   if (Platform.OS === 'web') {
-    try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    await SecureStore.setItemAsync(TOKEN_KEY, token);
   }
-  const SecureStore = require('expo-secure-store');
-  return SecureStore.getItemAsync(TOKEN_KEY);
-}
+};
 
-export async function saveToken(token: string): Promise<void> {
+export const getToken = async (): Promise<string | null> => {
   if (Platform.OS === 'web') {
-    try { localStorage.setItem(TOKEN_KEY, token); } catch {}
-    return;
+    return localStorage.getItem(TOKEN_KEY);
   }
-  const SecureStore = require('expo-secure-store');
-  await SecureStore.setItemAsync(TOKEN_KEY, token);
-}
+  return await SecureStore.getItemAsync(TOKEN_KEY);
+};
 
-export async function deleteToken(): Promise<void> {
+export const deleteToken = async (): Promise<void> => {
   if (Platform.OS === 'web') {
-    try { localStorage.removeItem(TOKEN_KEY); } catch {}
-    return;
+    localStorage.removeItem(TOKEN_KEY);
+  } else {
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
   }
-  const SecureStore = require('expo-secure-store');
-  await SecureStore.deleteItemAsync(TOKEN_KEY);
-}
+};
