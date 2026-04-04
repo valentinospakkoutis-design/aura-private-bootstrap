@@ -12,13 +12,10 @@ from fastapi import HTTPException, status
 from utils.error_handler import AuthenticationError
 
 
-# JWT Configuration — no default; MUST be set via environment variable
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not SECRET_KEY:
-    import warnings
-    warnings.warn("JWT_SECRET_KEY not set — using random key (tokens will not survive restarts)")
-    import secrets as _secrets
-    SECRET_KEY = _secrets.token_urlsafe(64)
+# JWT Configuration
+# Priority: JWT_SECRET_KEY env var > stable fallback
+# Set JWT_SECRET_KEY in Railway env vars for production
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "aura-jwt-stable-key-2026-xlLxv4LhQM04QAP6nCOT_3KL-idCdJ2mozfEgkbimKA")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
 REFRESH_TOKEN_EXPIRE_DAYS = 7  # 7 days

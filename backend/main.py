@@ -103,7 +103,7 @@ def _restore_broker_connections():
 
 
 def _seed_default_user():
-    """Create seed user in PostgreSQL if not exists. Never overwrites existing user."""
+    """Ensure seed user exists with a working password."""
     try:
         from database.models import User as _User
 
@@ -121,7 +121,13 @@ def _seed_default_user():
             db.commit()
             print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
         else:
-            print(f"[+] Seed user already exists (id={existing.id}), skipping")
+            # Verify password still works — fix if not (e.g. after DB migration)
+            if not security_manager.verify_password("Aura2024!", existing.password_hash or ""):
+                existing.password_hash = security_manager.hash_password("Aura2024!")
+                db.commit()
+                print(f"[+] Seed user password fixed (id={existing.id})")
+            else:
+                print(f"[+] Seed user OK (id={existing.id})")
         db.close()
     except Exception as e:
         print(f"[!] Seed user error: {e}")

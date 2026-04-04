@@ -22,6 +22,8 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const user = await api.login(email.trim().toLowerCase(), password);
+      console.log('[Login] Success, user:', user?.email);
+      console.log('[Login] Token saved:', typeof localStorage !== 'undefined' ? (localStorage.getItem('auth_token') ? 'yes' : 'no') : 'N/A (mobile)');
       setUser(user);
       router.replace('/(tabs)');
     } catch (err: any) {
