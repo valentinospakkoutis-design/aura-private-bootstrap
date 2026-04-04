@@ -106,12 +106,11 @@ def _seed_default_user():
     """Create seed user in PostgreSQL if not exists. Runs after init_db()."""
     try:
         from database.models import User as _User
-        import bcrypt
 
         db = SessionLocal()
         existing = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
         if not existing:
-            hashed = bcrypt.hashpw(b"Aura2024!", bcrypt.gensalt()).decode("utf-8")
+            hashed = security_manager.hash_password("Aura2024!")
             user = _User(
                 email="valentinos.pakkoutis@gmail.com",
                 password_hash=hashed,
@@ -121,9 +120,15 @@ def _seed_default_user():
             )
             db.add(user)
             db.commit()
-            print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
+            print(f"[+] Seed user created: valentinos.pakkoutis@gmail.com (hash_len={len(hashed)})")
         else:
-            print(f"[+] Seed user already exists (id={existing.id})")
+            # Verify password works — if not, update hash
+            if not security_manager.verify_password("Aura2024!", existing.password_hash):
+                existing.password_hash = security_manager.hash_password("Aura2024!")
+                db.commit()
+                print(f"[+] Seed user password reset (id={existing.id})")
+            else:
+                print(f"[+] Seed user OK (id={existing.id})")
         db.close()
     except Exception as e:
         print(f"[!] Seed user error: {e}")
