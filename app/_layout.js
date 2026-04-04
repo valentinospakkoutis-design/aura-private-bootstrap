@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
@@ -23,19 +22,12 @@ function AuthGuard({ children }) {
   // On startup: restore session from stored token
   useEffect(() => {
     (async () => {
+      const { getToken, deleteToken } = require('../mobile/src/utils/tokenStorage');
       try {
-        let token = null;
-        if (Platform.OS === 'web') {
-          try { token = localStorage.getItem('auth_token'); } catch {}
-        } else {
-          const SecureStore = require('expo-secure-store');
-          token = await SecureStore.getItemAsync('auth_token');
-        }
-
+        const token = await getToken();
         console.log('[AuthGuard] Token from storage:', token ? `found (${token.substring(0, 20)}...)` : 'not found');
 
         if (token) {
-          // Use axios directly to avoid the 401 interceptor clearing our token during restore
           const axios = require('axios');
           const { getApiBaseUrl } = require('../mobile/src/config/environment');
           const baseURL = getApiBaseUrl();
@@ -55,15 +47,7 @@ function AuthGuard({ children }) {
         }
       } catch (err) {
         console.log('[AuthGuard] Token restore failed:', err?.response?.status || err?.message);
-        // Token invalid or expired — clear it and stay logged out
-        if (Platform.OS === 'web') {
-          try { localStorage.removeItem('auth_token'); } catch {}
-        } else {
-          try {
-            const SecureStore = require('expo-secure-store');
-            await SecureStore.deleteItemAsync('auth_token');
-          } catch {}
-        }
+        await deleteToken();
       } finally {
         setIsRestoring(false);
       }

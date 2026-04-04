@@ -1,29 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
-
-const getSecureItem = async (key: string): Promise<string | null> => {
-  if (Platform.OS === 'web') {
-    try { return localStorage.getItem(key); } catch { return null; }
-  }
-  return SecureStore.getItemAsync(key);
-};
-
-const setSecureItem = async (key: string, value: string): Promise<void> => {
-  if (Platform.OS === 'web') {
-    try { localStorage.setItem(key, value); } catch {}
-    return;
-  }
-  await SecureStore.setItemAsync(key, value);
-};
-
-const deleteSecureItem = async (key: string): Promise<void> => {
-  if (Platform.OS === 'web') {
-    try { localStorage.removeItem(key); } catch {}
-    return;
-  }
-  await SecureStore.deleteItemAsync(key);
-};
+import { getToken, saveToken, deleteToken } from '../utils/tokenStorage';
 import { getApiBaseUrl } from '../config/environment';
 import { logger } from '../utils/Logger';
 import { cacheService, CACHE_KEYS, CACHE_TTL } from './CacheService';
@@ -47,7 +23,7 @@ class ApiClient {
     this.client.interceptors.request.use(
       async (config) => {
         try {
-          const token = await getSecureItem('auth_token');
+          const token = await getToken();
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
           }
@@ -77,7 +53,7 @@ class ApiClient {
         if (error.response?.status === 401) {
           // Unauthorized - clear token, reset user, redirect to login
           try {
-            await deleteSecureItem('auth_token');
+            await deleteToken();
           } catch (e) {
             logger.warn('Error deleting auth token:', e);
           }
@@ -97,11 +73,9 @@ class ApiClient {
   // Auth
   async login(email: string, password: string) {
     const response = await this.client.post('/api/v1/auth/login', { email, password });
-    const { access_token, refresh_token } = response.data;
-    await setSecureItem('auth_token', access_token);
-    if (refresh_token) {
-      await setSecureItem('refresh_token', refresh_token);
-    }
+    const { access_token } = response.data;
+    await saveToken(access_token);
+    // refresh_token is returned but not stored for now — access_token is sufficient
     // Fetch user profile from /auth/me
     try {
       const meResponse = await this.client.get('/api/v1/auth/me', {
@@ -130,7 +104,7 @@ class ApiClient {
 
   async logout() {
     try {
-      await deleteSecureItem('auth_token');
+      await deleteToken();
       logger.info('User logged out');
     } catch (error) {
       logger.warn('Error deleting auth token:', error);
