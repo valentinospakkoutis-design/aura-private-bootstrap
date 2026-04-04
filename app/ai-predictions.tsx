@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
@@ -185,10 +185,14 @@ export default function AIPredictionsScreen() {
     </AnimatedListItem>
   );
 
-  if (loading && !refreshing) {
+  if (loading && !refreshing && (!predictions || predictions.length === 0)) {
     return (
       <PageTransition type="fade">
-        <SkeletonList count={5} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+          <Text style={styles.loadingTitle}>Το AI αναλύει 76 assets...</Text>
+          <Text style={styles.loadingSubtitle}>Αυτό μπορεί να πάρει έως 30 δευτερόλεπτα</Text>
+        </View>
       </PageTransition>
     );
   }
@@ -252,6 +256,24 @@ export default function AIPredictionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    padding: theme.spacing.xl,
+  },
+  loadingTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+  },
+  loadingSubtitle: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,

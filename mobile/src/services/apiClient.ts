@@ -159,7 +159,7 @@ class ApiClient {
     } else {
       predictionsArray = [];
     }
-    await cacheService.set(CACHE_KEYS.PREDICTIONS, predictionsArray, CACHE_TTL.MEDIUM);
+    await cacheService.set(CACHE_KEYS.PREDICTIONS, predictionsArray, 300); // 5 minutes
     return predictionsArray;
   }
 
