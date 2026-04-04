@@ -32,12 +32,19 @@ function AuthGuard({ children }) {
           token = await SecureStore.getItemAsync('auth_token');
         }
 
+        console.log('[AuthGuard] Token from storage:', token ? `found (${token.substring(0, 20)}...)` : 'not found');
+
         if (token) {
-          const { api } = require('../mobile/src/services/apiClient');
-          const meResponse = await api.client.get('/api/v1/auth/me', {
+          // Use axios directly to avoid the 401 interceptor clearing our token during restore
+          const axios = require('axios');
+          const { getApiBaseUrl } = require('../mobile/src/config/environment');
+          const baseURL = getApiBaseUrl();
+          const meResponse = await axios.get(`${baseURL}/api/v1/auth/me`, {
             headers: { Authorization: `Bearer ${token}` },
+            timeout: 10000,
           });
           const me = meResponse.data;
+          console.log('[AuthGuard] Session restored for:', me.email);
           setUser({
             id: String(me.id || '1'),
             name: me.full_name || me.email.split('@')[0],
@@ -46,8 +53,17 @@ function AuthGuard({ children }) {
             riskProfile: 'moderate',
           });
         }
-      } catch {
-        // Token invalid or expired — stay logged out
+      } catch (err) {
+        console.log('[AuthGuard] Token restore failed:', err?.response?.status || err?.message);
+        // Token invalid or expired — clear it and stay logged out
+        if (Platform.OS === 'web') {
+          try { localStorage.removeItem('auth_token'); } catch {}
+        } else {
+          try {
+            const SecureStore = require('expo-secure-store');
+            await SecureStore.deleteItemAsync('auth_token');
+          } catch {}
+        }
       } finally {
         setIsRestoring(false);
       }
