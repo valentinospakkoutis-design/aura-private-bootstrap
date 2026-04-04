@@ -72,6 +72,23 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sch
 def healthz():
     return {"ok": True}
 
+@app.post("/api/admin/reset-seed-password")
+def reset_seed_password():
+    """One-time admin endpoint to fix seed user password. Remove after use."""
+    try:
+        from database.models import User as _User
+        db = SessionLocal()
+        user = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
+        if user:
+            user.password_hash = security_manager.hash_password("Aura2024!")
+            db.commit()
+            db.close()
+            return {"status": "password reset to Aura2024!"}
+        db.close()
+        return {"status": "user not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/ping")
 def api_ping():
     return {"ok": True}
