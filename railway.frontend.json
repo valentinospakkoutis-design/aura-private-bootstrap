@@ -1,0 +1,11 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile.frontend"
+  },
+  "deploy": {
+    "startCommand": "serve -s /app/dist -l ${PORT:-3000}",
+    "healthcheckPath": "/"
+  }
+}
