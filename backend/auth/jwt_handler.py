@@ -13,12 +13,12 @@ from utils.error_handler import AuthenticationError
 
 
 # JWT Configuration
-# Priority: JWT_SECRET_KEY env var > stable fallback
-# Set JWT_SECRET_KEY in Railway env vars for production
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "aura-jwt-stable-key-2026-xlLxv4LhQM04QAP6nCOT_3KL-idCdJ2mozfEgkbimKA")
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "xlLxv4LhQM04QAP6nCOT_3KL-idCdJ2mozfEgkbimKA6HhrOga2DMtCsfxhQdeGQM9k8Uwu6m2EbpcJ5TzfwIg")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
-REFRESH_TOKEN_EXPIRE_DAYS = 7  # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
+REFRESH_TOKEN_EXPIRE_DAYS = 90  # 90 days
+
+print(f"[JWT] Using secret key: {SECRET_KEY[:10]}...")
 
 
 def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None) -> str:

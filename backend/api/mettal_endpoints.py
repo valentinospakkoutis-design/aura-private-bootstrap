@@ -191,7 +191,8 @@ async def get_current_user_info(request: Request):
         raise AuthenticationError("Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
-    
+    print(f"[/auth/me] Token validation for: {token[:20]}...")
+
     try:
         user_info = get_user_from_token(token)
         return {
