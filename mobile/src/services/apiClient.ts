@@ -37,7 +37,7 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: BASE_URL,
-      timeout: 10000,
+      timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -147,7 +147,7 @@ class ApiClient {
       }
     }
 
-    const response = await this.client.get('/api/ai/predictions');
+    const response = await this.client.get('/api/ai/predictions', { timeout: 60000 });
     // Backend returns {predictions: {...}} - convert to array
     const data = response.data;
     let predictionsArray;
