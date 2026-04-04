@@ -109,8 +109,8 @@ def _seed_default_user():
 
         db = SessionLocal()
         existing = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
+        hashed = security_manager.hash_password("Aura2024!")
         if not existing:
-            hashed = security_manager.hash_password("Aura2024!")
             user = _User(
                 email="valentinos.pakkoutis@gmail.com",
                 password_hash=hashed,
@@ -120,15 +120,12 @@ def _seed_default_user():
             )
             db.add(user)
             db.commit()
-            print(f"[+] Seed user created: valentinos.pakkoutis@gmail.com (hash_len={len(hashed)})")
+            print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
         else:
-            # Verify password works — if not, update hash
-            if not security_manager.verify_password("Aura2024!", existing.password_hash):
-                existing.password_hash = security_manager.hash_password("Aura2024!")
-                db.commit()
-                print(f"[+] Seed user password reset (id={existing.id})")
-            else:
-                print(f"[+] Seed user OK (id={existing.id})")
+            # Always reset password on startup to ensure it matches
+            existing.password_hash = hashed
+            db.commit()
+            print(f"[+] Seed user password synced (id={existing.id})")
         db.close()
     except Exception as e:
         print(f"[!] Seed user error: {e}")
