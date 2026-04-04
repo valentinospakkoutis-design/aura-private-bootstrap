@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\('ai/asset_predictor.py', encoding='utf-8'\\).read\\(\\)\\); print\\('asset_predictor.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('main.py', encoding='utf-8'\\).read\\(\\)\\); print\\('main.py: OK'\\)\")",
+      "Bash(curl -s -X POST \"https://aura-private-bootstrap-production.up.railway.app/api/ml/train-all\" -H \"Content-Type: application/json\" --max-time 600)"
+    ]
+  }
+}
