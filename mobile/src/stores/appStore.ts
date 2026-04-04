@@ -61,7 +61,14 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   // User
   user: null,
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    if (!user) {
+      console.warn('[Store] setUser(null) called — stack:', new Error().stack);
+    } else {
+      console.log('[Store] setUser:', user.email);
+    }
+    set({ user });
+  },
 
   // Brokers
   brokers: [],

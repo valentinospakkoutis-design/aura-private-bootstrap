@@ -51,18 +51,22 @@ class ApiClient {
         logger.error('API Error:', error.response?.status, error.message);
 
         if (error.response?.status === 401) {
-          // Unauthorized - clear token, reset user, redirect to login
-          try {
-            await deleteToken();
-          } catch (e) {
-            logger.warn('Error deleting auth token:', e);
-          }
-          // Clear user state — AuthGuard in _layout.js auto-redirects to /login
-          try {
-            const { useAppStore } = require('../stores/appStore');
-            useAppStore.getState().setUser(null);
-          } catch (e) {
-            logger.warn('Error clearing user state:', e);
+          // Only clear session if the failed request was an authenticated one
+          // (had Authorization header) — don't wipe on public endpoint 401s
+          const hadAuth = error.config?.headers?.Authorization;
+          if (hadAuth) {
+            console.log('[apiClient] 401 on authenticated request:', error.config?.url);
+            try {
+              await deleteToken();
+            } catch (e) {
+              logger.warn('Error deleting auth token:', e);
+            }
+            try {
+              const { useAppStore } = require('../stores/appStore');
+              useAppStore.getState().setUser(null);
+            } catch (e) {
+              logger.warn('Error clearing user state:', e);
+            }
           }
         }
         return Promise.reject(error);
