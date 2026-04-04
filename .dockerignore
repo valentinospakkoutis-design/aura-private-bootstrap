@@ -1,0 +1,16 @@
+node_modules
+.expo
+dist
+build
+backend/venv
+backend/__pycache__
+backend/models/*.pkl
+backend/models/*.pth
+android
+ios
+.git
+.claude
+credentials.json
+credentials/
+*.apk
+*.aab

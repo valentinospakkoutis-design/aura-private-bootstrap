@@ -1,0 +1,21 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy source
+COPY . .
+
+# Build web export
+ENV NODE_ENV=production
+ENV EXPO_PUBLIC_ENVIRONMENT=production
+ENV EXPO_PUBLIC_API_URL=https://aura-private-bootstrap-production.up.railway.app
+RUN npx expo export --platform web
+
+# Serve static files
+RUN npm install -g serve
+EXPOSE 3000
+CMD ["serve", "dist", "-p", "3000", "-s"]
