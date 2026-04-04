@@ -102,6 +102,33 @@ def _restore_broker_connections():
         print(f"[!] Could not restore broker connections: {e}")
 
 
+def _seed_default_user():
+    """Create seed user in PostgreSQL if not exists. Runs after init_db()."""
+    try:
+        from database.models import User as _User
+        import bcrypt
+
+        db = SessionLocal()
+        existing = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
+        if not existing:
+            hashed = bcrypt.hashpw(b"Aura2024!", bcrypt.gensalt()).decode("utf-8")
+            user = _User(
+                email="valentinos.pakkoutis@gmail.com",
+                password_hash=hashed,
+                full_name="Valentinos",
+                is_active=True,
+                is_verified=True,
+            )
+            db.add(user)
+            db.commit()
+            print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
+        else:
+            print(f"[+] Seed user already exists (id={existing.id})")
+        db.close()
+    except Exception as e:
+        print(f"[!] Seed user error: {e}")
+
+
 # Startup event - Initialize database and cache
 @app.on_event("startup")
 async def startup_event():
@@ -112,34 +139,13 @@ async def startup_event():
             init_db()
             print("[+] Database initialized")
             _restore_broker_connections()
+            # Seed default user right after tables are created
+            _seed_default_user()
         else:
             print("[!] Database not configured - continuing without database")
     except Exception as e:
         print(f"[!] Database initialization error: {e}")
         print("[!] Continuing without database")
-    
-    # Seed default user if users table is empty
-    try:
-        if SessionLocal:
-            from database.models import User as _User
-            db = SessionLocal()
-            if db.query(_User).count() == 0:
-                from utils.security import security_manager as _sm
-                seed = _User(
-                    email="valentinos.pakkoutis@gmail.com",
-                    password_hash=_sm.hash_password("Aura2024!"),
-                    full_name="Valentinos",
-                    is_active=True,
-                    is_verified=True,
-                )
-                db.add(seed)
-                db.commit()
-                print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
-            else:
-                print(f"[+] Users table has {db.query(_User).count()} user(s), skipping seed")
-            db.close()
-    except Exception as e:
-        print(f"[!] Seed user error: {e}")
 
     print("[*] Checking Redis connection...")
     if check_redis_connection():
