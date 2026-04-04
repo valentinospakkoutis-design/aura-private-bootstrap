@@ -103,25 +103,33 @@ def _restore_broker_connections():
 
 
 def _seed_default_user():
-    """Create seed user only if not exists. Never modifies existing users."""
+    """Ensure seed user exists with a valid password. One-time migration for broken hashes."""
     try:
         from database.models import User as _User
 
         db = SessionLocal()
         existing = db.query(_User).filter(_User.email == "valentinos.pakkoutis@gmail.com").first()
-        if not existing:
-            user = _User(
-                email="valentinos.pakkoutis@gmail.com",
-                password_hash=security_manager.hash_password("Aura2024!"),
-                full_name="Valentinos",
-                is_active=True,
-                is_verified=True,
-            )
-            db.add(user)
-            db.commit()
-            print("[+] Seed user created: valentinos.pakkoutis@gmail.com")
-        else:
-            print(f"[+] Seed user exists (id={existing.id}) — skipping, NOT touching password")
+        if existing:
+            # One-time fix: verify password works, delete+recreate if not
+            if security_manager.verify_password("Aura2024!", existing.password_hash or ""):
+                print(f"[+] Seed user OK (id={existing.id})")
+                db.close()
+                return
+            else:
+                print(f"[!] Seed user has broken hash (id={existing.id}), recreating...")
+                db.delete(existing)
+                db.commit()
+
+        user = _User(
+            email="valentinos.pakkoutis@gmail.com",
+            password_hash=security_manager.hash_password("Aura2024!"),
+            full_name="Valentinos",
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        print(f"[+] Seed user created: valentinos.pakkoutis@gmail.com (id={user.id})")
         db.close()
     except Exception as e:
         print(f"[!] Seed user error: {e}")
