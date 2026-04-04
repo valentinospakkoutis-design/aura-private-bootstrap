@@ -8,7 +8,7 @@ import { theme } from '../mobile/src/constants/theme';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
-  const { showToast } = useAppStore();
+  const { user, setUser, showToast } = useAppStore();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -31,6 +31,9 @@ export default function ChangePasswordScreen() {
     setLoading(true);
     try {
       await api.changePassword(currentPassword, newPassword);
+      // Re-login with new password to get a fresh token
+      const updatedUser = await api.login(user?.email || '', newPassword);
+      setUser(updatedUser);
       showToast('Ο κωδικός άλλαξε επιτυχώς', 'success');
       router.back();
     } catch (err: any) {
