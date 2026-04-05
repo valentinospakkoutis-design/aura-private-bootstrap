@@ -1,33 +1,41 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedButton } from '../mobile/src/components/AnimatedButton';
 import { theme } from '../mobile/src/constants/theme';
 
-export default function LoginScreen() {
+export default function RegisterScreen() {
   const router = useRouter();
-  const { setUser, showToast } = useAppStore();
+  const { showToast } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
+  const handleRegister = async () => {
     if (!email.trim() || !password.trim()) {
-      showToast('Συμπλήρωσε email και κωδικό', 'error');
+      showToast('Συμπλήρωσε όλα τα πεδία', 'error');
+      return;
+    }
+    if (password.length < 8) {
+      showToast('Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες', 'error');
+      return;
+    }
+    if (password !== confirmPassword) {
+      showToast('Οι κωδικοί δεν ταιριάζουν', 'error');
       return;
     }
 
     setLoading(true);
     try {
-      const user = await api.login(email.trim().toLowerCase(), password);
-      console.log('[Login] Success, user:', user?.email);
-      console.log('[Login] Token saved:', typeof localStorage !== 'undefined' ? (localStorage.getItem('auth_token') ? 'yes' : 'no') : 'N/A (mobile)');
-      setUser(user);
-      router.replace('/(tabs)');
+      await api.register(email.trim().toLowerCase(), password);
+      showToast('Επιτυχής εγγραφή! Μπορείς να συνδεθείς.', 'success');
+      router.replace('/login');
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || 'Λάθος email ή κωδικός';
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail : detail?.message || 'Αποτυχία εγγραφής';
       showToast(msg, 'error');
     } finally {
       setLoading(false);
@@ -39,9 +47,9 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.logo}>AURA</Text>
-        <Text style={styles.subtitle}>AI Trading Assistant</Text>
+        <Text style={styles.subtitle}>Δημιουργία Λογαριασμού</Text>
 
         <View style={styles.form}>
           <TextInput
@@ -56,27 +64,35 @@ export default function LoginScreen() {
           />
           <TextInput
             style={styles.input}
-            placeholder="Κωδικός"
+            placeholder="Κωδικός (τουλάχιστον 8 χαρακτήρες)"
             placeholderTextColor={theme.colors.text.secondary}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
           />
+          <TextInput
+            style={styles.input}
+            placeholder="Επιβεβαίωση κωδικού"
+            placeholderTextColor={theme.colors.text.secondary}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry
+          />
           <AnimatedButton
-            title={loading ? 'Σύνδεση...' : 'Σύνδεση'}
-            onPress={handleLogin}
+            title={loading ? 'Εγγραφή...' : 'Εγγραφή'}
+            onPress={handleRegister}
             variant="primary"
             size="large"
             fullWidth
             disabled={loading}
           />
 
-          <TouchableOpacity onPress={() => router.push('/register')} style={styles.linkContainer}>
-            <Text style={styles.linkText}>Δεν έχεις λογαριασμό; </Text>
-            <Text style={styles.linkTextBold}>Δημιουργία λογαριασμού</Text>
+          <TouchableOpacity onPress={() => router.replace('/login')} style={styles.linkContainer}>
+            <Text style={styles.linkText}>Έχεις ήδη λογαριασμό; </Text>
+            <Text style={styles.linkTextBold}>Σύνδεση</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -87,7 +103,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.background,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacing.xl,

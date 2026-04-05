@@ -98,6 +98,11 @@ class ApiClient {
     }
   }
 
+  async register(email: string, password: string) {
+    const response = await this.client.post('/api/v1/auth/register', { email, password });
+    return response.data;
+  }
+
   async changePassword(currentPassword: string, newPassword: string) {
     const response = await this.client.put('/api/v1/auth/change-password', {
       current_password: currentPassword,

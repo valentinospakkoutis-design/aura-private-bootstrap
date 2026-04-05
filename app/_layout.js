@@ -58,11 +58,11 @@ function AuthGuard({ children }) {
   useEffect(() => {
     if (isRestoring) return;
 
-    const inLoginScreen = segments[0] === 'login';
+    const inAuthScreen = segments[0] === 'login' || segments[0] === 'register';
 
-    if (!user && !inLoginScreen) {
+    if (!user && !inAuthScreen) {
       router.replace('/login');
-    } else if (user && inLoginScreen) {
+    } else if (user && inAuthScreen) {
       router.replace('/(tabs)');
     }
   }, [user, segments, isRestoring]);
@@ -115,9 +115,16 @@ function AppContent() {
           animation: 'slide_from_right',
         }}
       >
-        {/* Login Screen */}
+        {/* Auth Screens */}
         <Stack.Screen
           name="login"
+          options={{
+            headerShown: false,
+            animation: 'fade',
+          }}
+        />
+        <Stack.Screen
+          name="register"
           options={{
             headerShown: false,
             animation: 'fade',
