@@ -1160,9 +1160,19 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         # Determine decimal precision based on price magnitude
         price_decimals = 2 if current_price >= 1 else 6
 
+        # Map asset_type to frontend category
+        asset_type_val = p.get("asset_type", "")
+        category_map = {
+            "precious_metal": "metals", "stock": "stocks", "crypto": "crypto",
+            "derivative": "derivatives", "bond": "bonds", "fx": "fx", "sentiment": "sentiment",
+        }
+        category = category_map.get(asset_type_val, "other")
+
         result.append({
             "id": f"pred_{symbol.lower()}_{int(datetime.now().timestamp())}",
             "asset": p.get("asset_name") or symbol,
+            "symbol": symbol,
+            "category": category,
             "action": rec,
             "confidence": round(confidence, 3),
             "price": round(current_price, price_decimals),
@@ -1177,6 +1187,57 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         print(f"[DEBUG] Sample prediction: asset={sample['asset']}, price={sample['price']}, targetPrice={sample['targetPrice']}")
 
     return result
+
+@app.get("/api/v1/predictions/extended")
+def get_extended_predictions(days: int = 7):
+    """Extended predictions with yfinance pricing for stocks, bonds, FX, VIX."""
+    import yfinance as yf
+
+    EXTENDED_ASSETS = {
+        "stocks": ["ASML", "SAP", "MC.PA", "AAPL", "MSFT", "NVDA", "BOC.AT"],
+        "bonds": ["^TNX", "^IRX", "^TYX"],
+        "derivatives": ["ES=F", "NQ=F", "CL=F", "GC=F"],
+        "fx": ["EURUSD=X", "GBPEUR=X"],
+        "sentiment": ["^VIX"],
+    }
+
+    results = []
+    for category, symbols in EXTENDED_ASSETS.items():
+        for symbol in symbols:
+            try:
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period="5d")
+                if hist.empty:
+                    continue
+                current_price = float(hist["Close"].iloc[-1])
+
+                # Get AI prediction if available
+                prediction = asset_predictor.predict_price(symbol, days)
+                if "error" not in prediction:
+                    trend_score = prediction.get("trend_score", 0)
+                    change_pct = trend_score * 0.005 * days * 100
+                    predicted_price = current_price * (1 + change_pct / 100)
+                    confidence = prediction.get("confidence", 50) / 100.0
+                else:
+                    change_pct = 0
+                    predicted_price = current_price
+                    confidence = 0.5
+
+                results.append({
+                    "symbol": symbol,
+                    "name": asset_predictor.all_assets.get(symbol, {}).get("name", symbol),
+                    "category": category,
+                    "current_price": round(current_price, 4),
+                    "predicted_price": round(predicted_price, 4),
+                    "change_pct": round(change_pct, 2),
+                    "direction": "up" if change_pct > 0 else "down" if change_pct < 0 else "flat",
+                    "confidence": round(confidence, 3),
+                })
+            except Exception as e:
+                print(f"[!] Extended prediction failed for {symbol}: {e}")
+
+    return {"predictions": results, "count": len(results)}
+
 
 @app.get("/api/ai/predictions/{prediction_id}")
 def get_prediction_by_id(prediction_id: str):

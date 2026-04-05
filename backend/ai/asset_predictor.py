@@ -27,6 +27,9 @@ class AssetType(str, Enum):
     STOCK = "stock"
     CRYPTO = "crypto"
     DERIVATIVE = "derivative"
+    BOND = "bond"
+    FX = "fx"
+    SENTIMENT = "sentiment"
 
 
 class AssetPredictor:
@@ -85,6 +88,14 @@ class AssetPredictor:
             # Industrial
             "BA": {"name": "The Boeing Company", "base_price": 200.0, "type": AssetType.STOCK, "exchange": "NYSE"},
             "CAT": {"name": "Caterpillar Inc.", "base_price": 250.0, "type": AssetType.STOCK, "exchange": "NYSE"},
+
+            # European Stocks
+            "ASML": {"name": "ASML Holding", "base_price": 900.0, "type": AssetType.STOCK, "exchange": "AMS"},
+            "SAP": {"name": "SAP SE", "base_price": 200.0, "type": AssetType.STOCK, "exchange": "XETRA"},
+            "MC.PA": {"name": "LVMH Moët Hennessy", "base_price": 800.0, "type": AssetType.STOCK, "exchange": "EPA"},
+
+            # Greek Stocks
+            "BOC.AT": {"name": "Bank of Cyprus", "base_price": 5.0, "type": AssetType.STOCK, "exchange": "ATH"},
         }
         
         # Cryptocurrencies (eToro supports 100+ cryptos, 70+ cryptoassets)
@@ -150,12 +161,33 @@ class AssetPredictor:
             "NZDUSD": {"name": "NZD/USD", "base_price": 0.61, "type": AssetType.DERIVATIVE, "underlying": "FOREX"},
         }
         
+        # Bonds (US Treasury yields as proxy)
+        self.bonds = {
+            "^TNX": {"name": "US 10Y Treasury Yield", "base_price": 4.3, "type": AssetType.BOND},
+            "^IRX": {"name": "US 3M Treasury Yield", "base_price": 5.2, "type": AssetType.BOND},
+            "^TYX": {"name": "US 30Y Treasury Yield", "base_price": 4.5, "type": AssetType.BOND},
+        }
+
+        # Extra FX pairs
+        self.fx = {
+            "EURUSD=X": {"name": "EUR/USD", "base_price": 1.08, "type": AssetType.FX},
+            "GBPEUR=X": {"name": "GBP/EUR", "base_price": 1.17, "type": AssetType.FX},
+        }
+
+        # Sentiment
+        self.sentiment = {
+            "^VIX": {"name": "VIX Fear Index", "base_price": 18.0, "type": AssetType.SENTIMENT},
+        }
+
         # Combine all assets
         self.all_assets = {}
         self.all_assets.update(self.precious_metals)
         self.all_assets.update(self.stocks)
         self.all_assets.update(self.cryptos)
         self.all_assets.update(self.derivatives)
+        self.all_assets.update(self.bonds)
+        self.all_assets.update(self.fx)
+        self.all_assets.update(self.sentiment)
         
         self.prediction_history = {}
 

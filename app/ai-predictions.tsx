@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
@@ -17,6 +17,8 @@ import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
 interface Prediction {
   id: string;
   asset: string;
+  symbol?: string;
+  category?: string;
   action: 'buy' | 'sell' | 'hold';
   confidence: number;
   price: number;
@@ -25,10 +27,22 @@ interface Prediction {
   reasoning: string;
 }
 
+const CATEGORIES = [
+  { key: 'all', label: 'Όλα', icon: '🌐' },
+  { key: 'crypto', label: 'Crypto', icon: '₿' },
+  { key: 'stocks', label: 'Μετοχές', icon: '📈' },
+  { key: 'metals', label: 'Μέταλλα', icon: '🥇' },
+  { key: 'bonds', label: 'Ομόλογα', icon: '📊' },
+  { key: 'derivatives', label: 'Παράγωγα', icon: '🔮' },
+  { key: 'fx', label: 'FX', icon: '💱' },
+  { key: 'sentiment', label: 'VIX', icon: '😨' },
+] as const;
+
 export default function AIPredictionsScreen() {
   const router = useRouter();
   const { predictions, setPredictions } = useAppStore();
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const { isOfflineMode } = useOfflineMode();
 
   const {
@@ -236,8 +250,22 @@ export default function AIPredictionsScreen() {
           </View>
         )}
 
+        {/* Category Tabs */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={styles.tabsContent}>
+          {CATEGORIES.map((cat) => (
+            <TouchableOpacity
+              key={cat.key}
+              style={[styles.tab, selectedCategory === cat.key && styles.tabActive]}
+              onPress={() => setSelectedCategory(cat.key)}
+            >
+              <Text style={styles.tabIcon}>{cat.icon}</Text>
+              <Text style={[styles.tabLabel, selectedCategory === cat.key && styles.tabLabelActive]}>{cat.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
         <FlatList
-          data={predictions}
+          data={selectedCategory === 'all' ? predictions : predictions?.filter((p: any) => p.category === selectedCategory)}
           keyExtractor={(item) => item.id}
           renderItem={renderPredictionCard}
           contentContainerStyle={styles.listContent}
@@ -256,6 +284,40 @@ export default function AIPredictionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  tabsContainer: {
+    maxHeight: 44,
+    marginBottom: theme.spacing.sm,
+  },
+  tabsContent: {
+    paddingHorizontal: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.large,
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    gap: 4,
+  },
+  tabActive: {
+    backgroundColor: theme.colors.brand.primary,
+    borderColor: theme.colors.brand.primary,
+  },
+  tabIcon: {
+    fontSize: 14,
+  },
+  tabLabel: {
+    fontSize: theme.typography.sizes.xs,
+    fontWeight: '600',
+    color: theme.colors.text.secondary,
+  },
+  tabLabelActive: {
+    color: '#FFFFFF',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
