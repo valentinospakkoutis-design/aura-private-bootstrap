@@ -337,11 +337,7 @@ class ApiClient {
   }
 
   async updatePassword(data: { currentPassword: string; newPassword: string }) {
-    const response = await this.client.put('/api/user/password', {
-      current_password: data.currentPassword,
-      new_password: data.newPassword,
-    });
-    return response.data;
+    return this.changePassword(data.currentPassword, data.newPassword);
   }
 
   async updateRiskProfile(riskProfile: 'conservative' | 'moderate' | 'aggressive') {
