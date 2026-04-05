@@ -3,7 +3,7 @@ SQLAlchemy models for AURA database
 """
 
 import os
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -142,4 +142,81 @@ class ModelTraining(Base):
     training_samples = Column(Integer, nullable=False)
     test_samples = Column(Integer, nullable=False)
     trained_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class HistoricalPrice(Base):
+    """Historical OHLCV price data for training"""
+    __tablename__ = "historical_prices"
+    __table_args__ = (UniqueConstraint("symbol", "date", name="uq_hist_price_symbol_date"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    asset_type = Column(String(20), nullable=False)
+    date = Column(Date, nullable=False, index=True)
+    open = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    close = Column(Float)
+    volume = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FinancialNews(Base):
+    """Financial news headlines for sentiment analysis"""
+    __tablename__ = "financial_news"
+
+    id = Column(Integer, primary_key=True, index=True)
+    headline = Column(Text, nullable=False)
+    summary = Column(Text)
+    source = Column(String(100))
+    url = Column(Text)
+    published_at = Column(DateTime, nullable=False, index=True)
+    symbols = Column(Text)  # comma-separated related symbols
+    sentiment_score = Column(Float)
+    sentiment_label = Column(String(10))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrainingFeature(Base):
+    """Engineered features for ML training"""
+    __tablename__ = "training_features"
+    __table_args__ = (UniqueConstraint("symbol", "date", name="uq_train_feat_symbol_date"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    features = Column(JSON, nullable=False)
+    target_return = Column(Float)
+    target_direction = Column(String(5))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ModelRegistry(Base):
+    """Model registry with performance metrics"""
+    __tablename__ = "model_registry"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    model_version = Column(String(20), nullable=False)
+    accuracy = Column(Float)
+    precision_score = Column(Float)
+    recall_score = Column(Float)
+    training_samples = Column(Integer)
+    features_used = Column(Text)  # comma-separated
+    trained_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+
+class TrainingLog(Base):
+    """Training pipeline execution logs"""
+    __tablename__ = "training_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(50), nullable=False, index=True)
+    phase = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False)  # running, completed, failed
+    message = Column(Text)
+    progress = Column(Float, default=0)  # 0-100
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
 

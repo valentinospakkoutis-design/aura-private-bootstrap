@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Query
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Query, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -2311,4 +2311,139 @@ def get_rolling_accuracy(symbol: str, days: int = 30):
     from services.accuracy_tracker import accuracy_tracker
     acc = accuracy_tracker.get_rolling_accuracy(symbol.upper(), days=days)
     return {"symbol": symbol.upper(), "rolling_accuracy": round(acc, 3), "days": days}
+
+
+# ── AI Training Pipeline Endpoints ──────────────────────────
+
+_training_jobs: Dict = {}  # job_id -> status
+
+
+def _run_pipeline_background(job_id: str, phase: str):
+    """Background task wrapper for training pipeline phases."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+    try:
+        if phase == "collect_data":
+            from scripts.collect_training_data import run_collection
+            run_collection(job_id)
+        elif phase == "label_sentiment":
+            from ml.sentiment_labeler import label_all_news
+            label_all_news(job_id)
+        elif phase == "feature_engineering":
+            from ml.feature_engineer import engineer_all_features
+            engineer_all_features(job_id)
+        elif phase == "retrain":
+            from ml.enhanced_trainer import retrain_all
+            retrain_all(job_id)
+        elif phase == "full_pipeline":
+            from scripts.run_full_pipeline import run_full_pipeline
+            run_full_pipeline(job_id)
+        _training_jobs[job_id] = {"status": "completed", "phase": phase}
+    except Exception as e:
+        _training_jobs[job_id] = {"status": "failed", "phase": phase, "error": str(e)}
+
+
+@app.post("/api/v1/training/collect-data")
+def trigger_data_collection(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+    """Phase 1: Trigger async data collection (OHLCV + news)."""
+    import uuid
+    job_id = f"collect_{uuid.uuid4().hex[:8]}"
+    _training_jobs[job_id] = {"status": "running", "phase": "collect_data"}
+    background_tasks.add_task(_run_pipeline_background, job_id, "collect_data")
+    return {"job_id": job_id, "status": "started", "phase": "collect_data"}
+
+
+@app.post("/api/v1/training/label-sentiment")
+def trigger_sentiment_labeling(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+    """Phase 2: Trigger async sentiment labeling."""
+    import uuid
+    job_id = f"sentiment_{uuid.uuid4().hex[:8]}"
+    _training_jobs[job_id] = {"status": "running", "phase": "label_sentiment"}
+    background_tasks.add_task(_run_pipeline_background, job_id, "label_sentiment")
+    return {"job_id": job_id, "status": "started", "phase": "label_sentiment"}
+
+
+@app.post("/api/v1/training/engineer-features")
+def trigger_feature_engineering(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+    """Phase 3: Trigger async feature engineering."""
+    import uuid
+    job_id = f"features_{uuid.uuid4().hex[:8]}"
+    _training_jobs[job_id] = {"status": "running", "phase": "feature_engineering"}
+    background_tasks.add_task(_run_pipeline_background, job_id, "feature_engineering")
+    return {"job_id": job_id, "status": "started", "phase": "feature_engineering"}
+
+
+@app.post("/api/v1/training/retrain")
+def trigger_retrain(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+    """Phase 4: Trigger async model retraining."""
+    import uuid
+    job_id = f"retrain_{uuid.uuid4().hex[:8]}"
+    _training_jobs[job_id] = {"status": "running", "phase": "retrain"}
+    background_tasks.add_task(_run_pipeline_background, job_id, "retrain")
+    return {"job_id": job_id, "status": "started", "phase": "retrain"}
+
+
+@app.post("/api/v1/training/full-pipeline")
+def trigger_full_pipeline(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+    """Run all 4 phases in sequence (async). Returns job_id to track progress."""
+    import uuid
+    job_id = f"pipeline_{uuid.uuid4().hex[:8]}"
+    _training_jobs[job_id] = {"status": "running", "phase": "full_pipeline"}
+    background_tasks.add_task(_run_pipeline_background, job_id, "full_pipeline")
+    return {"job_id": job_id, "status": "started", "phase": "full_pipeline"}
+
+
+@app.get("/api/v1/training/status/{job_id}")
+def get_training_status(job_id: str):
+    """Check training job progress. Reads from in-memory cache + training_logs table."""
+    # Check in-memory first
+    if job_id in _training_jobs:
+        result = dict(_training_jobs[job_id])
+    else:
+        result = {"status": "unknown"}
+
+    # Enrich from database logs
+    try:
+        db = SessionLocal()
+        from database.models import TrainingLog
+        logs = db.query(TrainingLog).filter(
+            TrainingLog.job_id == job_id
+        ).order_by(TrainingLog.id.desc()).limit(5).all()
+        result["logs"] = [
+            {"phase": l.phase, "status": l.status, "message": l.message,
+             "progress": l.progress, "time": l.started_at.isoformat() if l.started_at else None}
+            for l in logs
+        ]
+        db.close()
+    except Exception:
+        pass
+
+    return result
+
+
+@app.get("/api/v1/training/model-performance")
+def get_model_performance():
+    """Return accuracy metrics per symbol from model_registry."""
+    try:
+        db = SessionLocal()
+        from database.models import ModelRegistry
+        models = db.query(ModelRegistry).filter(
+            ModelRegistry.is_active == True
+        ).all()
+        result = [
+            {
+                "symbol": m.symbol,
+                "version": m.model_version,
+                "accuracy": m.accuracy,
+                "precision": m.precision_score,
+                "recall": m.recall_score,
+                "training_samples": m.training_samples,
+                "trained_at": m.trained_at.isoformat() if m.trained_at else None,
+            }
+            for m in models
+        ]
+        db.close()
+        return {"models": result, "count": len(result)}
+    except Exception as e:
+        return {"models": [], "count": 0, "error": str(e)}
 
