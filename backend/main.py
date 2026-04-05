@@ -232,14 +232,14 @@ templates = Jinja2Templates(directory=templates_dir)
 # CORS Configuration
 _allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "https://aura-private-bootstrap-production.up.railway.app,https://aura-frontend-production.up.railway.app,http://localhost:8081,http://localhost:8082,http://localhost:3000,http://localhost:19006"
+    "https://exciting-renewal-production-d251.up.railway.app,https://aura-private-bootstrap-production.up.railway.app,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Security Headers Middleware
