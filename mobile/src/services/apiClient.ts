@@ -146,6 +146,11 @@ class ApiClient {
     return predictionsArray;
   }
 
+  async getMarketMovers() {
+    const response = await this.client.get('/api/v1/market/movers', { timeout: 60000 });
+    return response.data;
+  }
+
   async getPredictionById(id: string) {
     const response = await this.client.get(`/api/ai/predictions/${id}`);
     return response.data;

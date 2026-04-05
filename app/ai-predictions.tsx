@@ -5,7 +5,6 @@ import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
-import { SkeletonList } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoPredictions } from '../mobile/src/components/NoPredictions';
 import { NoData } from '../mobile/src/components/NoData';
@@ -27,6 +26,15 @@ interface Prediction {
   reasoning: string;
 }
 
+interface Mover {
+  symbol: string;
+  name: string;
+  category: string;
+  price: number;
+  change_pct: number;
+  confidence: number;
+}
+
 const CATEGORIES = [
   { key: 'all', label: 'Όλα', icon: '🌐' },
   { key: 'crypto', label: 'Crypto', icon: '₿' },
@@ -43,41 +51,32 @@ export default function AIPredictionsScreen() {
   const { predictions, setPredictions } = useAppStore();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
   const { isOfflineMode } = useOfflineMode();
 
   const {
-    data,
     error,
     loading,
     execute: fetchPredictions,
   } = useApi((...args: any[]) => api.getPredictions(...args), { showLoading: false, showToast: false });
 
-  // WebSocket for real-time prices
   const assets = predictions?.map((p) => p.asset) || [];
   const { prices, isConnected } = usePriceUpdates(assets);
 
   useEffect(() => {
-    loadPredictions();
+    loadAll();
   }, []);
 
-  // Keep a ref to predictions to avoid infinite loop
   const predictionsRef = useRef(predictions);
-  useEffect(() => {
-    predictionsRef.current = predictions;
-  }, [predictions]);
+  useEffect(() => { predictionsRef.current = predictions; }, [predictions]);
 
-  // Update prediction prices in real-time
   useEffect(() => {
     if (prices.size > 0 && predictionsRef.current && predictionsRef.current.length > 0) {
       setPredictions(
         predictionsRef.current.map((prediction) => {
           const priceUpdate = prices.get(prediction.asset);
           if (priceUpdate) {
-            return {
-              ...prediction,
-              price: priceUpdate.price,
-              timestamp: priceUpdate.timestamp,
-            };
+            return { ...prediction, price: priceUpdate.price, timestamp: priceUpdate.timestamp };
           }
           return prediction;
         })
@@ -85,197 +84,198 @@ export default function AIPredictionsScreen() {
     }
   }, [prices, setPredictions]);
 
-  const loadPredictions = async () => {
+  const loadAll = async () => {
     try {
-      // Use cache when offline - pass useCache parameter to fetchPredictions
-      const result = await fetchPredictions(isOfflineMode);
-      if (Array.isArray(result)) {
-        setPredictions(result);
-      }
+      const [result] = await Promise.all([
+        fetchPredictions(isOfflineMode),
+        api.getMarketMovers().then(setMovers).catch(() => {}),
+      ]);
+      if (Array.isArray(result)) setPredictions(result);
     } catch (err) {
       console.error('Failed to load predictions:', err);
-      // If offline and cache fails, try to use existing predictions from store
-      if (isOfflineMode && predictions && predictions.length > 0) {
-        // Keep existing predictions
-        return;
-      }
     }
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadPredictions();
+    await loadAll();
     setRefreshing(false);
   };
 
   const getActionColor = (action: string) => {
     switch (action) {
-      case 'buy':
-        return theme.colors.market.bullish;
-      case 'sell':
-        return theme.colors.market.bearish;
-      case 'hold':
-        return theme.colors.market.neutral;
-      default:
-        return theme.colors.text.secondary;
+      case 'buy': return theme.colors.market.bullish;
+      case 'sell': return theme.colors.market.bearish;
+      case 'hold': return theme.colors.market.neutral;
+      default: return theme.colors.text.secondary;
     }
   };
 
   const getActionIcon = (action: string) => {
     switch (action) {
-      case 'buy':
-        return '📈';
-      case 'sell':
-        return '📉';
-      case 'hold':
-        return '⏸️';
-      default:
-        return '❓';
+      case 'buy': return '📈';
+      case 'sell': return '📉';
+      case 'hold': return '⏸️';
+      default: return '❓';
     }
   };
 
+  const filteredPredictions = selectedCategory === 'all'
+    ? predictions
+    : predictions?.filter((p: any) => p.category === selectedCategory);
+
+  // ── Mover Card ────────────────────────────────────────────
+  const renderMoverCard = (item: Mover) => {
+    const isPositive = item.change_pct >= 0;
+    return (
+      <View key={item.symbol} style={s.moverCard}>
+        <Text style={s.moverSymbol}>{item.symbol}</Text>
+        <Text style={s.moverName} numberOfLines={1}>{item.name}</Text>
+        <Text style={s.moverPrice}>${item.price < 1 ? item.price.toFixed(4) : item.price.toFixed(2)}</Text>
+        <View style={[s.moverBadge, { backgroundColor: isPositive ? theme.colors.market.bullish + '20' : theme.colors.market.bearish + '20' }]}>
+          <Text style={[s.moverChange, { color: isPositive ? theme.colors.market.bullish : theme.colors.market.bearish }]}>
+            {isPositive ? '▲' : '▼'} {Math.abs(item.change_pct).toFixed(1)}%
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  // ── Movers Section ────────────────────────────────────────
+  const renderMoversSection = () => {
+    if (!movers) return null;
+    const sections = [
+      { title: '📈 Πιο Κερδοφόρες', data: movers.top_gainers },
+      { title: '📉 Πιο Ζημιογόνες', data: movers.top_losers },
+      { title: '🔥 Υψηλή Βεβαιότητα', data: movers.top_volume },
+    ];
+    return (
+      <View style={s.moversContainer}>
+        <Text style={s.moversTitle}>Σημερινές Κορυφαίες Κινήσεις</Text>
+        {sections.map((section) => (
+          <View key={section.title}>
+            <Text style={s.moversSectionTitle}>{section.title}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.moversRow}>
+              {section.data.map(renderMoverCard)}
+            </ScrollView>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  // ── Prediction Card ───────────────────────────────────────
   const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => (
     <AnimatedListItem
       index={index}
       onPress={() => router.push(`/prediction-details?id=${item.id}`)}
-      style={styles.card}
+      style={s.card}
     >
-      {/* Header */}
-      <View style={styles.cardHeader}>
-        <View style={styles.assetContainer}>
-          <Text style={styles.assetName}>{item.asset}</Text>
-          <Text style={styles.timestamp}>
-            {new Date(item.timestamp).toLocaleTimeString('el-GR', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </Text>
+      <View style={s.cardHeader}>
+        <View style={s.assetContainer}>
+          <Text style={s.assetName}>{item.asset}</Text>
+          {item.symbol && item.symbol !== item.asset && (
+            <Text style={s.symbolBadge}>{item.symbol}</Text>
+          )}
         </View>
-        <View style={[styles.actionBadge, { backgroundColor: getActionColor(item.action) + '20' }]}>
-          <Text style={styles.actionIcon}>{getActionIcon(item.action)}</Text>
-          <Text style={[styles.actionText, { color: getActionColor(item.action) }]}>
+        <View style={[s.actionBadge, { backgroundColor: getActionColor(item.action) + '20' }]}>
+          <Text style={s.actionIcon}>{getActionIcon(item.action)}</Text>
+          <Text style={[s.actionText, { color: getActionColor(item.action) }]}>
             {item.action?.toUpperCase() ?? 'N/A'}
           </Text>
         </View>
       </View>
 
-      {/* Price Info */}
-      <View style={styles.priceContainer}>
-        <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Τρέχουσα Τιμή:</Text>
-          <Text style={styles.priceValue}>
-            ${item.price?.toFixed(2) ?? '0.00'}
-          </Text>
+      <View style={s.priceContainer}>
+        <View style={s.priceRow}>
+          <Text style={s.priceLabel}>Τρέχουσα:</Text>
+          <Text style={s.priceValue}>${item.price < 1 ? item.price?.toFixed(4) : item.price?.toFixed(2)}</Text>
         </View>
-        <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Στόχος:</Text>
-          <Text style={[styles.priceValue, { color: getActionColor(item.action) }]}>
-            ${item.targetPrice?.toFixed(2) ?? '0.00'}
+        <View style={s.priceRow}>
+          <Text style={s.priceLabel}>Στόχος:</Text>
+          <Text style={[s.priceValue, { color: getActionColor(item.action) }]}>
+            ${item.targetPrice < 1 ? item.targetPrice?.toFixed(4) : item.targetPrice?.toFixed(2)}
           </Text>
         </View>
       </View>
 
-      {/* Confidence - ANIMATED PROGRESS BAR */}
-      <View style={styles.confidenceContainer}>
-        <View style={styles.confidenceHeader}>
-          <Text style={styles.confidenceLabel}>Βεβαιότητα AI:</Text>
-          <Text style={styles.confidenceValue}>{(item.confidence * 100).toFixed(0)}%</Text>
+      <View style={s.confidenceContainer}>
+        <View style={s.confidenceHeader}>
+          <Text style={s.confidenceLabel}>Βεβαιότητα AI:</Text>
+          <Text style={s.confidenceValue}>{(item.confidence * 100).toFixed(0)}%</Text>
         </View>
-        <AnimatedProgressBar
-          progress={item.confidence}
-          color={getActionColor(item.action)}
-          height={8}
-          animated={true}
-        />
+        <AnimatedProgressBar progress={item.confidence} color={getActionColor(item.action)} height={8} animated />
       </View>
 
-      {/* Reasoning Preview */}
-      <Text style={styles.reasoning} numberOfLines={2}>
-        {item.reasoning}
-      </Text>
-
-      {/* View Details */}
-      <Text style={styles.viewDetails}>Δες Ανάλυση →</Text>
+      <Text style={s.reasoning} numberOfLines={2}>{item.reasoning}</Text>
+      <Text style={s.viewDetails}>Δες Ανάλυση →</Text>
     </AnimatedListItem>
   );
 
+  // ── Loading / Error / Empty states ────────────────────────
   if (loading && !refreshing && (!predictions || predictions.length === 0)) {
     return (
       <PageTransition type="fade">
-        <View style={styles.loadingContainer}>
+        <View style={s.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.brand.primary} />
-          <Text style={styles.loadingTitle}>Το AI αναλύει 76 assets...</Text>
-          <Text style={styles.loadingSubtitle}>Αυτό μπορεί να πάρει έως 30 δευτερόλεπτα</Text>
+          <Text style={s.loadingTitle}>Το AI αναλύει assets...</Text>
+          <Text style={s.loadingSubtitle}>Αυτό μπορεί να πάρει έως 30 δευτερόλεπτα</Text>
         </View>
       </PageTransition>
     );
   }
 
   if (error && (!predictions || predictions.length === 0)) {
-    return (
-      <PageTransition type="fade">
-        <NoData onRetry={loadPredictions} />
-      </PageTransition>
-    );
+    return <PageTransition type="fade"><NoData onRetry={loadAll} /></PageTransition>;
   }
 
   if (!predictions || predictions.length === 0) {
-    return (
-      <PageTransition type="fade">
-        <NoPredictions />
-      </PageTransition>
-    );
+    return <PageTransition type="fade"><NoPredictions /></PageTransition>;
   }
 
   return (
     <PageTransition type="slideUp">
-      <View style={styles.container}>
-        {/* Offline Banner */}
-        {isOfflineMode && (
-          <View style={styles.offlineBanner}>
-            <Text style={styles.offlineIcon}>📡</Text>
-            <Text style={styles.offlineText}>
-              Offline Mode - Showing cached data
-            </Text>
-          </View>
-        )}
-
-        {/* Connection Status */}
-        {!isOfflineMode && (
-          <View style={styles.connectionStatus}>
-            <View style={[styles.statusDot, { backgroundColor: isConnected ? theme.colors.semantic.success : theme.colors.semantic.error }]} />
-            <Text style={styles.statusText}>
-              {isConnected ? 'Live Prices' : 'Reconnecting...'}
-            </Text>
-          </View>
-        )}
-
-        {/* Category Tabs */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={styles.tabsContent}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat.key}
-              style={[styles.tab, selectedCategory === cat.key && styles.tabActive]}
-              onPress={() => setSelectedCategory(cat.key)}
-            >
-              <Text style={styles.tabIcon}>{cat.icon}</Text>
-              <Text style={[styles.tabLabel, selectedCategory === cat.key && styles.tabLabelActive]}>{cat.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
+      <View style={s.container}>
         <FlatList
-          data={selectedCategory === 'all' ? predictions : predictions?.filter((p: any) => p.category === selectedCategory)}
+          data={filteredPredictions}
           keyExtractor={(item) => item.id}
           renderItem={renderPredictionCard}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={theme.colors.brand.primary}
-            />
+          contentContainerStyle={s.listContent}
+          ListHeaderComponent={
+            <>
+              {/* Connection Status */}
+              {!isOfflineMode && (
+                <View style={s.connectionStatus}>
+                  <View style={[s.statusDot, { backgroundColor: isConnected ? theme.colors.semantic.success : theme.colors.semantic.error }]} />
+                  <Text style={s.statusText}>{isConnected ? 'Live Prices' : 'Reconnecting...'}</Text>
+                </View>
+              )}
+
+              {/* Top Movers */}
+              {renderMoversSection()}
+
+              {/* Category Tabs */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsContainer} contentContainerStyle={s.tabsContent}>
+                {CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.key}
+                    style={[s.tab, selectedCategory === cat.key && s.tabActive]}
+                    onPress={() => setSelectedCategory(cat.key)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={s.tabIcon}>{cat.icon}</Text>
+                    <Text style={[s.tabLabel, selectedCategory === cat.key && s.tabLabelActive]}>{cat.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Count */}
+              <Text style={s.countText}>
+                {filteredPredictions?.length || 0} predictions
+              </Text>
+            </>
           }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.brand.primary} />}
           showsVerticalScrollIndicator={false}
         />
       </View>
@@ -283,198 +283,76 @@ export default function AIPredictionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  tabsContainer: {
-    maxHeight: 44,
-    marginBottom: theme.spacing.sm,
-  },
-  tabsContent: {
-    paddingHorizontal: theme.spacing.md,
-    gap: theme.spacing.xs,
-  },
-  tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.large,
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.ui.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, padding: theme.spacing.xl },
+  loadingTitle: { fontSize: theme.typography.sizes.lg, fontWeight: '600', color: theme.colors.text.primary, textAlign: 'center' },
+  loadingSubtitle: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, textAlign: 'center' },
+  connectionStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: theme.spacing.sm },
+  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: theme.spacing.xs },
+  statusText: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, fontWeight: '600' },
+  listContent: { padding: theme.spacing.md, gap: theme.spacing.md },
+
+  // ── Movers ────────────────────────────────────────────────
+  moversContainer: { marginBottom: theme.spacing.md },
+  moversTitle: { fontSize: theme.typography.sizes.xl, fontWeight: '700', color: theme.colors.text.primary, marginBottom: theme.spacing.md },
+  moversSectionTitle: { fontSize: theme.typography.sizes.md, fontWeight: '600', color: theme.colors.text.secondary, marginBottom: theme.spacing.sm, marginTop: theme.spacing.sm },
+  moversRow: { gap: theme.spacing.sm, paddingRight: theme.spacing.md },
+  moverCard: {
     backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.large,
+    padding: theme.spacing.md,
+    width: 130,
+    alignItems: 'center',
+    gap: 4,
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
+  },
+  moverSymbol: { fontSize: theme.typography.sizes.sm, fontWeight: '700', color: theme.colors.text.primary },
+  moverName: { fontSize: 10, color: theme.colors.text.secondary, textAlign: 'center' },
+  moverPrice: { fontSize: theme.typography.sizes.md, fontWeight: '600', color: theme.colors.text.primary, marginTop: 2 },
+  moverBadge: { paddingHorizontal: theme.spacing.sm, paddingVertical: 2, borderRadius: theme.borderRadius.medium, marginTop: 2 },
+  moverChange: { fontSize: theme.typography.sizes.xs, fontWeight: '700' },
+
+  // ── Category Tabs ─────────────────────────────────────────
+  tabsContainer: { marginBottom: theme.spacing.md },
+  tabsContent: { gap: theme.spacing.xs },
+  tab: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm,
+    borderRadius: 20,
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderWidth: 1, borderColor: theme.colors.ui.border,
     gap: 4,
   },
-  tabActive: {
-    backgroundColor: theme.colors.brand.primary,
-    borderColor: theme.colors.brand.primary,
-  },
-  tabIcon: {
-    fontSize: 14,
-  },
-  tabLabel: {
-    fontSize: theme.typography.sizes.xs,
-    fontWeight: '600',
-    color: theme.colors.text.secondary,
-  },
-  tabLabelActive: {
-    color: '#FFFFFF',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-    padding: theme.spacing.xl,
-  },
-  loadingTitle: {
-    fontSize: theme.typography.sizes.lg,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    textAlign: 'center',
-  },
-  loadingSubtitle: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
-    textAlign: 'center',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.ui.background,
-  },
-  connectionStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: theme.spacing.xs,
-  },
-  statusText: {
-    fontSize: theme.typography.sizes.xs,
-    color: theme.colors.text.secondary,
-    fontWeight: '600',
-  },
-  listContent: {
-    padding: theme.spacing.md,
-    gap: theme.spacing.md,
-  },
+  tabActive: { backgroundColor: theme.colors.brand.primary, borderColor: theme.colors.brand.primary },
+  tabIcon: { fontSize: 14 },
+  tabLabel: { fontSize: theme.typography.sizes.xs, fontWeight: '600', color: theme.colors.text.secondary },
+  tabLabelActive: { color: '#FFFFFF' },
+  countText: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, marginBottom: theme.spacing.sm },
+
+  // ── Prediction Cards ──────────────────────────────────────
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
     borderRadius: theme.borderRadius.xl,
     padding: theme.spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.md,
-  },
-  assetContainer: {
-    flex: 1,
-  },
-  assetName: {
-    fontSize: theme.typography.sizes.xl,
-    fontFamily: theme.typography.fontFamily.primary,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.xs,
-  },
-  timestamp: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
-  },
-  actionBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.large,
-    gap: theme.spacing.xs,
-  },
-  actionIcon: {
-    fontSize: 16,
-  },
-  actionText: {
-    fontSize: theme.typography.sizes.sm,
-    fontFamily: theme.typography.fontFamily.primary,
-    fontWeight: '600',
-  },
-  priceContainer: {
-    marginBottom: theme.spacing.md,
-    gap: theme.spacing.xs,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  priceLabel: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
-  },
-  priceValue: {
-    fontSize: theme.typography.sizes.md,
-    fontFamily: theme.typography.fontFamily.primary,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  confidenceContainer: {
-    marginBottom: theme.spacing.md,
-  },
-  confidenceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.xs,
-  },
-  confidenceLabel: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
-  },
-  confidenceValue: {
-    fontSize: theme.typography.sizes.sm,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-  },
-  reasoning: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
-    lineHeight: 20,
-    marginBottom: theme.spacing.md,
-  },
-  viewDetails: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.brand.primary,
-    fontFamily: theme.typography.fontFamily.primary,
-    fontWeight: '600',
-    textAlign: 'right',
-  },
-  offlineBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.semantic.warning + '20',
-    paddingVertical: theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.semantic.warning,
-  },
-  offlineIcon: {
-    fontSize: 16,
-    marginRight: theme.spacing.xs,
-  },
-  offlineText: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.semantic.warning,
-    fontWeight: '600',
-  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.md },
+  assetContainer: { flex: 1 },
+  assetName: { fontSize: theme.typography.sizes.lg, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 2 },
+  symbolBadge: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, fontFamily: theme.typography.fontFamily.mono },
+  actionBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderRadius: theme.borderRadius.large, gap: theme.spacing.xs },
+  actionIcon: { fontSize: 16 },
+  actionText: { fontSize: theme.typography.sizes.sm, fontWeight: '600' },
+  priceContainer: { marginBottom: theme.spacing.md, gap: theme.spacing.xs },
+  priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  priceLabel: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary },
+  priceValue: { fontSize: theme.typography.sizes.md, fontWeight: '600', color: theme.colors.text.primary },
+  confidenceContainer: { marginBottom: theme.spacing.md },
+  confidenceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.xs },
+  confidenceLabel: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary },
+  confidenceValue: { fontSize: theme.typography.sizes.sm, fontWeight: '700', color: theme.colors.text.primary },
+  reasoning: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, lineHeight: 20, marginBottom: theme.spacing.md },
+  viewDetails: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600', textAlign: 'right' },
 });
-
