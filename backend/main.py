@@ -2344,7 +2344,7 @@ def _run_pipeline_background(job_id: str, phase: str):
 
 
 @app.post("/api/v1/training/collect-data")
-def trigger_data_collection(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+def trigger_data_collection(background_tasks: BackgroundTasks):
     """Phase 1: Trigger async data collection (OHLCV + news)."""
     import uuid
     job_id = f"collect_{uuid.uuid4().hex[:8]}"
@@ -2354,7 +2354,7 @@ def trigger_data_collection(background_tasks: BackgroundTasks, _user=Depends(req
 
 
 @app.post("/api/v1/training/label-sentiment")
-def trigger_sentiment_labeling(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+def trigger_sentiment_labeling(background_tasks: BackgroundTasks):
     """Phase 2: Trigger async sentiment labeling."""
     import uuid
     job_id = f"sentiment_{uuid.uuid4().hex[:8]}"
@@ -2364,7 +2364,7 @@ def trigger_sentiment_labeling(background_tasks: BackgroundTasks, _user=Depends(
 
 
 @app.post("/api/v1/training/engineer-features")
-def trigger_feature_engineering(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+def trigger_feature_engineering(background_tasks: BackgroundTasks):
     """Phase 3: Trigger async feature engineering."""
     import uuid
     job_id = f"features_{uuid.uuid4().hex[:8]}"
@@ -2374,7 +2374,7 @@ def trigger_feature_engineering(background_tasks: BackgroundTasks, _user=Depends
 
 
 @app.post("/api/v1/training/retrain")
-def trigger_retrain(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+def trigger_retrain(background_tasks: BackgroundTasks):
     """Phase 4: Trigger async model retraining."""
     import uuid
     job_id = f"retrain_{uuid.uuid4().hex[:8]}"
@@ -2384,7 +2384,7 @@ def trigger_retrain(background_tasks: BackgroundTasks, _user=Depends(require_aut
 
 
 @app.post("/api/v1/training/full-pipeline")
-def trigger_full_pipeline(background_tasks: BackgroundTasks, _user=Depends(require_auth)):
+def trigger_full_pipeline(background_tasks: BackgroundTasks):
     """Run all 4 phases in sequence (async). Returns job_id to track progress."""
     import uuid
     job_id = f"pipeline_{uuid.uuid4().hex[:8]}"
