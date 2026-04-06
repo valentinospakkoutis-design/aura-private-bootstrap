@@ -1,14 +1,15 @@
 """
 Backtesting Engine for AURA
-Walk-forward validation with realistic fees, slippage, and position sizing.
+Walk-forward validation with realistic fees, slippage, and smart trade filters.
 """
 
 import os
 import sys
 import logging
 import pickle
+import traceback
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -17,55 +18,70 @@ logger = logging.getLogger(__name__)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 
-# Map historical_prices symbols (yfinance) → model file symbols (asset_predictor)
-# and vice versa, so the backtester can find models regardless of naming
+# Symbol bridge: yfinance historical_prices → model files / training_features
 SYMBOL_ALIASES = {
-    "BTC-USD": ["BTCUSDC", "BTCUSDT", "BTC-USD"],
-    "ETH-USD": ["ETHUSDC", "ETHUSDT", "ETH-USD"],
-    "BNB-USD": ["BNBUSDC", "BNBUSDT", "BNB-USD"],
-    "XRP-USD": ["XRPUSDC", "XRPUSDT", "XRP-USD"],
-    "SOL-USD": ["SOLUSDC", "SOLUSDT", "SOL-USD"],
-    "ADA-USD": ["ADAUSDC", "ADAUSDT", "ADA-USD"],
-    "AVAX-USD": ["AVAXUSDC", "AVAXUSDT", "AVAX-USD"],
-    "DOT-USD": ["DOTUSDC", "DOTUSDT", "DOT-USD"],
-    "LINK-USD": ["LINKUSDC", "LINKUSDT", "LINK-USD"],
-    "GC=F": ["GC=F", "GC1!", "XAUUSDC"],
-    "SI=F": ["SI=F", "SI1!", "XAGUSDC"],
-    "PL=F": ["PL=F", "XPTUSDC"],
-    "PA=F": ["PA=F", "XPDUSDC"],
-    "CL=F": ["CL=F", "CL1!"],
-    "ES=F": ["ES=F", "ES1!"],
-    "NQ=F": ["NQ=F", "NQ1!"],
-    "^TNX": ["^TNX", "TNX"],
-    "^IRX": ["^IRX", "IRX"],
-    "^TYX": ["^TYX", "TYX"],
-    "^VIX": ["^VIX", "VIX"],
-    "EURUSD=X": ["EURUSD=X", "EURUSD"],
-    "GBPEUR=X": ["GBPEUR=X", "GBPEUR"],
-    "USDJPY=X": ["USDJPY=X", "USDJPY"],
+    "BTC-USD":   ["BTCUSDC", "BTCUSDT", "BTC-USD"],
+    "ETH-USD":   ["ETHUSDC", "ETHUSDT", "ETH-USD"],
+    "BNB-USD":   ["BNBUSDC", "BNBUSDT", "BNB-USD"],
+    "XRP-USD":   ["XRPUSDC", "XRPUSDT", "XRP-USD"],
+    "SOL-USD":   ["SOLUSDC", "SOLUSDT", "SOL-USD"],
+    "ADA-USD":   ["ADAUSDC", "ADAUSDT", "ADA-USD"],
+    "AVAX-USD":  ["AVAXUSDC", "AVAXUSDT", "AVAX-USD"],
+    "DOT-USD":   ["DOTUSDC", "DOTUSDT", "DOT-USD"],
+    "LINK-USD":  ["LINKUSDC", "LINKUSDT", "LINK-USD"],
+    "MATIC-USD": ["MATICUSDC", "MATICUSDT", "POLUSDC", "MATIC-USD"],
+    "GC=F":      ["GC=F", "GC1!", "XAUUSDC"],
+    "SI=F":      ["SI=F", "SI1!", "XAGUSDC"],
+    "PL=F":      ["PL=F", "XPTUSDC"],
+    "PA=F":      ["PA=F", "XPDUSDC"],
+    "CL=F":      ["CL=F", "CL1!"],
+    "ES=F":      ["ES=F", "ES1!"],
+    "NQ=F":      ["NQ=F", "NQ1!"],
+    "^TNX":      ["^TNX", "TNX"],
+    "^IRX":      ["^IRX", "IRX"],
+    "^TYX":      ["^TYX", "TYX"],
+    "^VIX":      ["^VIX", "VIX"],
+    "EURUSD=X":  ["EURUSD=X", "EURUSD"],
+    "GBPEUR=X":  ["GBPEUR=X", "GBPEUR"],
+    "USDJPY=X":  ["USDJPY=X", "USDJPY"],
 }
 
 
+def _get_all_aliases(symbol: str) -> List[str]:
+    """Get all alias names for a symbol, including itself."""
+    candidates = [symbol]
+    for key, aliases in SYMBOL_ALIASES.items():
+        if symbol == key or symbol in aliases:
+            candidates = list(dict.fromkeys([symbol, key] + aliases))
+            break
+    return candidates
+
+
+def _py(val):
+    """Convert numpy types to native Python for PostgreSQL."""
+    if hasattr(val, 'item'):
+        return val.item()
+    return val
+
+
 class Backtester:
-    """Core backtesting engine for a single symbol."""
+    """Core backtesting engine with smart trade filters."""
+
+    MIN_HOLD_DAYS = 5           # Minimum days to hold a position
+    MIN_CONVICTION_GAP = 0.15   # Minimum |buy_prob - sell_prob| to trade
+    VOL_MIN = 0.10              # Min annualized volatility to trade
+    VOL_MAX = 0.50              # Max annualized volatility to trade
 
     def __init__(self, symbol: str, initial_capital: float = 10000.0):
         self.symbol = symbol
         self.initial_capital = initial_capital
-        self.binance_fee = 0.001   # 0.1% per trade
-        self.slippage = 0.0005     # 0.05% slippage
-        self.risk_free_rate = 0.04  # 4% annual (US treasury proxy)
+        self.binance_fee = 0.001
+        self.slippage = 0.0005
+        self.risk_free_rate = 0.04
 
     def _load_model(self) -> Optional[dict]:
-        """Load the latest ensemble or xgboost model, trying all symbol aliases."""
-        # Build list of symbol names to try
-        candidates = [self.symbol]
-        for key, aliases in SYMBOL_ALIASES.items():
-            if self.symbol in aliases or self.symbol == key:
-                candidates = [key] + aliases
-                break
-
-        for sym in candidates:
+        """Load model, trying all symbol aliases."""
+        for sym in _get_all_aliases(self.symbol):
             for suffix in ["_ensemble_latest.pkl", "_xgboost_latest.pkl"]:
                 path = os.path.join(MODELS_DIR, f"{sym}{suffix}")
                 if os.path.exists(path):
@@ -73,254 +89,246 @@ class Backtester:
                         return pickle.load(f)
         return None
 
-    def _generate_signals(self, features_df: pd.DataFrame, model_data: dict) -> pd.Series:
-        """Generate prediction confidence from model on feature rows."""
+    def _generate_signals(self, features_df: pd.DataFrame, model_data: dict) -> pd.DataFrame:
+        """Generate buy_prob, sell_prob per row from model."""
         feature_cols = model_data.get("feature_cols", [])
+        n = len(features_df)
+        default = pd.DataFrame({"buy_prob": [0.5]*n, "sell_prob": [0.5]*n}, index=features_df.index)
         if not feature_cols:
-            return pd.Series(0.5, index=features_df.index)
+            return default
 
-        # Build X with ALL expected feature columns, pad missing with 0
-        X = np.zeros((len(features_df), len(feature_cols)))
+        # Build X with all expected columns, pad missing with 0
+        X = np.zeros((n, len(feature_cols)))
         for i, col in enumerate(feature_cols):
             if col in features_df.columns:
-                vals = features_df[col].fillna(0).values
-                X[:, i] = vals
+                X[:, i] = features_df[col].fillna(0).values
 
         scaler = model_data.get("scaler")
         if scaler:
             try:
                 X = scaler.transform(X)
-            except Exception as e:
-                print(f"[Backtest] Scaler transform failed: {e}, using unscaled")
+            except Exception:
+                pass
 
-        # Ensemble model
+        # Get probabilities
         if "xgb_model" in model_data and "rf_model" in model_data:
-            xgb_proba = model_data["xgb_model"].predict_proba(X)[:, 1]
-            rf_proba = model_data["rf_model"].predict_proba(X)[:, 1]
-            confidence = 0.6 * xgb_proba + 0.4 * rf_proba
+            try:
+                xgb_p = model_data["xgb_model"].predict_proba(X)
+                rf_p = model_data["rf_model"].predict_proba(X)
+                # class 0=down, class 1=up
+                buy_prob = 0.6 * xgb_p[:, 1] + 0.4 * rf_p[:, 1]
+                sell_prob = 0.6 * xgb_p[:, 0] + 0.4 * rf_p[:, 0]
+            except Exception:
+                return default
         elif "model" in model_data:
-            # Single model (xgboost regressor — predict returns)
-            preds = model_data["model"].predict(X)
-            # Normalize to 0-1 confidence range
-            confidence = 1 / (1 + np.exp(-preds * 10))  # sigmoid
+            try:
+                preds = model_data["model"].predict(X)
+                buy_prob = 1 / (1 + np.exp(-preds * 10))
+                sell_prob = 1 - buy_prob
+            except Exception:
+                return default
         else:
-            confidence = np.full(len(X), 0.5)
+            return default
 
-        return pd.Series(confidence, index=features_df.index)
+        return pd.DataFrame({"buy_prob": buy_prob, "sell_prob": sell_prob}, index=features_df.index)
 
-    def _position_size(self, confidence: float, mode: str = "tiered") -> float:
-        """Calculate position size based on confidence."""
-        if mode == "half_kelly":
-            # Half-Kelly: f* = (p * b - q) / b, then take half
-            p = confidence
-            q = 1 - p
-            b = 1.0  # assume 1:1 reward ratio
-            kelly = (p * b - q) / b if b > 0 else 0
-            return max(0, min(1, kelly / 2))
-
-        # Tiered mode (default)
-        if confidence < 0.55:
+    def _position_size(self, conviction_gap: float) -> float:
+        """Tiered position sizing based on conviction gap."""
+        if conviction_gap < 0.15:
             return 0.0
-        elif confidence < 0.60:
+        elif conviction_gap < 0.25:
             return 0.25
-        elif confidence < 0.70:
+        elif conviction_gap < 0.40:
             return 0.50
         else:
             return 1.0
 
-    def _threshold_signal(self, returns: pd.Series, threshold: float = 0.01) -> pd.Series:
-        """Convert returns to threshold-based signals: BUY/SELL/NEUTRAL."""
-        signals = pd.Series("NEUTRAL", index=returns.index)
-        signals[returns > threshold] = "BUY"
-        signals[returns < -threshold] = "SELL"
-        return signals
-
-    def run(self, prices_df: pd.DataFrame, features_df: Optional[pd.DataFrame] = None,
-            position_mode: str = "tiered") -> Dict:
-        """
-        Run backtest simulation.
-
-        Args:
-            prices_df: DataFrame with date index, 'close' column
-            features_df: DataFrame with engineered features (for model predictions)
-            position_mode: 'tiered' or 'half_kelly'
-
-        Returns:
-            Dict with all performance metrics
-        """
+    def run(self, prices_df: pd.DataFrame, features_df: Optional[pd.DataFrame] = None) -> Dict:
+        """Run backtest with smart filters: conviction gap, volatility regime, trend, hold period."""
         model_data = self._load_model()
-
-        # Generate confidence signals
-        if features_df is not None and model_data is not None and len(features_df) > 0:
-            confidences = self._generate_signals(features_df, model_data)
-        else:
-            # No model — use random confidence (baseline comparison)
-            confidences = pd.Series(np.random.uniform(0.45, 0.65, len(prices_df)), index=prices_df.index)
 
         prices = prices_df["close"].values
         dates = prices_df.index
+        n = len(prices)
 
-        # Align confidences to prices index
-        conf_aligned = confidences.reindex(dates).fillna(0.5).values
+        # Pre-compute technical filters
+        close_series = pd.Series(prices, index=dates)
+        returns = close_series.pct_change().fillna(0)
+        ma20 = close_series.rolling(20, min_periods=1).mean()
+        ma60 = close_series.rolling(60, min_periods=1).mean()
+        rolling_vol = returns.rolling(20, min_periods=5).std() * np.sqrt(252)
 
+        # Get model signals (buy_prob, sell_prob per day)
+        if features_df is not None and model_data is not None and len(features_df) > 0:
+            signals_df = self._generate_signals(features_df, model_data)
+            # Reindex to match prices
+            signals_df = signals_df.reindex(dates).fillna(0.5)
+        else:
+            signals_df = pd.DataFrame({"buy_prob": [0.5]*n, "sell_prob": [0.5]*n}, index=dates)
+
+        buy_probs = signals_df["buy_prob"].values
+        sell_probs = signals_df["sell_prob"].values
+
+        # ── Simulation loop with 4 filters ───────────────────
         capital = self.initial_capital
-        position = 0.0  # units held
+        position = 0.0
         trades = []
         equity_curve = [capital]
         total_fees = 0.0
+        days_in_position = 0
 
-        for i in range(1, len(prices)):
+        for i in range(1, n):
             price = prices[i]
-            prev_price = prices[i - 1]
-            conf = conf_aligned[i] if i < len(conf_aligned) else 0.5
+            equity_curve.append(capital + position * price)
 
-            # Determine position size
-            target_alloc = self._position_size(conf, position_mode)
-
-            # Current position value
-            position_value = position * price
-            total_value = capital + position_value
-
-            # Target position in units
-            target_value = total_value * target_alloc
-            target_units = target_value / price if price > 0 else 0
-
-            delta_units = target_units - position
-
-            if abs(delta_units * price) < 1.0:
-                # Skip tiny trades
-                equity_curve.append(capital + position * price)
+            if price <= 0:
                 continue
 
-            # Execute trade
-            trade_value = abs(delta_units * price)
+            buy_p = buy_probs[i] if i < len(buy_probs) else 0.5
+            sell_p = sell_probs[i] if i < len(sell_probs) else 0.5
+            conviction = abs(float(buy_p) - float(sell_p))
+            vol = float(rolling_vol.iloc[i]) if i < len(rolling_vol) and not np.isnan(rolling_vol.iloc[i]) else 0.20
+            trend_up = float(ma20.iloc[i]) > float(ma60.iloc[i])
+
+            # ── Filter A: Conviction gap ─────────────────────
+            if conviction < self.MIN_CONVICTION_GAP:
+                if position > 0:
+                    days_in_position += 1
+                continue
+
+            # ── Filter B: Volatility regime ──────────────────
+            if vol < self.VOL_MIN or vol > self.VOL_MAX:
+                if position > 0:
+                    days_in_position += 1
+                continue
+
+            # Determine signal direction
+            is_buy_signal = buy_p > sell_p
+            is_sell_signal = sell_p > buy_p
+
+            # ── Filter C: Trend confirmation ─────────────────
+            if is_buy_signal and not trend_up:
+                if position > 0:
+                    days_in_position += 1
+                continue
+            if is_sell_signal and trend_up:
+                if position > 0:
+                    days_in_position += 1
+                continue
+
+            # ── Filter D: Minimum hold period ────────────────
+            if position > 0:
+                days_in_position += 1
+                if days_in_position < self.MIN_HOLD_DAYS:
+                    continue
+
+            # ── Execute trade ────────────────────────────────
+            target_alloc = self._position_size(conviction) if is_buy_signal else 0.0
+            total_value = capital + position * price
+            target_value = total_value * target_alloc
+            target_units = target_value / price
+            delta = target_units - position
+
+            if abs(delta * price) < 1.0:
+                continue
+
+            trade_value = abs(delta * price)
             fee = trade_value * (self.binance_fee + self.slippage)
             total_fees += fee
 
-            if delta_units > 0:
-                # BUY
-                cost = delta_units * price + fee
-                if cost <= capital:
-                    capital -= cost
-                    position += delta_units
-                    trades.append({
-                        "date": str(dates[i]),
-                        "type": "BUY",
-                        "price": price,
-                        "units": delta_units,
-                        "value": trade_value,
-                        "fee": fee,
-                    })
-            elif delta_units < 0:
-                # SELL
-                sell_units = min(abs(delta_units), position)
-                revenue = sell_units * price - fee
-                capital += revenue
+            if delta > 0 and capital >= delta * price + fee:
+                capital -= delta * price + fee
+                position += delta
+                days_in_position = 0
+                trades.append({"date": str(dates[i]), "type": "BUY", "price": float(price), "value": float(trade_value), "fee": float(fee)})
+            elif delta < 0 and position > 0:
+                sell_units = min(abs(delta), position)
+                capital += sell_units * price - fee
                 position -= sell_units
-                trades.append({
-                    "date": str(dates[i]),
-                    "type": "SELL",
-                    "price": price,
-                    "units": sell_units,
-                    "value": trade_value,
-                    "fee": fee,
-                })
-
-            equity_curve.append(capital + position * price)
+                days_in_position = 0
+                trades.append({"date": str(dates[i]), "type": "SELL", "price": float(price), "value": float(trade_value), "fee": float(fee)})
 
         # Final liquidation
         if position > 0:
-            final_value = position * prices[-1]
-            fee = final_value * self.binance_fee
+            fee = position * prices[-1] * self.binance_fee
             total_fees += fee
-            capital += final_value - fee
+            capital += position * prices[-1] - fee
             position = 0
 
-        final_capital = capital
         equity = np.array(equity_curve)
-
-        return self._calculate_metrics(
-            equity, trades, prices_df, final_capital, total_fees
-        )
+        return self._calculate_metrics(equity, trades, prices_df, capital, total_fees)
 
     def _calculate_metrics(self, equity: np.ndarray, trades: List[Dict],
                            prices_df: pd.DataFrame, final_capital: float,
                            total_fees: float) -> Dict:
-        """Calculate comprehensive performance metrics."""
+        """Calculate all performance metrics with native Python types."""
         n_days = len(equity)
-        n_years = n_days / 252 if n_days > 0 else 1
+        n_years = max(n_days / 252, 0.01)
 
         total_return = (final_capital - self.initial_capital) / self.initial_capital
-        annual_return = (1 + total_return) ** (1 / max(n_years, 0.01)) - 1
+        annual_return = (1 + total_return) ** (1 / n_years) - 1
 
-        # Daily returns
-        daily_returns = np.diff(equity) / equity[:-1]
+        daily_returns = np.diff(equity) / np.maximum(equity[:-1], 0.01)
         daily_returns = daily_returns[np.isfinite(daily_returns)]
 
-        # Sharpe ratio (annualized)
+        # Sharpe
         if len(daily_returns) > 1 and np.std(daily_returns) > 0:
-            excess_return = np.mean(daily_returns) - self.risk_free_rate / 252
-            sharpe = excess_return / np.std(daily_returns) * np.sqrt(252)
+            sharpe = float((np.mean(daily_returns) - self.risk_free_rate / 252) / np.std(daily_returns) * np.sqrt(252))
         else:
             sharpe = 0.0
 
-        # Sortino ratio (only downside deviation)
+        # Sortino
         downside = daily_returns[daily_returns < 0]
-        if len(downside) > 1:
-            downside_std = np.std(downside)
-            excess_return = np.mean(daily_returns) - self.risk_free_rate / 252
-            sortino = excess_return / downside_std * np.sqrt(252) if downside_std > 0 else 0
+        if len(downside) > 1 and np.std(downside) > 0:
+            sortino = float((np.mean(daily_returns) - self.risk_free_rate / 252) / np.std(downside) * np.sqrt(252))
         else:
             sortino = 0.0
 
         # Max drawdown
         peak = np.maximum.accumulate(equity)
-        drawdown = (equity - peak) / peak
-        max_dd = float(np.min(drawdown)) if len(drawdown) > 0 else 0
+        drawdown = (equity - peak) / np.maximum(peak, 0.01)
+        max_dd = float(np.min(drawdown))
 
-        # Max drawdown duration
-        dd_duration = 0
-        max_dd_duration = 0
-        for i in range(len(drawdown)):
-            if drawdown[i] < 0:
-                dd_duration += 1
-                max_dd_duration = max(max_dd_duration, dd_duration)
+        # Drawdown duration
+        dd_dur = 0
+        max_dd_dur = 0
+        for d in drawdown:
+            if d < 0:
+                dd_dur += 1
+                max_dd_dur = max(max_dd_dur, dd_dur)
             else:
-                dd_duration = 0
+                dd_dur = 0
 
         # Trade analysis
         trade_returns = []
-        for i in range(0, len(trades) - 1, 2):
-            if i + 1 < len(trades):
-                buy_t = trades[i] if trades[i]["type"] == "BUY" else trades[i + 1]
-                sell_t = trades[i + 1] if trades[i + 1]["type"] == "SELL" else trades[i]
-                if buy_t["price"] > 0:
-                    ret = (sell_t["price"] - buy_t["price"]) / buy_t["price"]
-                    trade_returns.append(ret)
+        buys = [t for t in trades if t["type"] == "BUY"]
+        sells = [t for t in trades if t["type"] == "SELL"]
+        for i in range(min(len(buys), len(sells))):
+            if buys[i]["price"] > 0:
+                trade_returns.append((sells[i]["price"] - buys[i]["price"]) / buys[i]["price"])
 
         winning = [r for r in trade_returns if r > 0]
         losing = [r for r in trade_returns if r <= 0]
-        win_rate = len(winning) / len(trade_returns) * 100 if trade_returns else 0
-
-        gross_profit = sum(winning) if winning else 0
+        win_rate = len(winning) / len(trade_returns) * 100 if trade_returns else 0.0
+        gross_profit = sum(winning) if winning else 0.0
         gross_loss = abs(sum(losing)) if losing else 0.001
-        profit_factor = gross_profit / gross_loss
-
-        calmar = annual_return / abs(max_dd) if max_dd != 0 else 0
+        calmar = annual_return / abs(max_dd) if max_dd != 0 else 0.0
+        trades_per_year = len(trades) / max(n_years, 0.01)
 
         metrics = {
             "symbol": self.symbol,
-            "initial_capital": self.initial_capital,
-            "final_capital": round(final_capital, 2),
-            "total_return_pct": round(total_return * 100, 2),
-            "annual_return_pct": round(annual_return * 100, 2),
-            "sharpe_ratio": round(float(sharpe), 3),
-            "sortino_ratio": round(float(sortino), 3),
-            "max_drawdown_pct": round(float(max_dd) * 100, 2),
-            "max_drawdown_duration_days": int(max_dd_duration),
-            "win_rate_pct": round(win_rate, 1),
-            "profit_factor": round(profit_factor, 3),
+            "initial_capital": float(self.initial_capital),
+            "final_capital": round(float(final_capital), 2),
+            "total_return_pct": round(float(total_return * 100), 2),
+            "annual_return_pct": round(float(annual_return * 100), 2),
+            "sharpe_ratio": round(sharpe, 3),
+            "sortino_ratio": round(sortino, 3),
+            "max_drawdown_pct": round(float(max_dd * 100), 2),
+            "max_drawdown_duration_days": int(max_dd_dur),
+            "win_rate_pct": round(float(win_rate), 1),
+            "profit_factor": round(float(gross_profit / gross_loss), 3),
             "total_trades": int(len(trades)),
+            "trades_per_year": round(float(trades_per_year), 1),
             "avg_trade_return_pct": round(float(np.mean(trade_returns) * 100), 2) if trade_returns else 0.0,
             "avg_winning_trade_pct": round(float(np.mean(winning) * 100), 2) if winning else 0.0,
             "avg_losing_trade_pct": round(float(np.mean(losing) * 100), 2) if losing else 0.0,
@@ -332,188 +340,109 @@ class Backtester:
             "start_date": str(prices_df.index[0]) if len(prices_df) > 0 else None,
             "end_date": str(prices_df.index[-1]) if len(prices_df) > 0 else None,
         }
-
-        # Convert any remaining numpy types to native Python for PostgreSQL
-        metrics = {k: (v.item() if hasattr(v, 'item') else v) for k, v in metrics.items()}
-
-        return metrics
+        return {k: _py(v) for k, v in metrics.items()}
 
 
-def run_walk_forward(symbol: str, db_session, train_months: int = 18,
-                     test_months: int = 6, step_months: int = 3) -> List[Dict]:
-    """Walk-forward validation: train windows → test windows → slide."""
-    from database.models import HistoricalPrice, TrainingFeature
+def _load_features_with_aliases(db_session, symbol: str) -> Optional[pd.DataFrame]:
+    """Load features from training_features, trying all symbol aliases."""
+    from database.models import TrainingFeature
 
-    prices = db_session.query(HistoricalPrice).filter(
-        HistoricalPrice.symbol == symbol
-    ).order_by(HistoricalPrice.date).all()
-
-    if len(prices) < 200:
-        return []
-
-    price_df = pd.DataFrame([{
-        "date": p.date, "close": p.close, "open": p.open,
-        "high": p.high, "low": p.low, "volume": p.volume
-    } for p in prices]).set_index("date").sort_index()
-
-    # Load features
-    features = db_session.query(TrainingFeature).filter(
-        TrainingFeature.symbol == symbol
-    ).order_by(TrainingFeature.date).all()
-
-    feat_df = None
-    if features:
-        records = []
-        for f in features:
-            row = f.features if isinstance(f.features, dict) else {}
-            row["_date"] = f.date
-            records.append(row)
-        feat_df = pd.DataFrame(records).set_index("_date").sort_index()
-
-    # Walk-forward windows
-    bt = Backtester(symbol)
-    results = []
-    start = price_df.index[0]
-    end = price_df.index[-1]
-
-    window_start = start
-    while True:
-        train_end = window_start + timedelta(days=train_months * 30)
-        test_end = train_end + timedelta(days=test_months * 30)
-
-        if test_end > end:
-            break
-
-        test_prices = price_df.loc[train_end:test_end]
-        test_feats = feat_df.loc[train_end:test_end] if feat_df is not None else None
-
-        if len(test_prices) < 20:
-            window_start += timedelta(days=step_months * 30)
-            continue
-
-        metrics = bt.run(test_prices, test_feats)
-        metrics["window"] = f"{train_end.isoformat()} to {test_end.isoformat()}"
-        results.append(metrics)
-
-        window_start += timedelta(days=step_months * 30)
-
-    return results
-
-
-def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
-    """Run full backtest for a single symbol and store results."""
-    import traceback
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-    from database.connection import SessionLocal
-    from database.models import HistoricalPrice, TrainingFeature, BacktestResult
-
-    print(f"[Backtest] Starting backtest for {symbol}")
-    db = SessionLocal()
-    if not db:
-        print(f"[Backtest] ERROR: SessionLocal is None — DATABASE_URL not set?")
-        return {"symbol": symbol, "error": "Database not available"}
-
-    try:
-        # Step 1: Load price data from DB
-        prices = db.query(HistoricalPrice).filter(
-            HistoricalPrice.symbol == symbol
-        ).order_by(HistoricalPrice.date).all()
-        print(f"[Backtest] {symbol}: loaded {len(prices)} rows from historical_prices")
-
-        # Try alias symbols
-        if len(prices) < 60:
-            for key, aliases in SYMBOL_ALIASES.items():
-                if symbol in aliases or symbol == key:
-                    for alias in [key] + aliases:
-                        if alias == symbol:
-                            continue
-                        alt = db.query(HistoricalPrice).filter(
-                            HistoricalPrice.symbol == alias
-                        ).order_by(HistoricalPrice.date).all()
-                        if len(alt) >= 60:
-                            print(f"[Backtest] {symbol}: found {len(alt)} rows under alias {alias}")
-                            prices = alt
-                            break
-                    break
-
-        # Step 2: yfinance fallback
-        if len(prices) < 60:
-            print(f"[Backtest] {symbol}: only {len(prices)} DB rows, trying yfinance...")
-            try:
-                import yfinance as yf
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="3y", interval="1d")
-                if len(hist) >= 60:
-                    price_df = pd.DataFrame({
-                        "close": hist["Close"].values
-                    }, index=hist.index.date)
-                    price_df.index.name = "date"
-                    print(f"[Backtest] {symbol}: got {len(hist)} rows from yfinance")
-                else:
-                    print(f"[Backtest] {symbol}: yfinance returned {len(hist)} rows — skipping")
-                    db.close()
-                    return {"symbol": symbol, "error": f"Insufficient data ({len(hist)} rows)"}
-            except Exception as yf_err:
-                print(f"[Backtest] {symbol}: yfinance fallback failed: {yf_err}")
-                traceback.print_exc()
-                db.close()
-                return {"symbol": symbol, "error": f"yfinance: {yf_err}"}
-        else:
-            price_df = pd.DataFrame([{
-                "date": p.date, "close": p.close
-            } for p in prices]).set_index("date").sort_index()
-
-        # Step 3: Load features (optional)
-        features = db.query(TrainingFeature).filter(
-            TrainingFeature.symbol == symbol
+    for alias in _get_all_aliases(symbol):
+        features = db_session.query(TrainingFeature).filter(
+            TrainingFeature.symbol == alias
         ).order_by(TrainingFeature.date).all()
-        print(f"[Backtest] {symbol}: loaded {len(features)} feature rows")
-
-        feat_df = None
         if features:
+            print(f"[Backtest] {symbol}: loaded {len(features)} features under alias '{alias}'")
             records = []
             for f in features:
                 row = f.features if isinstance(f.features, dict) else {}
                 row["_date"] = f.date
                 records.append(row)
-            feat_df = pd.DataFrame(records).set_index("_date").sort_index()
+            df = pd.DataFrame(records).set_index("_date").sort_index()
+            return df
 
-        # Step 4: Load model
+    print(f"[Backtest] {symbol}: no features found (tried {_get_all_aliases(symbol)})")
+    return None
+
+
+def _load_prices_with_aliases(db_session, symbol: str) -> Optional[pd.DataFrame]:
+    """Load prices from historical_prices, trying all symbol aliases + yfinance fallback."""
+    from database.models import HistoricalPrice
+
+    for alias in _get_all_aliases(symbol):
+        prices = db_session.query(HistoricalPrice).filter(
+            HistoricalPrice.symbol == alias
+        ).order_by(HistoricalPrice.date).all()
+        if len(prices) >= 60:
+            print(f"[Backtest] {symbol}: loaded {len(prices)} price rows under alias '{alias}'")
+            return pd.DataFrame([{
+                "date": p.date, "close": p.close
+            } for p in prices]).set_index("date").sort_index()
+
+    # yfinance fallback
+    print(f"[Backtest] {symbol}: no DB prices, trying yfinance...")
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(symbol).history(period="3y", interval="1d")
+        if len(hist) >= 60:
+            print(f"[Backtest] {symbol}: got {len(hist)} rows from yfinance")
+            return pd.DataFrame({"close": hist["Close"].values}, index=hist.index.date)
+    except Exception as e:
+        print(f"[Backtest] {symbol}: yfinance failed: {e}")
+
+    return None
+
+
+def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
+    """Run full backtest for a single symbol and store results."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from database.connection import SessionLocal
+    from database.models import BacktestResult
+
+    print(f"\n[Backtest] === Starting {symbol} ===")
+    db = SessionLocal()
+    if not db:
+        return {"symbol": symbol, "error": "Database not available"}
+
+    try:
+        price_df = _load_prices_with_aliases(db, symbol)
+        if price_df is None:
+            db.close()
+            return {"symbol": symbol, "error": "No price data"}
+
+        feat_df = _load_features_with_aliases(db, symbol)
+
         bt = Backtester(symbol)
         model = bt._load_model()
-        print(f"[Backtest] {symbol}: model loaded = {model is not None}")
+        print(f"[Backtest] {symbol}: model={'loaded' if model else 'none'}, "
+              f"prices={len(price_df)}, features={len(feat_df) if feat_df is not None else 0}")
 
-        # Step 5: Run backtest
         metrics = bt.run(price_df, feat_df)
         print(f"[Backtest] {symbol}: return={metrics['total_return_pct']}%, "
-              f"sharpe={metrics['sharpe_ratio']}, trades={metrics['total_trades']}")
+              f"sharpe={metrics['sharpe_ratio']}, trades={metrics['total_trades']}, "
+              f"trades/yr={metrics['trades_per_year']}")
 
-        # Step 6: Store in DB — ensure all values are native Python types
-        def _py(v):
-            if hasattr(v, 'item'):
-                return v.item()
-            return v
-
+        # Store in DB
         db.add(BacktestResult(
             symbol=symbol,
             start_date=price_df.index[0] if len(price_df) > 0 else None,
             end_date=price_df.index[-1] if len(price_df) > 0 else None,
-            initial_capital=float(_py(bt.initial_capital)),
-            final_capital=float(_py(metrics["final_capital"])),
-            total_return_pct=float(_py(metrics["total_return_pct"])),
-            annual_return_pct=float(_py(metrics["annual_return_pct"])),
-            sharpe_ratio=float(_py(metrics["sharpe_ratio"])),
-            sortino_ratio=float(_py(metrics["sortino_ratio"])),
-            max_drawdown_pct=float(_py(metrics["max_drawdown_pct"])),
-            win_rate_pct=float(_py(metrics["win_rate_pct"])),
-            profit_factor=float(_py(metrics["profit_factor"])),
-            total_trades=int(_py(metrics["total_trades"])),
-            total_fees_paid=float(_py(metrics["total_fees_paid"])),
-            calmar_ratio=float(_py(metrics["calmar_ratio"])),
-            metrics_json={k: (_py(v) if not isinstance(v, str) and v is not None else v) for k, v in metrics.items()},
+            initial_capital=float(bt.initial_capital),
+            final_capital=float(metrics["final_capital"]),
+            total_return_pct=float(metrics["total_return_pct"]),
+            annual_return_pct=float(metrics["annual_return_pct"]),
+            sharpe_ratio=float(metrics["sharpe_ratio"]),
+            sortino_ratio=float(metrics["sortino_ratio"]),
+            max_drawdown_pct=float(metrics["max_drawdown_pct"]),
+            win_rate_pct=float(metrics["win_rate_pct"]),
+            profit_factor=float(metrics["profit_factor"]),
+            total_trades=int(metrics["total_trades"]),
+            total_fees_paid=float(metrics["total_fees_paid"]),
+            calmar_ratio=float(metrics["calmar_ratio"]),
+            metrics_json=metrics,
         ))
         db.commit()
-        print(f"[Backtest] {symbol}: saved to backtest_results")
+        print(f"[Backtest] {symbol}: saved to DB")
         db.close()
         return metrics
 
@@ -529,44 +458,31 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
 
 
 def backtest_all(job_id: str = "manual") -> List[Dict]:
-    """Run backtest for all symbols. Returns results directly (synchronous)."""
-    import traceback
+    """Run backtest for all symbols. Synchronous, returns results directly."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import HistoricalPrice
 
-    print(f"[Backtest] === Starting backtest_all (job={job_id}) ===")
+    print(f"\n[Backtest] ========== STARTING backtest_all ==========")
 
     db = SessionLocal()
-    if not db:
-        print("[Backtest] ERROR: SessionLocal is None")
-        return [{"error": "Database not available"}]
-
     try:
         symbols = [r[0] for r in db.query(HistoricalPrice.symbol).distinct().all()]
-        print(f"[Backtest] Found {len(symbols)} symbols in historical_prices: {symbols[:5]}...")
+        print(f"[Backtest] Found {len(symbols)} symbols in historical_prices")
         db.close()
     except Exception as e:
-        print(f"[Backtest] ERROR querying symbols: {e}")
+        print(f"[Backtest] DB query failed: {e}")
         traceback.print_exc()
         db.close()
-        # Fallback: use yfinance symbols directly
         symbols = ["AAPL", "MSFT", "NVDA", "BTC-USD", "ETH-USD", "GC=F", "^VIX"]
-        print(f"[Backtest] Using fallback symbols: {symbols}")
 
     results = []
     for i, symbol in enumerate(symbols):
-        print(f"\n[Backtest] === {symbol} ({i+1}/{len(symbols)}) ===")
-        try:
-            result = backtest_symbol(symbol, job_id)
-            if result:
-                results.append(result)
-        except Exception as e:
-            print(f"[Backtest] {symbol} OUTER EXCEPTION: {e}")
-            traceback.print_exc()
-            results.append({"symbol": symbol, "error": str(e)})
+        result = backtest_symbol(symbol, job_id)
+        if result:
+            results.append(result)
 
-    succeeded = len([r for r in results if "total_return_pct" in r])
-    failed = len([r for r in results if "error" in r])
-    print(f"\n[Backtest] === COMPLETE: {succeeded} succeeded, {failed} failed, {len(symbols)} total ===")
+    ok = len([r for r in results if "total_return_pct" in r])
+    fail = len([r for r in results if "error" in r])
+    print(f"\n[Backtest] ========== COMPLETE: {ok} ok, {fail} failed ==========")
     return results
