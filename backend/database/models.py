@@ -259,6 +259,7 @@ class RLModel(Base):
     total_trades = Column(Integer)
     model_path = Column(Text)
     model_data = Column(LargeBinary, nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)
     is_best = Column(Boolean, default=False)
     trained_at = Column(DateTime, default=datetime.utcnow)
 

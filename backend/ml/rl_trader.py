@@ -31,7 +31,7 @@ RISK_FREE = 0.04 / 252
 
 ALL_SYMBOLS = [
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "SOL-USD",
-    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD", "MATIC-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD", "POL-USD",
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
     "ASML", "SAP", "MC.PA",
     "GC=F", "SI=F", "PA=F", "PL=F", "CL=F", "ES=F", "NQ=F",
@@ -351,7 +351,7 @@ def _load_prices(db, symbol: str) -> Optional[pd.DataFrame]:
 
 
 def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> Optional[Dict]:
-    """Train RL agent for a single symbol."""
+    """Train RL agent for a single symbol. Always saves a row to rl_models."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import RLModel
@@ -364,6 +364,15 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
     try:
         df = _load_prices(db, symbol)
         if df is None or len(df) < 200:
+            # Save failed row
+            db.add(RLModel(
+                symbol=str(symbol), episode=0, train_sharpe=0, val_sharpe=0,
+                train_return_pct=0, val_return_pct=0, total_trades=0,
+                model_path=str(symbol), model_data=None,
+                metadata_={"status": "failed", "reason": f"insufficient_data_{len(df) if df is not None else 0}_rows"},
+                is_best=False,
+            ))
+            db.commit()
             db.close()
             return {"symbol": symbol, "error": f"Insufficient data ({len(df) if df is not None else 0} rows)"}
 
@@ -381,6 +390,10 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
         best_val_sharpe = -999
         no_improve = 0
         best_model_bytes = None
+        best_val_return = 0
+        best_val_trades = 0
+        best_train_return = 0
+        best_episode = 0
 
         for ep in range(episodes):
             # Train episode
@@ -418,21 +431,11 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                 if val_sharpe > best_val_sharpe:
                     best_val_sharpe = val_sharpe
                     best_model_bytes = agent.save_to_bytes()
+                    best_val_return = val_return
+                    best_val_trades = val_info["total_trades"]
+                    best_train_return = info["total_return_pct"]
+                    best_episode = ep + 1
                     no_improve = 0
-
-                    db.add(RLModel(
-                        symbol=str(symbol),
-                        episode=int(ep + 1),
-                        train_sharpe=float(_to_py(0)),
-                        val_sharpe=float(_to_py(val_sharpe)),
-                        train_return_pct=float(_to_py(info["total_return_pct"])),
-                        val_return_pct=float(_to_py(val_return)),
-                        total_trades=int(_to_py(val_info["total_trades"])),
-                        model_path=str(symbol),
-                        model_data=best_model_bytes,
-                        is_best=True,
-                    ))
-                    db.commit()
                 else:
                     no_improve += 25
 
@@ -440,23 +443,68 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                     print(f"[RL {symbol}] Early stop at episode {ep+1}")
                     break
 
-        # Mark only the best as active
-        db.query(RLModel).filter(RLModel.symbol == symbol, RLModel.is_best == True).update({"is_best": False})
-        best = db.query(RLModel).filter(RLModel.symbol == symbol).order_by(RLModel.val_sharpe.desc()).first()
-        if best:
-            best.is_best = True
-        db.commit()
+        # Determine if training was successful
+        training_failed = best_val_sharpe <= 0 or best_val_trades == 0
+
+        if training_failed:
+            # Save failed row with no model data
+            db.add(RLModel(
+                symbol=str(symbol), episode=int(best_episode),
+                train_sharpe=0, val_sharpe=float(_to_py(best_val_sharpe)),
+                train_return_pct=float(_to_py(best_train_return)),
+                val_return_pct=float(_to_py(best_val_return)),
+                total_trades=int(_to_py(best_val_trades)),
+                model_path=str(symbol), model_data=None,
+                metadata_={"status": "failed", "reason": "no_trades_or_negative_sharpe"},
+                is_best=False,
+            ))
+            db.commit()
+            print(f"[RL {symbol}] Failed: sharpe={best_val_sharpe:.3f}, trades={best_val_trades}")
+        else:
+            # Save successful model
+            db.add(RLModel(
+                symbol=str(symbol), episode=int(best_episode),
+                train_sharpe=float(_to_py(0)),
+                val_sharpe=float(_to_py(best_val_sharpe)),
+                train_return_pct=float(_to_py(best_train_return)),
+                val_return_pct=float(_to_py(best_val_return)),
+                total_trades=int(_to_py(best_val_trades)),
+                model_path=str(symbol), model_data=best_model_bytes,
+                metadata_={"status": "success"},
+                is_best=True,
+            ))
+            db.commit()
+
+            # Mark only the best as active
+            db.query(RLModel).filter(RLModel.symbol == symbol, RLModel.is_best == True).update({"is_best": False})
+            best = db.query(RLModel).filter(
+                RLModel.symbol == symbol, RLModel.model_data.isnot(None)
+            ).order_by(RLModel.val_sharpe.desc()).first()
+            if best:
+                best.is_best = True
+            db.commit()
+            print(f"[RL {symbol}] Done: best_sharpe={best_val_sharpe:.3f}")
 
         result = {"symbol": symbol, "episodes": int(ep + 1),
                   "best_val_sharpe": round(float(_to_py(best_val_sharpe)), 3),
-                  "stored_in_db": best_model_bytes is not None}
-        print(f"[RL {symbol}] Done: best_sharpe={best_val_sharpe:.3f}")
+                  "stored_in_db": not training_failed}
         db.close()
         return result
 
     except Exception as e:
         print(f"[RL {symbol}] EXCEPTION: {e}")
         traceback.print_exc()
+        try:
+            db.add(RLModel(
+                symbol=str(symbol), episode=0, train_sharpe=0, val_sharpe=0,
+                train_return_pct=0, val_return_pct=0, total_trades=0,
+                model_path=str(symbol), model_data=None,
+                metadata_={"status": "failed", "reason": "exception", "error": str(e)[:500]},
+                is_best=False,
+            ))
+            db.commit()
+        except Exception:
+            pass
         try:
             db.close()
         except Exception:
@@ -465,29 +513,34 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
 
 def train_all_rl(job_id: str = "manual") -> List[Dict]:
-    """Train all 33 symbols, skipping those that already have a model."""
+    """Train all symbols, skipping those that already have any row in rl_models."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import RLModel
 
-    # Find already-trained symbols
+    # Find symbols with ANY existing row (success or failed)
     db = SessionLocal()
     try:
-        trained = {r[0] for r in db.query(RLModel.symbol).filter(RLModel.is_best == True).distinct().all()}
+        trained = {r[0] for r in db.query(RLModel.symbol).distinct().all()}
         db.close()
     except Exception:
         trained = set()
         db.close()
 
     to_train = [s for s in ALL_SYMBOLS if s not in trained]
-    print(f"[RL] {len(trained)} already trained, {len(to_train)} remaining: {to_train[:5]}...")
+    print(f"[RL] {len(trained)} already attempted, {len(to_train)} remaining: {to_train[:5]}...")
 
     results = []
     for i, s in enumerate(to_train):
         print(f"\n[RL] === {s} ({i+1}/{len(to_train)}) ===")
-        r = train_rl_agent(s, episodes=150, job_id=job_id)
-        if r:
-            results.append(r)
+        try:
+            r = train_rl_agent(s, episodes=150, job_id=job_id)
+            if r:
+                results.append(r)
+        except Exception as e:
+            print(f"[RL] Unexpected error training {s}: {e}")
+            traceback.print_exc()
+            results.append({"symbol": s, "error": str(e)})
     return results
 
 
