@@ -1,12 +1,13 @@
 """
 Backtesting Engine for AURA
-Uses pre-computed training_features (target_direction + target_return) as signals,
-falls back to momentum strategy for symbols without training data.
+No lookahead bias: uses only past data to generate signals, executes at next day's price.
+Two modes: ML model predictions (if model available) or momentum fallback.
 """
 
 import os
 import sys
 import logging
+import pickle
 import traceback
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -15,6 +16,12 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+BINANCE_FEE = 0.001
+SLIPPAGE = 0.0005
+MIN_HOLD_DAYS = 3
+RISK_FREE_RATE = 0.04
 
 SYMBOL_ALIASES = {
     "BTC-USD":   ["BTCUSDC", "BTCUSDT", "BTC-USD"],
@@ -27,138 +34,141 @@ SYMBOL_ALIASES = {
     "DOT-USD":   ["DOTUSDC", "DOTUSDT", "DOT-USD"],
     "LINK-USD":  ["LINKUSDC", "LINKUSDT", "LINK-USD"],
     "MATIC-USD": ["MATICUSDC", "POLUSDC", "MATIC-USD"],
-    "GC=F":      ["GC=F", "GC1!", "XAUUSDC"],
-    "SI=F":      ["SI=F", "SI1!", "XAGUSDC"],
-    "PL=F":      ["PL=F", "XPTUSDC"],
-    "PA=F":      ["PA=F", "XPDUSDC"],
-    "CL=F":      ["CL=F", "CL1!"],
-    "ES=F":      ["ES=F", "ES1!"],
-    "NQ=F":      ["NQ=F", "NQ1!"],
-    "^TNX":      ["^TNX", "TNX"],
-    "^IRX":      ["^IRX", "IRX"],
-    "^TYX":      ["^TYX", "TYX"],
-    "^VIX":      ["^VIX", "VIX"],
-    "EURUSD=X":  ["EURUSD=X", "EURUSD"],
-    "GBPEUR=X":  ["GBPEUR=X", "GBPEUR"],
-    "USDJPY=X":  ["USDJPY=X", "USDJPY"],
+    "GC=F": ["GC=F", "GC1!", "XAUUSDC"],
+    "SI=F": ["SI=F", "SI1!", "XAGUSDC"],
+    "PL=F": ["PL=F", "XPTUSDC"], "PA=F": ["PA=F", "XPDUSDC"],
+    "CL=F": ["CL=F", "CL1!"], "ES=F": ["ES=F", "ES1!"], "NQ=F": ["NQ=F", "NQ1!"],
+    "^TNX": ["^TNX", "TNX"], "^IRX": ["^IRX", "IRX"], "^TYX": ["^TYX", "TYX"],
+    "^VIX": ["^VIX", "VIX"],
+    "EURUSD=X": ["EURUSD=X", "EURUSD"], "GBPEUR=X": ["GBPEUR=X", "GBPEUR"],
+    "USDJPY=X": ["USDJPY=X", "USDJPY"],
 }
 
-BINANCE_FEE = 0.001
-SLIPPAGE = 0.0005
-MIN_HOLD_DAYS = 3
-RETURN_THRESHOLD = 0.01  # 1% minimum predicted move to trade
-RISK_FREE_RATE = 0.04
+
+def _aliases(symbol: str) -> List[str]:
+    for key, als in SYMBOL_ALIASES.items():
+        if symbol == key or symbol in als:
+            return list(dict.fromkeys([symbol, key] + als))
+    return [symbol]
 
 
-def _get_aliases(symbol: str) -> List[str]:
-    candidates = [symbol]
-    for key, aliases in SYMBOL_ALIASES.items():
-        if symbol == key or symbol in aliases:
-            return list(dict.fromkeys([symbol, key] + aliases))
-    return candidates
+def _py(v):
+    return v.item() if hasattr(v, 'item') else v
 
 
-def _py(val):
-    if hasattr(val, 'item'):
-        return val.item()
-    return val
+def _compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(period).mean()
+    rs = gain / loss.replace(0, np.inf)
+    return 100 - (100 / (1 + rs))
 
 
-# ── Strategy 1: Pre-computed signals from training_features ──
+# ── Feature computation (NO future data) ────────────────────
 
-def _load_signal_data(db, symbol: str) -> Optional[pd.DataFrame]:
-    """Load pre-computed direction + return from training_features + prices."""
-    from database.models import TrainingFeature, HistoricalPrice
+def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute technical features using ONLY past data. No lookahead."""
+    out = df.copy()
+    c = out["close"]
+    out["return_1d"] = c.pct_change()
+    out["return_5d"] = c.pct_change(5)
+    out["return_20d"] = c.pct_change(20)
+    out["ma5"] = c.rolling(5).mean()
+    out["ma20"] = c.rolling(20).mean()
+    out["ma_ratio"] = out["ma5"] / out["ma20"]
+    out["vol_20"] = out["return_1d"].rolling(20).std()
+    out["rsi"] = _compute_rsi(c, 14)
 
-    for alias in _get_aliases(symbol):
-        features = db.query(TrainingFeature).filter(
-            TrainingFeature.symbol == alias
-        ).order_by(TrainingFeature.date).all()
+    if "volume" in out.columns:
+        vol_ma = out["volume"].rolling(20).mean()
+        out["volume_ratio"] = out["volume"] / vol_ma.replace(0, 1)
+    else:
+        out["volume_ratio"] = 1.0
 
-        if len(features) < 30:
-            continue
+    out["hl_range"] = (out["high"] - out["low"]) / c if "high" in out.columns and "low" in out.columns else 0
 
-        # Load matching prices (try same alias first, then original symbol)
-        price_map = {}
-        for price_alias in _get_aliases(symbol):
-            prices = db.query(HistoricalPrice).filter(
-                HistoricalPrice.symbol == price_alias
-            ).all()
-            for p in prices:
-                price_map[p.date] = p.close
-            if price_map:
-                break
+    return out.dropna()
 
-        if not price_map:
-            continue
 
-        rows = []
-        for f in features:
-            price = price_map.get(f.date)
-            if price and price > 0:
-                rows.append({
-                    "date": f.date,
-                    "price": float(price),
-                    "direction": f.target_direction,
-                    "target_return": float(f.target_return or 0),
-                })
+FEATURE_COLS = ["return_1d", "return_5d", "return_20d", "ma_ratio", "vol_20", "rsi", "volume_ratio", "hl_range"]
 
-        if len(rows) >= 30:
-            print(f"[Backtest] {symbol}: loaded {len(rows)} signal rows via alias '{alias}'")
-            return pd.DataFrame(rows).set_index("date").sort_index()
 
+# ── Model-based signal generation ────────────────────────────
+
+def _load_model(symbol: str) -> Optional[dict]:
+    for sym in _aliases(symbol):
+        for suffix in ["_ensemble_latest.pkl", "_xgboost_latest.pkl"]:
+            path = os.path.join(MODELS_DIR, f"{sym}{suffix}")
+            if os.path.exists(path):
+                try:
+                    with open(path, "rb") as f:
+                        return pickle.load(f)
+                except Exception:
+                    pass
     return None
 
 
-# ── Strategy 2: Momentum fallback ───────────────────────────
+def _generate_ml_signals(df: pd.DataFrame, model_data: dict) -> pd.Series:
+    """Generate signals from ML model using only current features (no future data)."""
+    available = [c for c in FEATURE_COLS if c in df.columns]
+    X = df[available].fillna(0).values
 
-def _load_price_data(db, symbol: str) -> Optional[pd.DataFrame]:
-    """Load price data for momentum strategy."""
-    from database.models import HistoricalPrice
+    # Pad or trim to model's expected feature count
+    model = model_data.get("xgb_model") or model_data.get("model")
+    if model is None:
+        return pd.Series("NEUTRAL", index=df.index)
 
-    for alias in _get_aliases(symbol):
-        prices = db.query(HistoricalPrice).filter(
-            HistoricalPrice.symbol == alias
-        ).order_by(HistoricalPrice.date).all()
-        if len(prices) >= 60:
-            print(f"[Backtest] {symbol}: loaded {len(prices)} prices via alias '{alias}' (momentum mode)")
-            return pd.DataFrame([{
-                "date": p.date, "price": float(p.close)
-            } for p in prices]).set_index("date").sort_index()
+    expected = getattr(model, "n_features_in_", X.shape[1])
+    if X.shape[1] < expected:
+        X = np.pad(X, ((0, 0), (0, expected - X.shape[1])))
+    elif X.shape[1] > expected:
+        X = X[:, :expected]
 
-    # yfinance fallback
+    # Scale if scaler available
+    scaler = model_data.get("scaler")
+    if scaler:
+        try:
+            X = scaler.transform(X)
+        except Exception:
+            pass
+
+    # Get predictions
     try:
-        import yfinance as yf
-        hist = yf.Ticker(symbol).history(period="3y", interval="1d")
-        if len(hist) >= 60:
-            print(f"[Backtest] {symbol}: loaded {len(hist)} rows from yfinance (momentum mode)")
-            df = pd.DataFrame({"price": hist["Close"].values}, index=hist.index.date)
-            df.index.name = "date"
-            return df
+        if hasattr(model, "predict_proba"):
+            proba = model.predict_proba(X)
+            if proba.shape[1] >= 2:
+                buy_prob = proba[:, 1]  # probability of "up"
+                signals = pd.Series("NEUTRAL", index=df.index)
+                signals[buy_prob > 0.55] = "BUY"
+                signals[buy_prob < 0.45] = "SELL"
+                print(f"  ML predict_proba: BUY={int((signals=='BUY').sum())}, "
+                      f"SELL={int((signals=='SELL').sum())}, NEUTRAL={int((signals=='NEUTRAL').sum())}")
+                return signals
+        # Fallback: raw predict (regression)
+        preds = model.predict(X)
+        signals = pd.Series("NEUTRAL", index=df.index)
+        signals[preds > 0.01] = "BUY"    # predict > 1% up
+        signals[preds < -0.01] = "SELL"   # predict > 1% down
+        return signals
     except Exception as e:
-        print(f"[Backtest] {symbol}: yfinance fallback failed: {e}")
-
-    return None
-
-
-def _add_momentum_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """Add momentum signals: buy if price > 5d MA * 1.005, sell if < MA * 0.995."""
-    df = df.copy()
-    ma5 = df["price"].rolling(5, min_periods=3).mean()
-    df["signal"] = "NEUTRAL"
-    df.loc[df["price"] > ma5 * 1.005, "signal"] = "BUY"
-    df.loc[df["price"] < ma5 * 0.995, "signal"] = "SELL"
-    return df
+        print(f"  ML prediction failed: {e}")
+        return pd.Series("NEUTRAL", index=df.index)
 
 
-# ── Core simulation ─────────────────────────────────────────
+def _momentum_signals(df: pd.DataFrame) -> pd.Series:
+    """Momentum strategy: buy if 5-day return > +2%, sell if < -2%."""
+    signals = pd.Series("NEUTRAL", index=df.index)
+    if "return_5d" in df.columns:
+        signals[df["return_5d"] > 0.02] = "BUY"
+        signals[df["return_5d"] < -0.02] = "SELL"
+    return signals
+
+
+# ── Trade simulation (executes at NEXT day's price) ─────────
 
 def _simulate(df: pd.DataFrame, initial_capital: float = 10000.0) -> Dict:
-    """
-    Simulate trades on a DataFrame with columns: price, signal.
-    Returns full metrics dict.
-    """
-    prices = df["price"].values
+    """Simulate trades. Signal on day i → execute at day i+1 open/close."""
+    prices = df["close"].values
     signals = df["signal"].values
     n = len(prices)
 
@@ -170,38 +180,35 @@ def _simulate(df: pd.DataFrame, initial_capital: float = 10000.0) -> Dict:
     days_held = 0
 
     for i in range(1, n):
+        # Signal from YESTERDAY, execute at TODAY's price
+        sig = signals[i - 1]  # ← key: use previous day's signal
         price = prices[i]
-        sig = signals[i]
-        equity.append(capital + position * price)
 
+        equity.append(capital + position * price)
         if price <= 0:
             continue
 
-        # Hold period enforcement
         if position > 0:
             days_held += 1
             if days_held < MIN_HOLD_DAYS:
                 continue
 
         if sig == "BUY" and position == 0:
-            # Enter long
             fee = capital * (BINANCE_FEE + SLIPPAGE)
             total_fees += fee
-            units = (capital - fee) / price
-            position = units
+            position = (capital - fee) / price
             capital = 0
             days_held = 0
-            trades.append({"date": str(df.index[i]), "type": "BUY", "price": float(price), "fee": float(fee)})
+            trades.append({"type": "BUY", "price": float(price), "fee": float(fee)})
 
         elif sig == "SELL" and position > 0:
-            # Exit long
             revenue = position * price
             fee = revenue * (BINANCE_FEE + SLIPPAGE)
             total_fees += fee
             capital = revenue - fee
             position = 0
             days_held = 0
-            trades.append({"date": str(df.index[i]), "type": "SELL", "price": float(price), "fee": float(fee)})
+            trades.append({"type": "SELL", "price": float(price), "fee": float(fee)})
 
     # Final liquidation
     if position > 0:
@@ -209,83 +216,90 @@ def _simulate(df: pd.DataFrame, initial_capital: float = 10000.0) -> Dict:
         fee = revenue * BINANCE_FEE
         total_fees += fee
         capital = revenue - fee
-        position = 0
 
-    return _calculate_metrics(
-        np.array(equity), trades, df, capital, total_fees, initial_capital
-    )
+    return _calc_metrics(np.array(equity), trades, df, capital, total_fees, initial_capital)
 
 
-def _calculate_metrics(equity: np.ndarray, trades: List[Dict], df: pd.DataFrame,
-                       final_capital: float, total_fees: float,
-                       initial_capital: float) -> Dict:
+def _calc_metrics(equity, trades, df, final_capital, total_fees, initial_capital):
     n_days = len(equity)
     n_years = max(n_days / 252, 0.01)
+    total_ret = (final_capital - initial_capital) / initial_capital
+    annual_ret = (1 + total_ret) ** (1 / n_years) - 1
 
-    total_return = (final_capital - initial_capital) / initial_capital
-    annual_return = (1 + total_return) ** (1 / n_years) - 1
+    dr = np.diff(equity) / np.maximum(equity[:-1], 0.01)
+    dr = dr[np.isfinite(dr)]
 
-    daily_ret = np.diff(equity) / np.maximum(equity[:-1], 0.01)
-    daily_ret = daily_ret[np.isfinite(daily_ret)]
-
-    sharpe = 0.0
-    if len(daily_ret) > 1 and np.std(daily_ret) > 0:
-        sharpe = float((np.mean(daily_ret) - RISK_FREE_RATE / 252) / np.std(daily_ret) * np.sqrt(252))
-
-    sortino = 0.0
-    down = daily_ret[daily_ret < 0]
-    if len(down) > 1 and np.std(down) > 0:
-        sortino = float((np.mean(daily_ret) - RISK_FREE_RATE / 252) / np.std(down) * np.sqrt(252))
+    sharpe = float((np.mean(dr) - RISK_FREE_RATE/252) / np.std(dr) * np.sqrt(252)) if len(dr) > 1 and np.std(dr) > 0 else 0.0
+    down = dr[dr < 0]
+    sortino = float((np.mean(dr) - RISK_FREE_RATE/252) / np.std(down) * np.sqrt(252)) if len(down) > 1 and np.std(down) > 0 else 0.0
 
     peak = np.maximum.accumulate(equity)
     dd = (equity - peak) / np.maximum(peak, 0.01)
     max_dd = float(np.min(dd))
-    calmar = annual_return / abs(max_dd) if max_dd != 0 else 0.0
+    calmar = annual_ret / abs(max_dd) if max_dd != 0 else 0.0
 
-    # Trade P/L
     buys = [t for t in trades if t["type"] == "BUY"]
     sells = [t for t in trades if t["type"] == "SELL"]
-    trade_returns = []
-    for i in range(min(len(buys), len(sells))):
-        if buys[i]["price"] > 0:
-            trade_returns.append((sells[i]["price"] - buys[i]["price"]) / buys[i]["price"])
+    tr = [(sells[i]["price"] - buys[i]["price"]) / buys[i]["price"] for i in range(min(len(buys), len(sells))) if buys[i]["price"] > 0]
+    w = [r for r in tr if r > 0]
+    l = [r for r in tr if r <= 0]
 
-    winning = [r for r in trade_returns if r > 0]
-    losing = [r for r in trade_returns if r <= 0]
-    win_rate = len(winning) / len(trade_returns) * 100 if trade_returns else 0.0
-    gross_profit = sum(winning) if winning else 0.0
-    gross_loss = abs(sum(losing)) if losing else 0.001
-
-    symbol = df.attrs.get("symbol", "")
-    metrics = {
-        "symbol": symbol,
+    return {k: _py(v) for k, v in {
+        "symbol": df.attrs.get("symbol", ""),
         "initial_capital": float(initial_capital),
         "final_capital": round(float(final_capital), 2),
-        "total_return_pct": round(float(total_return * 100), 2),
-        "annual_return_pct": round(float(annual_return * 100), 2),
+        "total_return_pct": round(float(total_ret * 100), 2),
+        "annual_return_pct": round(float(annual_ret * 100), 2),
         "sharpe_ratio": round(sharpe, 3),
         "sortino_ratio": round(sortino, 3),
         "max_drawdown_pct": round(float(max_dd * 100), 2),
-        "win_rate_pct": round(float(win_rate), 1),
-        "profit_factor": round(float(gross_profit / gross_loss), 3),
+        "win_rate_pct": round(len(w) / len(tr) * 100, 1) if tr else 0.0,
+        "profit_factor": round((sum(w) if w else 0) / (abs(sum(l)) if l else 0.001), 3),
         "total_trades": int(len(trades)),
-        "trades_per_year": round(float(len(trades) / max(n_years, 0.01)), 1),
-        "avg_trade_return_pct": round(float(np.mean(trade_returns) * 100), 2) if trade_returns else 0.0,
-        "best_trade_pct": round(float(max(trade_returns) * 100), 2) if trade_returns else 0.0,
-        "worst_trade_pct": round(float(min(trade_returns) * 100), 2) if trade_returns else 0.0,
+        "trades_per_year": round(len(trades) / max(n_years, 0.01), 1),
+        "avg_trade_return_pct": round(float(np.mean(tr) * 100), 2) if tr else 0.0,
+        "best_trade_pct": round(float(max(tr) * 100), 2) if tr else 0.0,
+        "worst_trade_pct": round(float(min(tr) * 100), 2) if tr else 0.0,
         "calmar_ratio": round(float(calmar), 3),
         "total_fees_paid": round(float(total_fees), 2),
         "net_return_after_fees": round(float(final_capital - initial_capital - total_fees), 2),
         "start_date": str(df.index[0]) if len(df) > 0 else None,
         "end_date": str(df.index[-1]) if len(df) > 0 else None,
-    }
-    return {k: _py(v) for k, v in metrics.items()}
+    }.items()}
+
+
+# ── Price loading ────────────────────────────────────────────
+
+def _load_prices(db, symbol: str) -> Optional[pd.DataFrame]:
+    from database.models import HistoricalPrice
+    for alias in _aliases(symbol):
+        rows = db.query(HistoricalPrice).filter(HistoricalPrice.symbol == alias).order_by(HistoricalPrice.date).all()
+        if len(rows) >= 60:
+            print(f"[Backtest] {symbol}: {len(rows)} price rows via '{alias}'")
+            return pd.DataFrame([{
+                "date": r.date, "open": r.open, "high": r.high,
+                "low": r.low, "close": r.close, "volume": r.volume or 0
+            } for r in rows]).set_index("date").sort_index()
+
+    # yfinance fallback
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(symbol).history(period="3y", interval="1d")
+        if len(hist) >= 60:
+            print(f"[Backtest] {symbol}: {len(hist)} rows from yfinance")
+            return pd.DataFrame({
+                "open": hist["Open"].values, "high": hist["High"].values,
+                "low": hist["Low"].values, "close": hist["Close"].values,
+                "volume": hist["Volume"].values,
+            }, index=hist.index.date)
+    except Exception as e:
+        print(f"[Backtest] {symbol}: yfinance failed: {e}")
+    return None
 
 
 # ── Public API ───────────────────────────────────────────────
 
 def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
-    """Run backtest for a single symbol."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import BacktestResult
@@ -293,61 +307,45 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
     print(f"\n[Backtest] === {symbol} ===")
     db = SessionLocal()
     if not db:
-        return {"symbol": symbol, "error": "Database not available"}
+        return {"symbol": symbol, "error": "No database"}
 
     try:
-        # Strategy 1: pre-computed signals from training_features
-        signal_df = _load_signal_data(db, symbol)
+        raw = _load_prices(db, symbol)
+        if raw is None:
+            db.close()
+            return {"symbol": symbol, "error": "No price data"}
 
-        if signal_df is not None and len(signal_df) >= 30:
-            # Convert target_direction + target_return to trading signals
-            signal_df["signal"] = "NEUTRAL"
-            signal_df.loc[
-                (signal_df["direction"] == "up") & (signal_df["target_return"] > RETURN_THRESHOLD),
-                "signal"
-            ] = "BUY"
-            signal_df.loc[
-                (signal_df["direction"] == "down") & (signal_df["target_return"] < -RETURN_THRESHOLD),
-                "signal"
-            ] = "SELL"
+        # Compute features from past data only
+        df = _compute_features(raw)
+        print(f"[Backtest] {symbol}: {len(df)} rows after feature computation")
 
-            buy_count = (signal_df["signal"] == "BUY").sum()
-            sell_count = (signal_df["signal"] == "SELL").sum()
-            print(f"[Backtest] {symbol}: ML signals — {buy_count} BUY, {sell_count} SELL, "
-                  f"{len(signal_df) - buy_count - sell_count} NEUTRAL")
-
-            signal_df.attrs["symbol"] = symbol
-            metrics = _simulate(signal_df)
-            strategy = "ml_signals"
-
+        # Try ML model first
+        model_data = _load_model(symbol)
+        if model_data:
+            print(f"[Backtest] {symbol}: ML model loaded")
+            df["signal"] = _generate_ml_signals(df, model_data)
+            strategy = "ml_model"
         else:
-            # Strategy 2: momentum fallback
-            price_df = _load_price_data(db, symbol)
-            if price_df is None:
-                print(f"[Backtest] {symbol}: no data at all — skipping")
-                db.close()
-                return {"symbol": symbol, "error": "No price data"}
-
-            signal_df = _add_momentum_signals(price_df)
-            buy_count = (signal_df["signal"] == "BUY").sum()
-            sell_count = (signal_df["signal"] == "SELL").sum()
-            print(f"[Backtest] {symbol}: momentum signals — {buy_count} BUY, {sell_count} SELL")
-
-            signal_df.attrs["symbol"] = symbol
-            metrics = _simulate(signal_df)
+            print(f"[Backtest] {symbol}: no model, using momentum")
+            df["signal"] = _momentum_signals(df)
             strategy = "momentum"
 
+        buy_n = int((df["signal"] == "BUY").sum())
+        sell_n = int((df["signal"] == "SELL").sum())
+        print(f"[Backtest] {symbol}: {buy_n} BUY, {sell_n} SELL signals")
+
+        df.attrs["symbol"] = symbol
+        metrics = _simulate(df)
         metrics["symbol"] = symbol
         metrics["strategy"] = strategy
 
         print(f"[Backtest] {symbol}: return={metrics['total_return_pct']}%, "
               f"sharpe={metrics['sharpe_ratio']}, trades={metrics['total_trades']}")
 
-        # Save to DB
         db.add(BacktestResult(
             symbol=symbol,
-            start_date=signal_df.index[0] if len(signal_df) > 0 else None,
-            end_date=signal_df.index[-1] if len(signal_df) > 0 else None,
+            start_date=df.index[0] if len(df) > 0 else None,
+            end_date=df.index[-1] if len(df) > 0 else None,
             initial_capital=10000.0,
             final_capital=float(metrics["final_capital"]),
             total_return_pct=float(metrics["total_return_pct"]),
@@ -363,7 +361,7 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
             metrics_json=metrics,
         ))
         db.commit()
-        print(f"[Backtest] {symbol}: saved to DB")
+        print(f"[Backtest] {symbol}: saved")
         db.close()
         return metrics
 
@@ -379,30 +377,26 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
 
 
 def backtest_all(job_id: str = "manual") -> List[Dict]:
-    """Run backtest for all symbols."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import HistoricalPrice
 
-    print(f"\n[Backtest] ========== STARTING backtest_all ==========")
-
+    print(f"\n[Backtest] ========== START ==========")
     db = SessionLocal()
     try:
         symbols = [r[0] for r in db.query(HistoricalPrice.symbol).distinct().all()]
-        print(f"[Backtest] Found {len(symbols)} symbols in DB")
+        print(f"[Backtest] {len(symbols)} symbols in DB")
         db.close()
-    except Exception as e:
-        print(f"[Backtest] DB query failed: {e}")
+    except Exception:
         db.close()
         symbols = ["AAPL", "MSFT", "NVDA", "BTC-USD", "ETH-USD", "GC=F", "^VIX"]
 
     results = []
-    for symbol in symbols:
-        result = backtest_symbol(symbol, job_id)
-        if result:
-            results.append(result)
+    for s in symbols:
+        r = backtest_symbol(s, job_id)
+        if r:
+            results.append(r)
 
     ok = len([r for r in results if "total_return_pct" in r])
-    fail = len([r for r in results if "error" in r])
-    print(f"\n[Backtest] ========== DONE: {ok} ok, {fail} failed ==========")
+    print(f"\n[Backtest] ========== DONE: {ok}/{len(symbols)} ==========")
     return results
