@@ -2447,3 +2447,111 @@ def get_model_performance():
     except Exception as e:
         return {"models": [], "count": 0, "error": str(e)}
 
+
+# ── Backtesting Endpoints ───────────────────────────────────
+
+@app.post("/api/v1/backtest/run/{symbol}")
+def run_backtest_symbol(symbol: str, background_tasks: BackgroundTasks):
+    """Run backtest for a single symbol (async)."""
+    import uuid
+    job_id = f"bt_{uuid.uuid4().hex[:8]}"
+
+    def _run():
+        from ml.backtester import backtest_symbol
+        backtest_symbol(symbol.upper(), job_id)
+
+    background_tasks.add_task(_run)
+    return {"job_id": job_id, "symbol": symbol.upper(), "status": "started"}
+
+
+@app.post("/api/v1/backtest/run-all")
+def run_backtest_all(background_tasks: BackgroundTasks):
+    """Run backtest for all symbols with historical data (async)."""
+    import uuid
+    job_id = f"bt_all_{uuid.uuid4().hex[:8]}"
+
+    def _run():
+        from ml.backtester import backtest_all
+        backtest_all(job_id)
+
+    background_tasks.add_task(_run)
+    return {"job_id": job_id, "status": "started"}
+
+
+@app.get("/api/v1/backtest/results")
+def get_backtest_results():
+    """Get latest backtest results for all symbols."""
+    try:
+        from database.models import BacktestResult
+        from sqlalchemy import func
+        db = SessionLocal()
+        # Get latest result per symbol
+        subq = db.query(
+            BacktestResult.symbol,
+            func.max(BacktestResult.backtest_date).label("latest")
+        ).group_by(BacktestResult.symbol).subquery()
+
+        results = db.query(BacktestResult).join(
+            subq,
+            (BacktestResult.symbol == subq.c.symbol) &
+            (BacktestResult.backtest_date == subq.c.latest)
+        ).all()
+
+        data = []
+        for r in results:
+            data.append({
+                "symbol": r.symbol,
+                "total_return_pct": r.total_return_pct,
+                "annual_return_pct": r.annual_return_pct,
+                "sharpe_ratio": r.sharpe_ratio,
+                "sortino_ratio": r.sortino_ratio,
+                "max_drawdown_pct": r.max_drawdown_pct,
+                "win_rate_pct": r.win_rate_pct,
+                "profit_factor": r.profit_factor,
+                "total_trades": r.total_trades,
+                "total_fees_paid": r.total_fees_paid,
+                "calmar_ratio": r.calmar_ratio,
+                "backtest_date": r.backtest_date.isoformat() if r.backtest_date else None,
+                "metrics": r.metrics_json,
+            })
+        db.close()
+        return {"results": data, "count": len(data)}
+    except Exception as e:
+        return {"results": [], "count": 0, "error": str(e)}
+
+
+@app.get("/api/v1/backtest/results/{symbol}")
+def get_backtest_history(symbol: str):
+    """Get backtest history for a specific symbol."""
+    try:
+        from database.models import BacktestResult
+        db = SessionLocal()
+        results = db.query(BacktestResult).filter(
+            BacktestResult.symbol == symbol.upper()
+        ).order_by(BacktestResult.backtest_date.desc()).limit(10).all()
+
+        data = [{"metrics": r.metrics_json, "date": r.backtest_date.isoformat() if r.backtest_date else None} for r in results]
+        db.close()
+        return {"symbol": symbol.upper(), "history": data, "count": len(data)}
+    except Exception as e:
+        return {"symbol": symbol.upper(), "history": [], "error": str(e)}
+
+
+@app.get("/api/v1/backtest/summary")
+def get_backtest_summary():
+    """Portfolio-level summary across all backtested symbols."""
+    data = get_backtest_results()
+    results = data.get("results", [])
+    if not results:
+        return {"total_symbols": 0, "avg_sharpe": 0, "avg_win_rate": 0, "avg_drawdown": 0}
+
+    return {
+        "total_symbols": len(results),
+        "avg_sharpe": round(np.mean([r["sharpe_ratio"] or 0 for r in results]), 3),
+        "avg_return_pct": round(np.mean([r["total_return_pct"] or 0 for r in results]), 2),
+        "avg_win_rate": round(np.mean([r["win_rate_pct"] or 0 for r in results]), 1),
+        "avg_drawdown": round(np.mean([r["max_drawdown_pct"] or 0 for r in results]), 2),
+        "best_symbol": max(results, key=lambda r: r.get("total_return_pct", 0))["symbol"] if results else None,
+        "worst_symbol": min(results, key=lambda r: r.get("total_return_pct", 0))["symbol"] if results else None,
+    }
+

@@ -251,6 +251,14 @@ function AppContent() {
           }}
         />
 
+        <Stack.Screen
+          name="backtest"
+          options={{
+            title: '📉 Backtest',
+            headerShown: true,
+          }}
+        />
+
         {/* Dev/Test Screens */}
         <Stack.Screen 
           name="dev-test" 

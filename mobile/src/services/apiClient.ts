@@ -156,6 +156,21 @@ class ApiClient {
     return response.data;
   }
 
+  async getBacktestResults() {
+    const response = await this.client.get('/api/v1/backtest/results');
+    return response.data;
+  }
+
+  async getBacktestSummary() {
+    const response = await this.client.get('/api/v1/backtest/summary');
+    return response.data;
+  }
+
+  async runBacktestAll() {
+    const response = await this.client.post('/api/v1/backtest/run-all');
+    return response.data;
+  }
+
   async getMarketMovers() {
     const response = await this.client.get('/api/v1/market/movers', { timeout: 60000 });
     return response.data;

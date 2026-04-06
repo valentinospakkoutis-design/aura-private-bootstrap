@@ -220,3 +220,27 @@ class TrainingLog(Base):
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
 
+
+class BacktestResult(Base):
+    """Backtest simulation results"""
+    __tablename__ = "backtest_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    backtest_date = Column(DateTime, default=datetime.utcnow)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    initial_capital = Column(Float, default=10000)
+    final_capital = Column(Float)
+    total_return_pct = Column(Float)
+    annual_return_pct = Column(Float)
+    sharpe_ratio = Column(Float)
+    sortino_ratio = Column(Float)
+    max_drawdown_pct = Column(Float)
+    win_rate_pct = Column(Float)
+    profit_factor = Column(Float)
+    total_trades = Column(Integer)
+    total_fees_paid = Column(Float)
+    calmar_ratio = Column(Float)
+    metrics_json = Column(JSON)
+
