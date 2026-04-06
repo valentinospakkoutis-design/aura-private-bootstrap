@@ -2573,17 +2573,29 @@ def train_rl_symbol(symbol: str, background_tasks: BackgroundTasks):
 
 
 @app.post("/api/v1/rl/train-all")
-def train_rl_all(background_tasks: BackgroundTasks):
-    """Train RL agents for initial 5 symbols (async, ~30min)."""
-    import uuid
-    job_id = f"rl_all_{uuid.uuid4().hex[:8]}"
+def train_next_rl(background_tasks: BackgroundTasks):
+    """Train the NEXT untrained symbol (one at a time to avoid Railway timeout)."""
+    from ml.rl_trader import ALL_SYMBOLS
+
+    try:
+        from database.models import RLModel
+        db = SessionLocal()
+        trained = {r[0] for r in db.query(RLModel.symbol).filter(RLModel.is_best == True).distinct().all()}
+        db.close()
+    except Exception:
+        trained = set()
+
+    next_sym = next((s for s in ALL_SYMBOLS if s not in trained), None)
+    if next_sym is None:
+        return {"status": "all_trained", "message": "All 34 symbols already trained"}
 
     def _run():
-        from ml.rl_trader import train_all_rl
-        train_all_rl(job_id)
+        from ml.rl_trader import train_rl_agent
+        train_rl_agent(next_sym, episodes=150, job_id="auto")
 
     background_tasks.add_task(_run)
-    return {"job_id": job_id, "status": "training started for 5 symbols"}
+    remaining = len(ALL_SYMBOLS) - len(trained) - 1
+    return {"status": "started", "symbol": next_sym, "remaining_after": remaining}
 
 
 @app.get("/api/v1/rl/predict/{symbol}")

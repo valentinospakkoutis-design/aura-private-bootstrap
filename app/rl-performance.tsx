@@ -43,21 +43,37 @@ export default function RLPerformanceScreen() {
   }, [fetchData]);
 
   const handleTrainAll = useCallback(() => {
-    Alert.alert('Εκπαίδευση RL Agent', 'Θα εκπαιδευτούν τα υπόλοιπα symbols (~4 ώρες). Συνεχίζεις;', [
-      { text: 'Ακύρωση', style: 'cancel' },
-      {
-        text: 'Εκκίνηση', onPress: async () => {
-          setTraining(true);
-          try {
-            await api.trainAllRL();
-            Alert.alert('✅', 'Εκπαίδευση ξεκίνησε!');
-            setTimeout(fetchData, 3000);
-          } catch { Alert.alert('❌', 'Σφάλμα εκκίνησης'); }
-          finally { setTraining(false); }
+    const pending = batchData?.pending_symbols?.length ?? 0;
+    if (pending === 0) {
+      Alert.alert('✅', 'Όλα τα symbols έχουν εκπαιδευτεί!');
+      return;
+    }
+    Alert.alert(
+      'Εκπαίδευση RL Agent',
+      `Θα εκπαιδευτεί 1 symbol (~8 λεπτά).\nΑπομένουν ${pending} symbols.\nΠάτα ξανά μετά από κάθε εκπαίδευση.`,
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Εκκίνηση', onPress: async () => {
+            setTraining(true);
+            try {
+              const result = await api.trainAllRL();
+              if (result.status === 'all_trained') {
+                Alert.alert('✅', 'Όλα τα symbols έχουν εκπαιδευτεί!');
+              } else {
+                Alert.alert(
+                  '⏳ Εκπαίδευση',
+                  `Symbol: ${result.symbol}\nΑπομένουν: ${result.remaining_after}\n\nΈλεγξε σε ~8 λεπτά και πάτα ξανά.`
+                );
+                setTimeout(fetchData, 8 * 60 * 1000);
+              }
+            } catch { Alert.alert('❌', 'Σφάλμα'); }
+            finally { setTraining(false); }
+          }
         }
-      }
-    ]);
-  }, [fetchData]);
+      ]
+    );
+  }, [fetchData, batchData]);
 
   const avgSharpe = models.length > 0
     ? (models.reduce((s, m) => s + (m.val_sharpe ?? 0), 0) / models.length).toFixed(2)
