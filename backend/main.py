@@ -2555,3 +2555,103 @@ def get_backtest_summary():
         "worst_symbol": min(results, key=lambda r: r.get("total_return_pct", 0))["symbol"] if results else None,
     }
 
+
+# ── RL Trading Agent Endpoints ──────────────────────────────
+
+@app.post("/api/v1/rl/train/{symbol}")
+def train_rl_symbol(symbol: str, background_tasks: BackgroundTasks):
+    """Train RL agent for a single symbol (async)."""
+    import uuid
+    job_id = f"rl_{uuid.uuid4().hex[:8]}"
+
+    def _run():
+        from ml.rl_trader import train_rl_agent
+        train_rl_agent(symbol.upper(), episodes=300, job_id=job_id)
+
+    background_tasks.add_task(_run)
+    return {"job_id": job_id, "symbol": symbol.upper(), "status": "training started"}
+
+
+@app.post("/api/v1/rl/train-all")
+def train_rl_all(background_tasks: BackgroundTasks):
+    """Train RL agents for initial 5 symbols (async, ~30min)."""
+    import uuid
+    job_id = f"rl_all_{uuid.uuid4().hex[:8]}"
+
+    def _run():
+        from ml.rl_trader import train_all_rl
+        train_all_rl(job_id)
+
+    background_tasks.add_task(_run)
+    return {"job_id": job_id, "status": "training started for 5 symbols"}
+
+
+@app.get("/api/v1/rl/predict/{symbol}")
+def get_rl_prediction_endpoint(symbol: str):
+    """Get RL agent's recommendation for today."""
+    from ml.rl_trader import get_rl_prediction
+    result = get_rl_prediction(symbol.upper())
+    if result:
+        return result
+
+    # Try yfinance symbol aliases
+    for orig, aliases in {
+        "BTC-USD": ["BTCUSDC"], "ETH-USD": ["ETHUSDC"],
+        "GC=F": ["XAUUSDC"], "^VIX": ["VIX"],
+    }.items():
+        if symbol.upper() in aliases or symbol.upper() == orig:
+            result = get_rl_prediction(orig)
+            if result:
+                return result
+
+    return {"symbol": symbol.upper(), "action": "HOLD", "confidence": 0.0, "note": "No RL model available"}
+
+
+@app.get("/api/v1/rl/status")
+def get_rl_status():
+    """Get RL training status for all symbols."""
+    try:
+        from database.models import RLModel
+        db = SessionLocal()
+        models = db.query(RLModel).filter(RLModel.is_best == True).all()
+        result = [{
+            "symbol": m.symbol,
+            "val_sharpe": m.val_sharpe,
+            "val_return_pct": m.val_return_pct,
+            "total_trades": m.total_trades,
+            "episode": m.episode,
+            "trained_at": m.trained_at.isoformat() if m.trained_at else None,
+        } for m in models]
+        db.close()
+        return {"models": result, "count": len(result)}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
+@app.get("/api/v1/rl/performance")
+def get_rl_performance():
+    """Compare RL vs XGBoost vs Buy&Hold."""
+    try:
+        from database.models import RLModel, BacktestResult
+        db = SessionLocal()
+
+        rl_models = db.query(RLModel).filter(RLModel.is_best == True).all()
+        bt_results = {}
+        for r in db.query(BacktestResult).all():
+            bt_results[r.symbol] = r
+
+        comparison = []
+        for m in rl_models:
+            bt = bt_results.get(m.symbol)
+            comparison.append({
+                "symbol": m.symbol,
+                "rl_sharpe": m.val_sharpe,
+                "rl_return_pct": m.val_return_pct,
+                "xgb_sharpe": bt.sharpe_ratio if bt else None,
+                "xgb_return_pct": bt.total_return_pct if bt else None,
+            })
+        db.close()
+        return {"comparison": comparison, "count": len(comparison)}
+    except Exception as e:
+        return {"comparison": [], "error": str(e)}
+

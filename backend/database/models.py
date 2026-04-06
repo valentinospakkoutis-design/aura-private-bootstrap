@@ -244,3 +244,32 @@ class BacktestResult(Base):
     calmar_ratio = Column(Float)
     metrics_json = Column(JSON)
 
+
+class RLModel(Base):
+    """RL agent training history"""
+    __tablename__ = "rl_models"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    episode = Column(Integer)
+    train_sharpe = Column(Float)
+    val_sharpe = Column(Float)
+    train_return_pct = Column(Float)
+    val_return_pct = Column(Float)
+    total_trades = Column(Integer)
+    model_path = Column(Text)
+    is_best = Column(Boolean, default=False)
+    trained_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RLPrediction(Base):
+    """RL agent daily predictions"""
+    __tablename__ = "rl_predictions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    action = Column(String(10))
+    confidence = Column(Float)
+    predicted_at = Column(DateTime, default=datetime.utcnow)
+

@@ -29,6 +29,7 @@ hiredis>=2.3.0
 yfinance>=0.2.40
 # ML
 xgboost>=2.0.0
+gymnasium>=0.29.0
 textblob>=0.18.0
 ta>=0.11.0
 # Scheduling
