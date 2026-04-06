@@ -243,6 +243,14 @@ function AppContent() {
           }}
         />
 
+        <Stack.Screen
+          name="model-performance"
+          options={{
+            title: '🎯 Απόδοση Μοντέλων',
+            headerShown: true,
+          }}
+        />
+
         {/* Dev/Test Screens */}
         <Stack.Screen 
           name="dev-test" 

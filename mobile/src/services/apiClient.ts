@@ -146,6 +146,16 @@ class ApiClient {
     return predictionsArray;
   }
 
+  async getModelPerformance() {
+    const response = await this.client.get('/api/v1/training/model-performance');
+    return response.data;
+  }
+
+  async triggerFullPipeline() {
+    const response = await this.client.post('/api/v1/training/full-pipeline');
+    return response.data;
+  }
+
   async getMarketMovers() {
     const response = await this.client.get('/api/v1/market/movers', { timeout: 60000 });
     return response.data;

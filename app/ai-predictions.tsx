@@ -52,6 +52,7 @@ export default function AIPredictionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
+  const [modelAccuracy, setModelAccuracy] = useState<Record<string, number>>({});
   const { isOfflineMode } = useOfflineMode();
 
   const {
@@ -89,6 +90,13 @@ export default function AIPredictionsScreen() {
       const [result] = await Promise.all([
         fetchPredictions(isOfflineMode),
         api.getMarketMovers().then(setMovers).catch(() => {}),
+        api.getModelPerformance().then((data: any) => {
+          const map: Record<string, number> = {};
+          for (const m of data?.models || []) {
+            if (m.symbol && m.accuracy != null) map[m.symbol] = m.accuracy;
+          }
+          setModelAccuracy(map);
+        }).catch(() => {}),
       ]);
       if (Array.isArray(result)) setPredictions(result);
     } catch (err) {
@@ -164,8 +172,16 @@ export default function AIPredictionsScreen() {
     );
   };
 
+  const getAccuracyColor = (acc: number) => {
+    if (acc >= 0.55) return theme.colors.market.bullish;
+    if (acc >= 0.50) return '#F59E0B';
+    return theme.colors.market.bearish;
+  };
+
   // ── Prediction Card ───────────────────────────────────────
-  const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => (
+  const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => {
+    const acc = modelAccuracy[item.symbol || ''] ?? null;
+    return (
     <AnimatedListItem
       index={index}
       onPress={() => router.push(`/prediction-details?id=${item.id}`)}
@@ -174,9 +190,18 @@ export default function AIPredictionsScreen() {
       <View style={s.cardHeader}>
         <View style={s.assetContainer}>
           <Text style={s.assetName}>{item.asset}</Text>
-          {item.symbol && item.symbol !== item.asset && (
-            <Text style={s.symbolBadge}>{item.symbol}</Text>
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {item.symbol && item.symbol !== item.asset && (
+              <Text style={s.symbolBadge}>{item.symbol}</Text>
+            )}
+            {acc !== null && (
+              <View style={[s.accuracyBadge, { backgroundColor: getAccuracyColor(acc) + '20' }]}>
+                <Text style={[s.accuracyText, { color: getAccuracyColor(acc) }]}>
+                  🎯 {(acc * 100).toFixed(1)}%
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
         <View style={[s.actionBadge, { backgroundColor: getActionColor(item.action) + '20' }]}>
           <Text style={s.actionIcon}>{getActionIcon(item.action)}</Text>
@@ -210,7 +235,7 @@ export default function AIPredictionsScreen() {
       <Text style={s.reasoning} numberOfLines={2}>{item.reasoning}</Text>
       <Text style={s.viewDetails}>Δες Ανάλυση →</Text>
     </AnimatedListItem>
-  );
+  );};
 
   // ── Loading / Error / Empty states ────────────────────────
   if (loading && !refreshing && (!predictions || predictions.length === 0)) {
@@ -253,6 +278,11 @@ export default function AIPredictionsScreen() {
 
               {/* Top Movers */}
               {renderMoversSection()}
+
+              {/* Model Performance Link */}
+              <TouchableOpacity style={s.perfLink} onPress={() => router.push('/model-performance')}>
+                <Text style={s.perfLinkText}>🎯 Απόδοση Μοντέλων →</Text>
+              </TouchableOpacity>
 
               {/* Category Tabs */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsContainer} contentContainerStyle={s.tabsContent}>
@@ -329,6 +359,10 @@ const s = StyleSheet.create({
   tabIcon: { fontSize: 14 },
   tabLabel: { fontSize: theme.typography.sizes.xs, fontWeight: '600', color: theme.colors.text.secondary },
   tabLabelActive: { color: '#FFFFFF' },
+  perfLink: { alignSelf: 'flex-end', marginBottom: theme.spacing.sm },
+  perfLinkText: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600' },
+  accuracyBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  accuracyText: { fontSize: 10, fontWeight: '700' },
   countText: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, marginBottom: theme.spacing.sm },
 
   // ── Prediction Cards ──────────────────────────────────────
