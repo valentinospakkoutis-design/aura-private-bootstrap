@@ -67,10 +67,10 @@ def _py(val):
 class Backtester:
     """Core backtesting engine with smart trade filters."""
 
-    MIN_HOLD_DAYS = 5           # Minimum days to hold a position
-    MIN_CONVICTION_GAP = 0.15   # Minimum |buy_prob - sell_prob| to trade
-    VOL_MIN = 0.10              # Min annualized volatility to trade
-    VOL_MAX = 0.50              # Max annualized volatility to trade
+    MIN_HOLD_DAYS = 3
+    MIN_CONVICTION_GAP = 0.05
+    VOL_MIN = 0.05
+    VOL_MAX = 0.80
 
     def __init__(self, symbol: str, initial_capital: float = 10000.0):
         self.symbol = symbol
@@ -110,21 +110,36 @@ class Backtester:
             except Exception:
                 pass
 
+        def _extract_proba(proba):
+            """Safely extract buy/sell probabilities from predict_proba output."""
+            if proba.shape[1] == 2:
+                return proba[:, 1], proba[:, 0]  # [down, up] → buy=up, sell=down
+            elif proba.shape[1] >= 3:
+                return proba[:, 2], proba[:, 0]  # [down, neutral, up]
+            return np.full(len(proba), 0.5), np.full(len(proba), 0.5)
+
         # Get probabilities
         if "xgb_model" in model_data and "rf_model" in model_data:
             try:
                 xgb_p = model_data["xgb_model"].predict_proba(X)
                 rf_p = model_data["rf_model"].predict_proba(X)
-                # class 0=down, class 1=up
-                buy_prob = 0.6 * xgb_p[:, 1] + 0.4 * rf_p[:, 1]
-                sell_prob = 0.6 * xgb_p[:, 0] + 0.4 * rf_p[:, 0]
-            except Exception:
+                xgb_buy, xgb_sell = _extract_proba(xgb_p)
+                rf_buy, rf_sell = _extract_proba(rf_p)
+                buy_prob = 0.6 * xgb_buy + 0.4 * rf_buy
+                sell_prob = 0.6 * xgb_sell + 0.4 * rf_sell
+            except Exception as e:
+                print(f"[Backtest] predict_proba failed: {e}")
                 return default
         elif "model" in model_data:
             try:
-                preds = model_data["model"].predict(X)
-                buy_prob = 1 / (1 + np.exp(-preds * 10))
-                sell_prob = 1 - buy_prob
+                model = model_data["model"]
+                if hasattr(model, "predict_proba"):
+                    proba = model.predict_proba(X)
+                    buy_prob, sell_prob = _extract_proba(proba)
+                else:
+                    preds = model.predict(X)
+                    buy_prob = 1 / (1 + np.exp(-preds * 10))
+                    sell_prob = 1 - buy_prob
             except Exception:
                 return default
         else:
@@ -134,34 +149,31 @@ class Backtester:
 
     def _position_size(self, conviction_gap: float) -> float:
         """Tiered position sizing based on conviction gap."""
-        if conviction_gap < 0.15:
+        if conviction_gap < 0.05:
             return 0.0
-        elif conviction_gap < 0.25:
+        elif conviction_gap < 0.15:
             return 0.25
-        elif conviction_gap < 0.40:
+        elif conviction_gap < 0.30:
             return 0.50
         else:
             return 1.0
 
     def run(self, prices_df: pd.DataFrame, features_df: Optional[pd.DataFrame] = None) -> Dict:
-        """Run backtest with smart filters: conviction gap, volatility regime, trend, hold period."""
+        """Run backtest with filters: conviction gap, volatility regime, hold period."""
         model_data = self._load_model()
 
         prices = prices_df["close"].values
         dates = prices_df.index
         n = len(prices)
 
-        # Pre-compute technical filters
+        # Pre-compute volatility filter
         close_series = pd.Series(prices, index=dates)
         returns = close_series.pct_change().fillna(0)
-        ma20 = close_series.rolling(20, min_periods=1).mean()
-        ma60 = close_series.rolling(60, min_periods=1).mean()
         rolling_vol = returns.rolling(20, min_periods=5).std() * np.sqrt(252)
 
-        # Get model signals (buy_prob, sell_prob per day)
+        # Get model signals
         if features_df is not None and model_data is not None and len(features_df) > 0:
             signals_df = self._generate_signals(features_df, model_data)
-            # Reindex to match prices
             signals_df = signals_df.reindex(dates).fillna(0.5)
         else:
             signals_df = pd.DataFrame({"buy_prob": [0.5]*n, "sell_prob": [0.5]*n}, index=dates)
@@ -169,7 +181,12 @@ class Backtester:
         buy_probs = signals_df["buy_prob"].values
         sell_probs = signals_df["sell_prob"].values
 
-        # ── Simulation loop with 4 filters ───────────────────
+        # ── Debug: count how many signals pass each filter ────
+        conv_pass = 0
+        vol_pass = 0
+        hold_block = 0
+
+        # ── Simulation loop ──────────────────────────────────
         capital = self.initial_capital
         position = 0.0
         trades = []
@@ -184,43 +201,33 @@ class Backtester:
             if price <= 0:
                 continue
 
-            buy_p = buy_probs[i] if i < len(buy_probs) else 0.5
-            sell_p = sell_probs[i] if i < len(sell_probs) else 0.5
-            conviction = abs(float(buy_p) - float(sell_p))
+            buy_p = float(buy_probs[i]) if i < len(buy_probs) else 0.5
+            sell_p = float(sell_probs[i]) if i < len(sell_probs) else 0.5
+            conviction = abs(buy_p - sell_p)
             vol = float(rolling_vol.iloc[i]) if i < len(rolling_vol) and not np.isnan(rolling_vol.iloc[i]) else 0.20
-            trend_up = float(ma20.iloc[i]) > float(ma60.iloc[i])
 
             # ── Filter A: Conviction gap ─────────────────────
             if conviction < self.MIN_CONVICTION_GAP:
                 if position > 0:
                     days_in_position += 1
                 continue
+            conv_pass += 1
 
             # ── Filter B: Volatility regime ──────────────────
             if vol < self.VOL_MIN or vol > self.VOL_MAX:
                 if position > 0:
                     days_in_position += 1
                 continue
+            vol_pass += 1
 
-            # Determine signal direction
-            is_buy_signal = buy_p > sell_p
-            is_sell_signal = sell_p > buy_p
-
-            # ── Filter C: Trend confirmation ─────────────────
-            if is_buy_signal and not trend_up:
-                if position > 0:
-                    days_in_position += 1
-                continue
-            if is_sell_signal and trend_up:
-                if position > 0:
-                    days_in_position += 1
-                continue
-
-            # ── Filter D: Minimum hold period ────────────────
+            # ── Filter C: Minimum hold period ────────────────
             if position > 0:
                 days_in_position += 1
                 if days_in_position < self.MIN_HOLD_DAYS:
+                    hold_block += 1
                     continue
+
+            is_buy_signal = buy_p > sell_p
 
             # ── Execute trade ────────────────────────────────
             target_alloc = self._position_size(conviction) if is_buy_signal else 0.0
@@ -247,6 +254,12 @@ class Backtester:
                 position -= sell_units
                 days_in_position = 0
                 trades.append({"date": str(dates[i]), "type": "SELL", "price": float(price), "value": float(trade_value), "fee": float(fee)})
+
+        # Debug filter stats
+        buys = len([t for t in trades if t["type"] == "BUY"])
+        sells = len([t for t in trades if t["type"] == "SELL"])
+        print(f"[Backtest] {self.symbol} filters: rows={n}, conviction_pass={conv_pass}, "
+              f"vol_pass={vol_pass}, hold_blocked={hold_block}, trades={buys}B/{sells}S")
 
         # Final liquidation
         if position > 0:
