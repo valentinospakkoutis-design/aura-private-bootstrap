@@ -5,7 +5,7 @@ PostgreSQL with SQLAlchemy (async and sync)
 
 import os
 from typing import AsyncGenerator, Generator
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
@@ -89,6 +89,15 @@ def init_db():
         return
     from .models import Base
     Base.metadata.create_all(bind=sync_engine)
+    # Add model_data column if missing (for existing rl_models tables)
+    with sync_engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE rl_models ADD COLUMN IF NOT EXISTS model_data BYTEA"
+            ))
+            conn.commit()
+        except Exception as e:
+            print(f"[!] Could not add model_data column (may already exist): {e}")
     print("[+] Database tables created")
 
 

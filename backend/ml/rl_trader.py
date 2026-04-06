@@ -3,6 +3,7 @@ Reinforcement Learning Trading Agent for AURA
 PPO agent that learns to trade by maximizing risk-adjusted returns.
 """
 
+import io
 import os
 import sys
 import logging
@@ -20,8 +21,6 @@ from torch.distributions import Categorical
 
 logger = logging.getLogger(__name__)
 
-RL_MODELS_DIR = os.path.join(os.path.dirname(__file__), "models", "rl")
-os.makedirs(RL_MODELS_DIR, exist_ok=True)
 
 WINDOW_SIZE = 30
 N_FEATURES = 10  # features per timestep
@@ -301,11 +300,16 @@ class PPOAgent:
         self.buffer.clear()
         return total_loss / 3
 
-    def save(self, path: str):
-        torch.save(self.model.state_dict(), path)
+    def save_to_bytes(self) -> bytes:
+        """Serialize model state_dict to bytes for DB storage."""
+        buffer = io.BytesIO()
+        torch.save(self.model.state_dict(), buffer)
+        return buffer.getvalue()
 
-    def load(self, path: str):
-        self.model.load_state_dict(torch.load(path, map_location="cpu", weights_only=True))
+    def load_from_bytes(self, data: bytes):
+        """Load model state_dict from bytes."""
+        buffer = io.BytesIO(data)
+        self.model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
         self.model.eval()
 
     def predict(self, state: np.ndarray) -> Tuple[str, float]:
@@ -376,7 +380,7 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
         best_val_sharpe = -999
         no_improve = 0
-        best_path = os.path.join(RL_MODELS_DIR, f"{symbol}_ppo_best.pt")
+        best_model_bytes = None
 
         for ep in range(episodes):
             # Train episode
@@ -413,7 +417,7 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
                 if val_sharpe > best_val_sharpe:
                     best_val_sharpe = val_sharpe
-                    agent.save(best_path)
+                    best_model_bytes = agent.save_to_bytes()
                     no_improve = 0
 
                     db.add(RLModel(
@@ -424,7 +428,8 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                         train_return_pct=float(_to_py(info["total_return_pct"])),
                         val_return_pct=float(_to_py(val_return)),
                         total_trades=int(_to_py(val_info["total_trades"])),
-                        model_path=str(best_path),
+                        model_path=str(symbol),
+                        model_data=best_model_bytes,
                         is_best=True,
                     ))
                     db.commit()
@@ -444,7 +449,7 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
         result = {"symbol": symbol, "episodes": int(ep + 1),
                   "best_val_sharpe": round(float(_to_py(best_val_sharpe)), 3),
-                  "model_path": best_path}
+                  "stored_in_db": best_model_bytes is not None}
         print(f"[RL {symbol}] Done: best_sharpe={best_val_sharpe:.3f}")
         db.close()
         return result
@@ -487,41 +492,48 @@ def train_all_rl(job_id: str = "manual") -> List[Dict]:
 
 
 def get_rl_prediction(symbol: str) -> Optional[Dict]:
-    """Get today's RL prediction for a symbol."""
+    """Get today's RL prediction for a symbol, loading model from DB."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
-
-    path = os.path.join(RL_MODELS_DIR, f"{symbol}_ppo_best.pt")
-    # Try aliases
-    if not os.path.exists(path):
-        for k, als in SYMBOL_ALIASES.items():
-            if symbol == k or symbol in als:
-                for a in [k] + als:
-                    p = os.path.join(RL_MODELS_DIR, f"{a}_ppo_best.pt")
-                    if os.path.exists(p):
-                        path = p
-                        break
-                break
-
-    if not os.path.exists(path):
-        return None
+    from database.models import RLModel
 
     db = SessionLocal()
-    df = _load_prices(db, symbol)
-    db.close()
-    if df is None or len(df) < WINDOW_SIZE + 5:
-        return None
+    try:
+        # Find best model for symbol (or alias)
+        aliases = [symbol]
+        for k, als in SYMBOL_ALIASES.items():
+            if symbol == k or symbol in als:
+                aliases = list(set([symbol, k] + als))
+                break
 
-    env = TradingEnv(df)
-    state = env.reset()
-    # Walk to the last step
-    for i in range(env.n - WINDOW_SIZE - 2):
-        env.step(0)  # HOLD to reach end
-    state = env._get_state()
+        row = db.query(RLModel).filter(
+            RLModel.symbol.in_(aliases),
+            RLModel.is_best == True
+        ).order_by(RLModel.val_sharpe.desc()).first()
 
-    agent = PPOAgent()
-    agent.load(path)
-    action, confidence = agent.predict(state)
+        if row is None or row.model_data is None:
+            if row is not None and row.model_data is None:
+                logger.warning(f"[RL] Model row exists for {symbol} but model_data is None, skipping")
+            return None
 
-    return {"symbol": symbol, "action": action, "confidence": round(float(_to_py(confidence)), 3),
-            "date": str(date.today())}
+        model_bytes = row.model_data
+
+        df = _load_prices(db, symbol)
+        if df is None or len(df) < WINDOW_SIZE + 5:
+            return None
+
+        env = TradingEnv(df)
+        state = env.reset()
+        # Walk to the last step
+        for i in range(env.n - WINDOW_SIZE - 2):
+            env.step(0)  # HOLD to reach end
+        state = env._get_state()
+
+        agent = PPOAgent()
+        agent.load_from_bytes(model_bytes)
+        action, confidence = agent.predict(state)
+
+        return {"symbol": symbol, "action": action, "confidence": round(float(_to_py(confidence)), 3),
+                "date": str(date.today())}
+    finally:
+        db.close()

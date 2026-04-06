@@ -3,7 +3,7 @@ SQLAlchemy models for AURA database
 """
 
 import os
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY, LargeBinary
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -258,6 +258,7 @@ class RLModel(Base):
     val_return_pct = Column(Float)
     total_trades = Column(Integer)
     model_path = Column(Text)
+    model_data = Column(LargeBinary, nullable=True)
     is_best = Column(Boolean, default=False)
     trained_at = Column(DateTime, default=datetime.utcnow)
 
