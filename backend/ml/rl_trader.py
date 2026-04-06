@@ -30,7 +30,16 @@ ACTION_DIM = 3   # HOLD=0, BUY=1, SELL=2
 FEE = 0.001
 RISK_FREE = 0.04 / 252
 
-INITIAL_SYMBOLS = ["BTC-USD", "ETH-USD", "AAPL", "GC=F", "^VIX"]
+ALL_SYMBOLS = [
+    "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "SOL-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD", "MATIC-USD",
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+    "ASML", "SAP", "MC.PA",
+    "GC=F", "SI=F", "PA=F", "PL=F", "CL=F", "ES=F", "NQ=F",
+    "^TNX", "^IRX", "^TYX",
+    "EURUSD=X", "GBPEUR=X", "USDJPY=X",
+    "^VIX",
+]
 
 
 def _to_py(val):
@@ -422,7 +431,7 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                 else:
                     no_improve += 25
 
-                if no_improve >= 100:
+                if no_improve >= 50:
                     print(f"[RL {symbol}] Early stop at episode {ep+1}")
                     break
 
@@ -451,9 +460,27 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
 
 def train_all_rl(job_id: str = "manual") -> List[Dict]:
+    """Train all 33 symbols, skipping those that already have a model."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from database.connection import SessionLocal
+    from database.models import RLModel
+
+    # Find already-trained symbols
+    db = SessionLocal()
+    try:
+        trained = {r[0] for r in db.query(RLModel.symbol).filter(RLModel.is_best == True).distinct().all()}
+        db.close()
+    except Exception:
+        trained = set()
+        db.close()
+
+    to_train = [s for s in ALL_SYMBOLS if s not in trained]
+    print(f"[RL] {len(trained)} already trained, {len(to_train)} remaining: {to_train[:5]}...")
+
     results = []
-    for s in INITIAL_SYMBOLS:
-        r = train_rl_agent(s, episodes=300, job_id=job_id)
+    for i, s in enumerate(to_train):
+        print(f"\n[RL] === {s} ({i+1}/{len(to_train)}) ===")
+        r = train_rl_agent(s, episodes=150, job_id=job_id)
         if r:
             results.append(r)
     return results
