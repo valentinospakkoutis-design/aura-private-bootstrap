@@ -17,6 +17,34 @@ logger = logging.getLogger(__name__)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 
+# Map historical_prices symbols (yfinance) → model file symbols (asset_predictor)
+# and vice versa, so the backtester can find models regardless of naming
+SYMBOL_ALIASES = {
+    "BTC-USD": ["BTCUSDC", "BTCUSDT", "BTC-USD"],
+    "ETH-USD": ["ETHUSDC", "ETHUSDT", "ETH-USD"],
+    "BNB-USD": ["BNBUSDC", "BNBUSDT", "BNB-USD"],
+    "XRP-USD": ["XRPUSDC", "XRPUSDT", "XRP-USD"],
+    "SOL-USD": ["SOLUSDC", "SOLUSDT", "SOL-USD"],
+    "ADA-USD": ["ADAUSDC", "ADAUSDT", "ADA-USD"],
+    "AVAX-USD": ["AVAXUSDC", "AVAXUSDT", "AVAX-USD"],
+    "DOT-USD": ["DOTUSDC", "DOTUSDT", "DOT-USD"],
+    "LINK-USD": ["LINKUSDC", "LINKUSDT", "LINK-USD"],
+    "GC=F": ["GC=F", "GC1!", "XAUUSDC"],
+    "SI=F": ["SI=F", "SI1!", "XAGUSDC"],
+    "PL=F": ["PL=F", "XPTUSDC"],
+    "PA=F": ["PA=F", "XPDUSDC"],
+    "CL=F": ["CL=F", "CL1!"],
+    "ES=F": ["ES=F", "ES1!"],
+    "NQ=F": ["NQ=F", "NQ1!"],
+    "^TNX": ["^TNX", "TNX"],
+    "^IRX": ["^IRX", "IRX"],
+    "^TYX": ["^TYX", "TYX"],
+    "^VIX": ["^VIX", "VIX"],
+    "EURUSD=X": ["EURUSD=X", "EURUSD"],
+    "GBPEUR=X": ["GBPEUR=X", "GBPEUR"],
+    "USDJPY=X": ["USDJPY=X", "USDJPY"],
+}
+
 
 class Backtester:
     """Core backtesting engine for a single symbol."""
@@ -29,12 +57,20 @@ class Backtester:
         self.risk_free_rate = 0.04  # 4% annual (US treasury proxy)
 
     def _load_model(self) -> Optional[dict]:
-        """Load the latest ensemble or xgboost model for this symbol."""
-        for pattern in [f"{self.symbol}_ensemble_latest.pkl", f"{self.symbol}_xgboost_latest.pkl"]:
-            path = os.path.join(MODELS_DIR, pattern)
-            if os.path.exists(path):
-                with open(path, "rb") as f:
-                    return pickle.load(f)
+        """Load the latest ensemble or xgboost model, trying all symbol aliases."""
+        # Build list of symbol names to try
+        candidates = [self.symbol]
+        for key, aliases in SYMBOL_ALIASES.items():
+            if self.symbol in aliases or self.symbol == key:
+                candidates = [key] + aliases
+                break
+
+        for sym in candidates:
+            for suffix in ["_ensemble_latest.pkl", "_xgboost_latest.pkl"]:
+                path = os.path.join(MODELS_DIR, f"{sym}{suffix}")
+                if os.path.exists(path):
+                    with open(path, "rb") as f:
+                        return pickle.load(f)
         return None
 
     def _generate_signals(self, features_df: pd.DataFrame, model_data: dict) -> pd.Series:
@@ -364,18 +400,50 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
 
     db = SessionLocal()
     try:
+        # Try DB first, then also check alias symbols
         prices = db.query(HistoricalPrice).filter(
             HistoricalPrice.symbol == symbol
         ).order_by(HistoricalPrice.date).all()
 
+        # If not found, try alias symbols
         if len(prices) < 60:
-            logger.warning(f"[Backtest] {symbol}: insufficient data ({len(prices)} rows)")
-            db.close()
-            return None
+            for key, aliases in SYMBOL_ALIASES.items():
+                if symbol in aliases or symbol == key:
+                    for alias in [key] + aliases:
+                        if alias == symbol:
+                            continue
+                        prices = db.query(HistoricalPrice).filter(
+                            HistoricalPrice.symbol == alias
+                        ).order_by(HistoricalPrice.date).all()
+                        if len(prices) >= 60:
+                            logger.info(f"[Backtest] {symbol}: found data under alias {alias}")
+                            break
+                    break
 
-        price_df = pd.DataFrame([{
-            "date": p.date, "close": p.close
-        } for p in prices]).set_index("date").sort_index()
+        # Fallback to yfinance if still no data
+        if len(prices) < 60:
+            logger.info(f"[Backtest] {symbol}: no DB data, trying yfinance fallback")
+            try:
+                import yfinance as yf
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period="3y", interval="1d")
+                if len(hist) >= 60:
+                    price_df = pd.DataFrame({
+                        "close": hist["Close"].values
+                    }, index=hist.index.date)
+                    price_df.index.name = "date"
+                else:
+                    logger.warning(f"[Backtest] {symbol}: insufficient data from yfinance too")
+                    db.close()
+                    return None
+            except Exception as e:
+                logger.warning(f"[Backtest] {symbol}: yfinance fallback failed: {e}")
+                db.close()
+                return None
+        else:
+            price_df = pd.DataFrame([{
+                "date": p.date, "close": p.close
+            } for p in prices]).set_index("date").sort_index()
 
         # Load features
         features = db.query(TrainingFeature).filter(
