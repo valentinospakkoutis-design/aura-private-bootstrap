@@ -32,6 +32,17 @@ RISK_FREE = 0.04 / 252
 
 INITIAL_SYMBOLS = ["BTC-USD", "ETH-USD", "AAPL", "GC=F", "^VIX"]
 
+
+def _to_py(val):
+    """Convert numpy types to native Python for PostgreSQL."""
+    if hasattr(val, 'item'):
+        return val.item()
+    if isinstance(val, (np.floating,)):
+        return float(val)
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    return val
+
 # Symbol aliases (same as backtester)
 SYMBOL_ALIASES = {
     "BTC-USD": ["BTCUSDC", "BTCUSDT"], "ETH-USD": ["ETHUSDC", "ETHUSDT"],
@@ -397,12 +408,15 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                     no_improve = 0
 
                     db.add(RLModel(
-                        symbol=symbol, episode=ep + 1,
-                        train_sharpe=0, val_sharpe=val_sharpe,
-                        train_return_pct=info["total_return_pct"],
-                        val_return_pct=val_return,
-                        total_trades=val_info["total_trades"],
-                        model_path=best_path, is_best=True,
+                        symbol=str(symbol),
+                        episode=int(ep + 1),
+                        train_sharpe=float(_to_py(0)),
+                        val_sharpe=float(_to_py(val_sharpe)),
+                        train_return_pct=float(_to_py(info["total_return_pct"])),
+                        val_return_pct=float(_to_py(val_return)),
+                        total_trades=int(_to_py(val_info["total_trades"])),
+                        model_path=str(best_path),
+                        is_best=True,
                     ))
                     db.commit()
                 else:
@@ -419,7 +433,8 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
             best.is_best = True
         db.commit()
 
-        result = {"symbol": symbol, "episodes": ep + 1, "best_val_sharpe": round(best_val_sharpe, 3),
+        result = {"symbol": symbol, "episodes": int(ep + 1),
+                  "best_val_sharpe": round(float(_to_py(best_val_sharpe)), 3),
                   "model_path": best_path}
         print(f"[RL {symbol}] Done: best_sharpe={best_val_sharpe:.3f}")
         db.close()
@@ -481,5 +496,5 @@ def get_rl_prediction(symbol: str) -> Optional[Dict]:
     agent.load(path)
     action, confidence = agent.predict(state)
 
-    return {"symbol": symbol, "action": action, "confidence": round(confidence, 3),
+    return {"symbol": symbol, "action": action, "confidence": round(float(_to_py(confidence)), 3),
             "date": str(date.today())}
