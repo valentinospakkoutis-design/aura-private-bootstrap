@@ -75,18 +75,23 @@ class Backtester:
 
     def _generate_signals(self, features_df: pd.DataFrame, model_data: dict) -> pd.Series:
         """Generate prediction confidence from model on feature rows."""
-        from sklearn.preprocessing import StandardScaler
-
         feature_cols = model_data.get("feature_cols", [])
-        available = [c for c in feature_cols if c in features_df.columns]
-        if len(available) < 5:
+        if not feature_cols:
             return pd.Series(0.5, index=features_df.index)
 
-        X = features_df[available].fillna(0).values
+        # Build X with ALL expected feature columns, pad missing with 0
+        X = np.zeros((len(features_df), len(feature_cols)))
+        for i, col in enumerate(feature_cols):
+            if col in features_df.columns:
+                vals = features_df[col].fillna(0).values
+                X[:, i] = vals
 
         scaler = model_data.get("scaler")
         if scaler:
-            X = scaler.transform(X)
+            try:
+                X = scaler.transform(X)
+            except Exception as e:
+                print(f"[Backtest] Scaler transform failed: {e}, using unscaled")
 
         # Ensemble model
         if "xgb_model" in model_data and "rf_model" in model_data:
@@ -312,21 +317,24 @@ class Backtester:
             "sharpe_ratio": round(float(sharpe), 3),
             "sortino_ratio": round(float(sortino), 3),
             "max_drawdown_pct": round(float(max_dd) * 100, 2),
-            "max_drawdown_duration_days": max_dd_duration,
+            "max_drawdown_duration_days": int(max_dd_duration),
             "win_rate_pct": round(win_rate, 1),
             "profit_factor": round(profit_factor, 3),
-            "total_trades": len(trades),
-            "avg_trade_return_pct": round(np.mean(trade_returns) * 100, 2) if trade_returns else 0,
-            "avg_winning_trade_pct": round(np.mean(winning) * 100, 2) if winning else 0,
-            "avg_losing_trade_pct": round(np.mean(losing) * 100, 2) if losing else 0,
-            "best_trade_pct": round(max(trade_returns) * 100, 2) if trade_returns else 0,
-            "worst_trade_pct": round(min(trade_returns) * 100, 2) if trade_returns else 0,
+            "total_trades": int(len(trades)),
+            "avg_trade_return_pct": round(float(np.mean(trade_returns) * 100), 2) if trade_returns else 0.0,
+            "avg_winning_trade_pct": round(float(np.mean(winning) * 100), 2) if winning else 0.0,
+            "avg_losing_trade_pct": round(float(np.mean(losing) * 100), 2) if losing else 0.0,
+            "best_trade_pct": round(float(max(trade_returns) * 100), 2) if trade_returns else 0.0,
+            "worst_trade_pct": round(float(min(trade_returns) * 100), 2) if trade_returns else 0.0,
             "calmar_ratio": round(float(calmar), 3),
-            "total_fees_paid": round(total_fees, 2),
-            "net_return_after_fees": round((final_capital - self.initial_capital - total_fees), 2),
+            "total_fees_paid": round(float(total_fees), 2),
+            "net_return_after_fees": round(float(final_capital - self.initial_capital - total_fees), 2),
             "start_date": str(prices_df.index[0]) if len(prices_df) > 0 else None,
             "end_date": str(prices_df.index[-1]) if len(prices_df) > 0 else None,
         }
+
+        # Convert any remaining numpy types to native Python for PostgreSQL
+        metrics = {k: (v.item() if hasattr(v, 'item') else v) for k, v in metrics.items()}
 
         return metrics
 
@@ -480,24 +488,29 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
         print(f"[Backtest] {symbol}: return={metrics['total_return_pct']}%, "
               f"sharpe={metrics['sharpe_ratio']}, trades={metrics['total_trades']}")
 
-        # Step 6: Store in DB
+        # Step 6: Store in DB — ensure all values are native Python types
+        def _py(v):
+            if hasattr(v, 'item'):
+                return v.item()
+            return v
+
         db.add(BacktestResult(
             symbol=symbol,
             start_date=price_df.index[0] if len(price_df) > 0 else None,
             end_date=price_df.index[-1] if len(price_df) > 0 else None,
-            initial_capital=bt.initial_capital,
-            final_capital=metrics["final_capital"],
-            total_return_pct=metrics["total_return_pct"],
-            annual_return_pct=metrics["annual_return_pct"],
-            sharpe_ratio=metrics["sharpe_ratio"],
-            sortino_ratio=metrics["sortino_ratio"],
-            max_drawdown_pct=metrics["max_drawdown_pct"],
-            win_rate_pct=metrics["win_rate_pct"],
-            profit_factor=metrics["profit_factor"],
-            total_trades=metrics["total_trades"],
-            total_fees_paid=metrics["total_fees_paid"],
-            calmar_ratio=metrics["calmar_ratio"],
-            metrics_json=metrics,
+            initial_capital=float(_py(bt.initial_capital)),
+            final_capital=float(_py(metrics["final_capital"])),
+            total_return_pct=float(_py(metrics["total_return_pct"])),
+            annual_return_pct=float(_py(metrics["annual_return_pct"])),
+            sharpe_ratio=float(_py(metrics["sharpe_ratio"])),
+            sortino_ratio=float(_py(metrics["sortino_ratio"])),
+            max_drawdown_pct=float(_py(metrics["max_drawdown_pct"])),
+            win_rate_pct=float(_py(metrics["win_rate_pct"])),
+            profit_factor=float(_py(metrics["profit_factor"])),
+            total_trades=int(_py(metrics["total_trades"])),
+            total_fees_paid=float(_py(metrics["total_fees_paid"])),
+            calmar_ratio=float(_py(metrics["calmar_ratio"])),
+            metrics_json={k: (_py(v) if not isinstance(v, str) and v is not None else v) for k, v in metrics.items()},
         ))
         db.commit()
         print(f"[Backtest] {symbol}: saved to backtest_results")
