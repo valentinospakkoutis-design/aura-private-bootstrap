@@ -2451,31 +2451,31 @@ def get_model_performance():
 # ── Backtesting Endpoints ───────────────────────────────────
 
 @app.post("/api/v1/backtest/run/{symbol}")
-def run_backtest_symbol(symbol: str, background_tasks: BackgroundTasks):
-    """Run backtest for a single symbol (async)."""
-    import uuid
-    job_id = f"bt_{uuid.uuid4().hex[:8]}"
-
-    def _run():
-        from ml.backtester import backtest_symbol
-        backtest_symbol(symbol.upper(), job_id)
-
-    background_tasks.add_task(_run)
-    return {"job_id": job_id, "symbol": symbol.upper(), "status": "started"}
+def run_backtest_symbol(symbol: str):
+    """Run backtest for a single symbol synchronously."""
+    from ml.backtester import backtest_symbol
+    result = backtest_symbol(symbol.upper())
+    if result and "error" not in result:
+        return result
+    return {"symbol": symbol.upper(), "error": result.get("error", "Unknown error") if result else "No result"}
 
 
 @app.post("/api/v1/backtest/run-all")
-def run_backtest_all(background_tasks: BackgroundTasks):
-    """Run backtest for all symbols with historical data (async)."""
+def run_backtest_all():
+    """Run backtest for all symbols synchronously. Returns results directly."""
     import uuid
     job_id = f"bt_all_{uuid.uuid4().hex[:8]}"
-
-    def _run():
-        from ml.backtester import backtest_all
-        backtest_all(job_id)
-
-    background_tasks.add_task(_run)
-    return {"job_id": job_id, "status": "started"}
+    from ml.backtester import backtest_all
+    results = backtest_all(job_id)
+    succeeded = [r for r in results if "total_return_pct" in r]
+    failed = [r for r in results if "error" in r]
+    return {
+        "job_id": job_id,
+        "total": len(results),
+        "succeeded": len(succeeded),
+        "failed": len(failed),
+        "results": results,
+    }
 
 
 @app.get("/api/v1/backtest/results")

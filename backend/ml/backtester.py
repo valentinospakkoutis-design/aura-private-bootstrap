@@ -394,35 +394,43 @@ def run_walk_forward(symbol: str, db_session, train_months: int = 18,
 
 def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
     """Run full backtest for a single symbol and store results."""
+    import traceback
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import HistoricalPrice, TrainingFeature, BacktestResult
 
+    print(f"[Backtest] Starting backtest for {symbol}")
     db = SessionLocal()
+    if not db:
+        print(f"[Backtest] ERROR: SessionLocal is None — DATABASE_URL not set?")
+        return {"symbol": symbol, "error": "Database not available"}
+
     try:
-        # Try DB first, then also check alias symbols
+        # Step 1: Load price data from DB
         prices = db.query(HistoricalPrice).filter(
             HistoricalPrice.symbol == symbol
         ).order_by(HistoricalPrice.date).all()
+        print(f"[Backtest] {symbol}: loaded {len(prices)} rows from historical_prices")
 
-        # If not found, try alias symbols
+        # Try alias symbols
         if len(prices) < 60:
             for key, aliases in SYMBOL_ALIASES.items():
                 if symbol in aliases or symbol == key:
                     for alias in [key] + aliases:
                         if alias == symbol:
                             continue
-                        prices = db.query(HistoricalPrice).filter(
+                        alt = db.query(HistoricalPrice).filter(
                             HistoricalPrice.symbol == alias
                         ).order_by(HistoricalPrice.date).all()
-                        if len(prices) >= 60:
-                            logger.info(f"[Backtest] {symbol}: found data under alias {alias}")
+                        if len(alt) >= 60:
+                            print(f"[Backtest] {symbol}: found {len(alt)} rows under alias {alias}")
+                            prices = alt
                             break
                     break
 
-        # Fallback to yfinance if still no data
+        # Step 2: yfinance fallback
         if len(prices) < 60:
-            logger.info(f"[Backtest] {symbol}: no DB data, trying yfinance fallback")
+            print(f"[Backtest] {symbol}: only {len(prices)} DB rows, trying yfinance...")
             try:
                 import yfinance as yf
                 ticker = yf.Ticker(symbol)
@@ -432,23 +440,26 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
                         "close": hist["Close"].values
                     }, index=hist.index.date)
                     price_df.index.name = "date"
+                    print(f"[Backtest] {symbol}: got {len(hist)} rows from yfinance")
                 else:
-                    logger.warning(f"[Backtest] {symbol}: insufficient data from yfinance too")
+                    print(f"[Backtest] {symbol}: yfinance returned {len(hist)} rows — skipping")
                     db.close()
-                    return None
-            except Exception as e:
-                logger.warning(f"[Backtest] {symbol}: yfinance fallback failed: {e}")
+                    return {"symbol": symbol, "error": f"Insufficient data ({len(hist)} rows)"}
+            except Exception as yf_err:
+                print(f"[Backtest] {symbol}: yfinance fallback failed: {yf_err}")
+                traceback.print_exc()
                 db.close()
-                return None
+                return {"symbol": symbol, "error": f"yfinance: {yf_err}"}
         else:
             price_df = pd.DataFrame([{
                 "date": p.date, "close": p.close
             } for p in prices]).set_index("date").sort_index()
 
-        # Load features
+        # Step 3: Load features (optional)
         features = db.query(TrainingFeature).filter(
             TrainingFeature.symbol == symbol
         ).order_by(TrainingFeature.date).all()
+        print(f"[Backtest] {symbol}: loaded {len(features)} feature rows")
 
         feat_df = None
         if features:
@@ -459,19 +470,17 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
                 records.append(row)
             feat_df = pd.DataFrame(records).set_index("_date").sort_index()
 
+        # Step 4: Load model
         bt = Backtester(symbol)
+        model = bt._load_model()
+        print(f"[Backtest] {symbol}: model loaded = {model is not None}")
+
+        # Step 5: Run backtest
         metrics = bt.run(price_df, feat_df)
+        print(f"[Backtest] {symbol}: return={metrics['total_return_pct']}%, "
+              f"sharpe={metrics['sharpe_ratio']}, trades={metrics['total_trades']}")
 
-        # Walk-forward
-        wf_results = run_walk_forward(symbol, db)
-        if wf_results:
-            metrics["walk_forward_windows"] = len(wf_results)
-            metrics["walk_forward_avg_return"] = round(
-                np.mean([r["total_return_pct"] for r in wf_results]), 2)
-            metrics["walk_forward_avg_sharpe"] = round(
-                np.mean([r["sharpe_ratio"] for r in wf_results]), 3)
-
-        # Store in DB
+        # Step 6: Store in DB
         db.add(BacktestResult(
             symbol=symbol,
             start_date=price_df.index[0] if len(price_df) > 0 else None,
@@ -491,34 +500,60 @@ def backtest_symbol(symbol: str, job_id: str = "manual") -> Optional[Dict]:
             metrics_json=metrics,
         ))
         db.commit()
-
-        logger.info(f"[Backtest] {symbol}: return={metrics['total_return_pct']}%, "
-                     f"sharpe={metrics['sharpe_ratio']}, trades={metrics['total_trades']}")
+        print(f"[Backtest] {symbol}: saved to backtest_results")
         db.close()
         return metrics
 
     except Exception as e:
-        logger.error(f"[Backtest] {symbol} failed: {e}")
-        db.close()
-        return None
+        print(f"[Backtest] {symbol} EXCEPTION: {e}")
+        traceback.print_exc()
+        try:
+            db.rollback()
+            db.close()
+        except Exception:
+            pass
+        return {"symbol": symbol, "error": str(e)}
 
 
 def backtest_all(job_id: str = "manual") -> List[Dict]:
-    """Run backtest for all symbols with historical data."""
+    """Run backtest for all symbols. Returns results directly (synchronous)."""
+    import traceback
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import HistoricalPrice
 
+    print(f"[Backtest] === Starting backtest_all (job={job_id}) ===")
+
     db = SessionLocal()
-    symbols = [r[0] for r in db.query(HistoricalPrice.symbol).distinct().all()]
-    db.close()
+    if not db:
+        print("[Backtest] ERROR: SessionLocal is None")
+        return [{"error": "Database not available"}]
+
+    try:
+        symbols = [r[0] for r in db.query(HistoricalPrice.symbol).distinct().all()]
+        print(f"[Backtest] Found {len(symbols)} symbols in historical_prices: {symbols[:5]}...")
+        db.close()
+    except Exception as e:
+        print(f"[Backtest] ERROR querying symbols: {e}")
+        traceback.print_exc()
+        db.close()
+        # Fallback: use yfinance symbols directly
+        symbols = ["AAPL", "MSFT", "NVDA", "BTC-USD", "ETH-USD", "GC=F", "^VIX"]
+        print(f"[Backtest] Using fallback symbols: {symbols}")
 
     results = []
     for i, symbol in enumerate(symbols):
-        logger.info(f"[Backtest] Running {symbol} ({i+1}/{len(symbols)})")
-        result = backtest_symbol(symbol, job_id)
-        if result:
-            results.append(result)
+        print(f"\n[Backtest] === {symbol} ({i+1}/{len(symbols)}) ===")
+        try:
+            result = backtest_symbol(symbol, job_id)
+            if result:
+                results.append(result)
+        except Exception as e:
+            print(f"[Backtest] {symbol} OUTER EXCEPTION: {e}")
+            traceback.print_exc()
+            results.append({"symbol": symbol, "error": str(e)})
 
-    logger.info(f"[Backtest] Complete: {len(results)}/{len(symbols)} symbols")
+    succeeded = len([r for r in results if "total_return_pct" in r])
+    failed = len([r for r in results if "error" in r])
+    print(f"\n[Backtest] === COMPLETE: {succeeded} succeeded, {failed} failed, {len(symbols)} total ===")
     return results
