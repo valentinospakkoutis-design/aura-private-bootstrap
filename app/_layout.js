@@ -252,6 +252,14 @@ function AppContent() {
         />
 
         <Stack.Screen
+          name="rl-performance"
+          options={{
+            title: '🤖 RL Agent',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
           name="backtest"
           options={{
             title: '📉 Backtest',

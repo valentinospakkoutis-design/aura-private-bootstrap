@@ -53,6 +53,7 @@ export default function AIPredictionsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
   const [modelAccuracy, setModelAccuracy] = useState<Record<string, number>>({});
+  const [rlData, setRlData] = useState<any>(null);
   const { isOfflineMode } = useOfflineMode();
 
   const {
@@ -90,6 +91,7 @@ export default function AIPredictionsScreen() {
       const [result] = await Promise.all([
         fetchPredictions(isOfflineMode),
         api.getMarketMovers().then(setMovers).catch(() => {}),
+        api.getRLBatchPredictions().then(setRlData).catch(() => {}),
         api.getModelPerformance().then((data: any) => {
           const map: Record<string, number> = {};
           for (const m of data?.models || []) {
@@ -233,6 +235,35 @@ export default function AIPredictionsScreen() {
       </View>
 
       <Text style={s.reasoning} numberOfLines={2}>{item.reasoning}</Text>
+
+      {/* RL Agent prediction */}
+      {(() => {
+        const rlPred = rlData?.predictions?.[item.symbol];
+        if (!rlPred) return null;
+        const rlColor = rlPred.action === 'BUY' ? '#22c55e' : rlPred.action === 'SELL' ? '#ef4444' : '#9ca3af';
+        const xgAction = item.action === 'buy' ? 'BUY' : item.action === 'sell' ? 'SELL' : 'HOLD';
+        const agrees = xgAction !== 'HOLD' && rlPred.action !== 'HOLD' && xgAction === rlPred.action;
+        const disagrees = xgAction !== 'HOLD' && rlPred.action !== 'HOLD' && xgAction !== rlPred.action;
+        return (
+          <View style={{ marginTop: 6, gap: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: rlColor }}>🤖 {rlPred.action}</Text>
+              <Text style={{ fontSize: 11, color: '#9ca3af' }}>Sharpe {rlPred.val_sharpe?.toFixed(2)}</Text>
+            </View>
+            {agrees && (
+              <View style={{ alignSelf: 'flex-start', backgroundColor: xgAction === 'BUY' ? '#dcfce7' : '#fee2e2', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: xgAction === 'BUY' ? '#16a34a' : '#dc2626' }}>✅ Consensus {xgAction}</Text>
+              </View>
+            )}
+            {disagrees && (
+              <View style={{ alignSelf: 'flex-start', backgroundColor: '#fef9c3', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#a16207' }}>⚠️ Split Signal</Text>
+              </View>
+            )}
+          </View>
+        );
+      })()}
+
       <Text style={s.viewDetails}>Δες Ανάλυση →</Text>
     </AnimatedListItem>
   );};
@@ -279,10 +310,15 @@ export default function AIPredictionsScreen() {
               {/* Top Movers */}
               {renderMoversSection()}
 
-              {/* Model Performance Link */}
-              <TouchableOpacity style={s.perfLink} onPress={() => router.push('/model-performance')}>
-                <Text style={s.perfLinkText}>🎯 Απόδοση Μοντέλων →</Text>
-              </TouchableOpacity>
+              {/* Model links */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: theme.spacing.sm }}>
+                <TouchableOpacity style={s.perfLink} onPress={() => router.push('/model-performance')}>
+                  <Text style={s.perfLinkText}>🎯 Μοντέλα →</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.perfLink, { backgroundColor: '#6366f120', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }]} onPress={() => router.push('/rl-performance')}>
+                  <Text style={[s.perfLinkText, { color: '#6366f1' }]}>🤖 RL Agent →</Text>
+                </TouchableOpacity>
+              </View>
 
               {/* Category Tabs */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsContainer} contentContainerStyle={s.tabsContent}>

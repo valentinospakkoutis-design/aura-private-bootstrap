@@ -2655,3 +2655,51 @@ def get_rl_performance():
     except Exception as e:
         return {"comparison": [], "error": str(e)}
 
+
+@app.get("/api/v1/rl/predictions/batch")
+def get_rl_batch_predictions():
+    """Batch RL predictions for all trained symbols."""
+    try:
+        from database.models import RLModel
+        from ml.rl_trader import get_rl_prediction
+        db = SessionLocal()
+        trained = db.query(RLModel).filter(RLModel.is_best == True).all()
+        trained_symbols = [m.symbol for m in trained]
+
+        all_symbols = [
+            "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","AVAX-USD",
+            "DOT-USD","LINK-USD","MATIC-USD","AAPL","MSFT","NVDA","GOOGL","AMZN",
+            "META","TSLA","ASML","SAP","MC.PA","GC=F","SI=F","PA=F","PL=F","CL=F",
+            "ES=F","NQ=F","^TNX","^IRX","^TYX","EURUSD=X","GBPEUR=X","USDJPY=X","^VIX",
+        ]
+
+        predictions = {}
+        for m in trained:
+            try:
+                pred = get_rl_prediction(m.symbol)
+                predictions[m.symbol] = {
+                    "action": pred["action"] if pred else "HOLD",
+                    "confidence": float(pred["confidence"]) if pred else 0.0,
+                    "val_sharpe": float(m.val_sharpe or 0),
+                    "val_return_pct": float(m.val_return_pct or 0),
+                }
+            except Exception:
+                predictions[m.symbol] = {
+                    "action": "HOLD", "confidence": 0.0,
+                    "val_sharpe": float(m.val_sharpe or 0),
+                    "val_return_pct": float(m.val_return_pct or 0),
+                }
+
+        db.close()
+        return {
+            "predictions": predictions,
+            "trained_symbols": trained_symbols,
+            "pending_symbols": [s for s in all_symbols if s not in trained_symbols],
+            "trained_count": len(trained_symbols),
+            "total_count": len(all_symbols),
+            "is_training": False,
+        }
+    except Exception as e:
+        return {"predictions": {}, "trained_symbols": [], "pending_symbols": [],
+                "trained_count": 0, "total_count": 34, "is_training": False, "error": str(e)}
+

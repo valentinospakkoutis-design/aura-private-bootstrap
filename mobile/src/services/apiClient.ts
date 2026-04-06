@@ -156,6 +156,29 @@ class ApiClient {
     return response.data;
   }
 
+  async getRLBatchPredictions() {
+    try {
+      const response = await this.client.get('/api/v1/rl/predictions/batch');
+      return response.data;
+    } catch {
+      return { predictions: {}, trained_symbols: [], pending_symbols: [], trained_count: 0, total_count: 33, is_training: false };
+    }
+  }
+
+  async getRLStatus() {
+    try {
+      const response = await this.client.get('/api/v1/rl/status');
+      return response.data;
+    } catch {
+      return { models: [], count: 0 };
+    }
+  }
+
+  async trainAllRL() {
+    const response = await this.client.post('/api/v1/rl/train-all');
+    return response.data;
+  }
+
   async getBacktestResults() {
     const response = await this.client.get('/api/v1/backtest/results');
     return response.data;
