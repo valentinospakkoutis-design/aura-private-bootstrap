@@ -1172,6 +1172,22 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         sample = result[0]
         print(f"[DEBUG] Sample prediction: asset={sample['asset']}, price={sample['price']}, targetPrice={sample['targetPrice']}")
 
+    # Phase 2: Enrich with read-only sentiment context (no decision changes)
+    try:
+        from config.feature_flags import ENABLE_SENTIMENT_EXPOSURE
+        if ENABLE_SENTIMENT_EXPOSURE:
+            from services.sentiment_scheduler import get_cached_sentiment
+            for pred in result:
+                sym = pred.get("symbol", "")
+                sentiment = get_cached_sentiment(sym)
+                pred["sentiment"] = {
+                    "score": sentiment.get("score", 50.0),
+                    "label": sentiment.get("label", "neutral"),
+                    "article_count": sentiment.get("article_count", 0),
+                }
+    except Exception as e:
+        print(f"[!] Sentiment enrichment failed (non-fatal): {e}")
+
     return result
 
 @app.get("/api/v1/market/movers")
