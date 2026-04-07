@@ -31,7 +31,7 @@ RISK_FREE = 0.04 / 252
 
 ALL_SYMBOLS = [
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "SOL-USD",
-    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD", "POL-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD",
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
     "ASML", "SAP", "MC.PA",
     "GC=F", "SI=F", "PA=F", "PL=F", "CL=F", "ES=F", "NQ=F",
@@ -537,10 +537,12 @@ def train_all_rl(job_id: str = "manual") -> List[Dict]:
             r = train_rl_agent(s, episodes=150, job_id=job_id)
             if r:
                 results.append(r)
+            continue
         except Exception as e:
             print(f"[RL] Unexpected error training {s}: {e}")
             traceback.print_exc()
             results.append({"symbol": s, "error": str(e)})
+            continue
     return results
 
 
