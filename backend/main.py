@@ -2572,30 +2572,37 @@ def train_rl_symbol(symbol: str, background_tasks: BackgroundTasks):
     return {"job_id": job_id, "symbol": symbol.upper(), "status": "training started"}
 
 
-@app.post("/api/v1/rl/train-all")
-def train_next_rl(background_tasks: BackgroundTasks):
-    """Train the NEXT untrained symbol (one at a time to avoid Railway timeout)."""
-    from ml.rl_trader import ALL_SYMBOLS
+_rl_training_active = False
 
+async def _run_train_all_rl():
+    """Run train_all_rl in a thread, managing the global training flag."""
+    global _rl_training_active
+    _rl_training_active = True
     try:
-        from database.models import RLModel
-        db = SessionLocal()
-        trained = {r[0] for r in db.query(RLModel.symbol).filter(RLModel.is_best == True).distinct().all()}
-        db.close()
-    except Exception:
-        trained = set()
+        from ml.rl_trader import train_all_rl
+        await asyncio.to_thread(train_all_rl, force_retrain=False, job_id="auto")
+    except Exception as e:
+        print(f"[TRAIN_ALL_FATAL] {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        _rl_training_active = False
+        print("[TRAIN_ALL_COMPLETE] Training flag reset")
 
-    next_sym = next((s for s in ALL_SYMBOLS if s not in trained), None)
-    if next_sym is None:
-        return {"status": "all_trained", "message": "All 34 symbols already trained"}
+@app.post("/api/v1/rl/train-all")
+async def train_all_rl_endpoint():
+    """Train ALL untrained RL symbols in one background task."""
+    global _rl_training_active
+    if _rl_training_active:
+        return {"status": "already_running", "message": "RL training batch is already in progress"}
 
-    def _run():
-        from ml.rl_trader import train_rl_agent
-        train_rl_agent(next_sym, episodes=150, job_id="auto")
+    asyncio.create_task(_run_train_all_rl())
+    return {"status": "started", "message": "Training all symbols in background"}
 
-    background_tasks.add_task(_run)
-    remaining = len(ALL_SYMBOLS) - len(trained) - 1
-    return {"status": "started", "symbol": next_sym, "remaining_after": remaining}
+@app.get("/api/v1/rl/training-status")
+def get_rl_training_status():
+    """Check if RL batch training is currently running."""
+    return {"is_training": _rl_training_active}
 
 
 @app.get("/api/v1/rl/predict/{symbol}")
