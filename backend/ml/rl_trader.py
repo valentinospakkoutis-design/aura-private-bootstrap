@@ -512,37 +512,36 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
         return {"symbol": symbol, "error": str(e)}
 
 
-def train_all_rl(job_id: str = "manual") -> List[Dict]:
-    """Train all symbols, skipping those that already have any row in rl_models."""
+def train_all_rl(force_retrain: bool = False, job_id: str = "manual") -> List[Dict]:
+    """Train all symbols. Never exits early — every symbol is attempted."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from database.connection import SessionLocal
     from database.models import RLModel
 
-    # Find symbols with ANY existing row (success or failed)
     db = SessionLocal()
-    try:
-        trained = {r[0] for r in db.query(RLModel.symbol).distinct().all()}
-        db.close()
-    except Exception:
-        trained = set()
-        db.close()
-
-    to_train = [s for s in ALL_SYMBOLS if s not in trained]
-    print(f"[RL] {len(trained)} already attempted, {len(to_train)} remaining: {to_train[:5]}...")
-
     results = []
-    for i, s in enumerate(to_train):
-        print(f"\n[RL] === {s} ({i+1}/{len(to_train)}) ===")
+
+    for symbol in ALL_SYMBOLS:
         try:
-            r = train_rl_agent(s, episodes=150, job_id=job_id)
+            # Check if already trained
+            existing = db.query(RLModel).filter_by(symbol=symbol).first()
+            if existing and not force_retrain:
+                print(f"[TRAIN_SKIPPED] {symbol}")
+                continue
+
+            # Run training
+            print(f"\n[RL] === Training {symbol} ===")
+            r = train_rl_agent(symbol, episodes=150, job_id=job_id)
             if r:
                 results.append(r)
-            continue
+
         except Exception as e:
-            print(f"[RL] Unexpected error training {s}: {e}")
+            print(f"[TRAIN_ERROR] {symbol}: {e}")
             traceback.print_exc()
-            results.append({"symbol": s, "error": str(e)})
-            continue
+            results.append({"symbol": symbol, "error": str(e)})
+            continue  # always move to next symbol
+
+    db.close()
     return results
 
 
