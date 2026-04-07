@@ -1172,6 +1172,31 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         sample = result[0]
         print(f"[DEBUG] Sample prediction: asset={sample['asset']}, price={sample['price']}, targetPrice={sample['targetPrice']}")
 
+    # Phase 2: Enrich with read-only sentiment context (no decision changes)
+    try:
+        from config.feature_flags import ENABLE_SENTIMENT_EXPOSURE
+        if ENABLE_SENTIMENT_EXPOSURE:
+            from services.sentiment_scheduler import get_cached_sentiment
+            for pred in result:
+                sym = pred.get("symbol", "")
+                sentiment = get_cached_sentiment(sym)
+                pred["sentiment"] = {
+                    "score": sentiment.get("score", 50.0),
+                    "label": sentiment.get("label", "neutral"),
+                    "article_count": sentiment.get("article_count", 0),
+                }
+    except Exception as e:
+        print(f"[!] Sentiment enrichment failed (non-fatal): {e}")
+
+    # Phase 3: Shadow mode — log hypothetical adjustments (no real changes)
+    try:
+        from config.feature_flags import ENABLE_SENTIMENT_SHADOW
+        if ENABLE_SENTIMENT_SHADOW:
+            from services.sentiment_shadow import run_shadow_on_predictions
+            run_shadow_on_predictions(result)
+    except Exception as e:
+        print(f"[!] Sentiment shadow mode failed (non-fatal): {e}")
+
     return result
 
 @app.get("/api/v1/market/movers")
@@ -2707,4 +2732,65 @@ def get_rl_batch_predictions():
     except Exception as e:
         return {"predictions": {}, "trained_symbols": [], "pending_symbols": [],
                 "trained_count": 0, "total_count": 34, "is_training": False, "error": str(e)}
+
+
+# ── Sentiment Endpoints (gated behind feature flags) ────────
+
+@app.get("/api/v1/sentiment/{symbol}")
+def get_sentiment_for_symbol(symbol: str):
+    """Get sentiment score for a single symbol."""
+    from config.feature_flags import ENABLE_SENTIMENT_DATA
+    if not ENABLE_SENTIMENT_DATA:
+        return {"enabled": False, "message": "Sentiment data layer not active"}
+
+    from services.sentiment_scheduler import get_cached_sentiment
+    return get_cached_sentiment(symbol.upper())
+
+
+@app.get("/api/v1/sentiment")
+def get_all_sentiment():
+    """Get sentiment scores for all tracked symbols."""
+    from config.feature_flags import ENABLE_SENTIMENT_DATA
+    if not ENABLE_SENTIMENT_DATA:
+        return {"enabled": False, "message": "Sentiment data layer not active"}
+
+    from services.sentiment_scheduler import get_all_sentiment as _get_all
+    return {"symbols": _get_all()}
+
+
+@app.get("/api/v1/sentiment/shadow")
+def get_sentiment_shadow_report():
+    """Run shadow simulation on current predictions and return hypothetical adjustments."""
+    from config.feature_flags import ENABLE_SENTIMENT_SHADOW
+    if not ENABLE_SENTIMENT_SHADOW:
+        return {"enabled": False, "message": "Sentiment shadow mode not active"}
+
+    from services.sentiment_shadow import run_shadow_on_predictions
+    predictions = get_all_predictions(days=7)
+    if not isinstance(predictions, list):
+        return {"shadow_results": [], "error": "Could not load predictions"}
+
+    shadow = run_shadow_on_predictions(predictions)
+    adjusted = [s for s in shadow if s["adjustment"] != 0]
+    return {
+        "total": len(shadow),
+        "adjusted_count": len(adjusted),
+        "shadow_results": shadow,
+    }
+
+
+@app.get("/api/v1/sentiment/flags")
+def get_sentiment_flags():
+    """Get current state of all sentiment feature flags (diagnostic)."""
+    from config import feature_flags as ff
+    return {
+        "ENABLE_SENTIMENT": ff.ENABLE_SENTIMENT,
+        "ENABLE_SENTIMENT_DATA": ff.ENABLE_SENTIMENT_DATA,
+        "ENABLE_SENTIMENT_EXPOSURE": ff.ENABLE_SENTIMENT_EXPOSURE,
+        "ENABLE_SENTIMENT_SHADOW": ff.ENABLE_SENTIMENT_SHADOW,
+        "ENABLE_SENTIMENT_SOFT": ff.ENABLE_SENTIMENT_SOFT,
+        "ENABLE_SENTIMENT_HARD_FILTER": ff.ENABLE_SENTIMENT_HARD_FILTER,
+        "ENABLE_META_SENTIMENT": ff.ENABLE_META_SENTIMENT,
+        "ENABLE_SENTIMENT_TRAINING": ff.ENABLE_SENTIMENT_TRAINING,
+    }
 

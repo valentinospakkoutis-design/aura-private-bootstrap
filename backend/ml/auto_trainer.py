@@ -507,8 +507,24 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+        # Sentiment fetch — every 30 minutes (gated behind ENABLE_SENTIMENT_DATA flag)
+        def _sentiment_fetch_job():
+            try:
+                from services.sentiment_scheduler import fetch_and_persist_sentiment
+                fetch_and_persist_sentiment()
+            except Exception as e:
+                logger.error(f"[scheduler] Sentiment fetch failed: {e}")
+
+        scheduler.add_job(
+            _sentiment_fetch_job,
+            trigger=CronTrigger(minute="*/30"),
+            id="sentiment_fetch",
+            name="Sentiment data fetch (every 30min)",
+            replace_existing=True,
+        )
+
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05)")
+        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
