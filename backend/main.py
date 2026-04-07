@@ -1188,6 +1188,15 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     except Exception as e:
         print(f"[!] Sentiment enrichment failed (non-fatal): {e}")
 
+    # Phase 3: Shadow mode — log hypothetical adjustments (no real changes)
+    try:
+        from config.feature_flags import ENABLE_SENTIMENT_SHADOW
+        if ENABLE_SENTIMENT_SHADOW:
+            from services.sentiment_shadow import run_shadow_on_predictions
+            run_shadow_on_predictions(result)
+    except Exception as e:
+        print(f"[!] Sentiment shadow mode failed (non-fatal): {e}")
+
     return result
 
 @app.get("/api/v1/market/movers")
@@ -2747,6 +2756,27 @@ def get_all_sentiment():
 
     from services.sentiment_scheduler import get_all_sentiment as _get_all
     return {"symbols": _get_all()}
+
+
+@app.get("/api/v1/sentiment/shadow")
+def get_sentiment_shadow_report():
+    """Run shadow simulation on current predictions and return hypothetical adjustments."""
+    from config.feature_flags import ENABLE_SENTIMENT_SHADOW
+    if not ENABLE_SENTIMENT_SHADOW:
+        return {"enabled": False, "message": "Sentiment shadow mode not active"}
+
+    from services.sentiment_shadow import run_shadow_on_predictions
+    predictions = get_all_predictions(days=7)
+    if not isinstance(predictions, list):
+        return {"shadow_results": [], "error": "Could not load predictions"}
+
+    shadow = run_shadow_on_predictions(predictions)
+    adjusted = [s for s in shadow if s["adjustment"] != 0]
+    return {
+        "total": len(shadow),
+        "adjusted_count": len(adjusted),
+        "shadow_results": shadow,
+    }
 
 
 @app.get("/api/v1/sentiment/flags")
