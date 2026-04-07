@@ -13,13 +13,14 @@ interface WebSocketConfig {
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private config: WebSocketConfig;
-  private messageHandlers: Map<string, MessageHandler[]> = new Map();
+  private messageHandlers: Map<string, Set<MessageHandler>> = new Map();
   private reconnectAttempts = 0;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private isIntentionallyClosed = false;
-  private onConnectHandlers: ConnectionHandler[] = [];
-  private onDisconnectHandlers: ConnectionHandler[] = [];
-  private onErrorHandlers: ErrorHandler[] = [];
+  private onConnectHandlers: Set<ConnectionHandler> = new Set();
+  private onDisconnectHandlers: Set<ConnectionHandler> = new Set();
+  private onErrorHandlers: Set<ErrorHandler> = new Set();
+  private activeSubscriptions: Set<string> = new Set();
 
   constructor(config: WebSocketConfig) {
     this.config = {
@@ -29,10 +30,10 @@ export class WebSocketService {
     };
   }
 
-  // Connect to WebSocket
+  // Connect to WebSocket (idempotent — safe to call multiple times)
   connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      logger.warn('WebSocket already connected');
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      logger.debug('WebSocket already connected or connecting, skipping');
       return;
     }
 
@@ -46,6 +47,8 @@ export class WebSocketService {
         logger.info('WebSocket connected');
         this.reconnectAttempts = 0;
         this.onConnectHandlers.forEach((handler) => handler());
+        // Re-send active subscriptions after reconnect
+        this.resubscribeAll();
       };
 
       this.ws.onmessage = (event) => {
@@ -115,36 +118,69 @@ export class WebSocketService {
     }
   }
 
-  // Subscribe to message type
+  // Subscribe to message type (deduplicates by handler reference)
   on(type: string, handler: MessageHandler) {
     if (!this.messageHandlers.has(type)) {
-      this.messageHandlers.set(type, []);
+      this.messageHandlers.set(type, new Set());
     }
-    this.messageHandlers.get(type)!.push(handler);
+    this.messageHandlers.get(type)!.add(handler);
 
     // Return unsubscribe function
     return () => {
       const handlers = this.messageHandlers.get(type);
       if (handlers) {
-        const index = handlers.indexOf(handler);
-        if (index > -1) {
-          handlers.splice(index, 1);
+        handlers.delete(handler);
+        if (handlers.size === 0) {
+          this.messageHandlers.delete(type);
         }
       }
     };
   }
 
-  // Connection event handlers
+  // Track a channel subscription (for re-subscribing after reconnect)
+  subscribeChannel(channel: string, assets: string[]) {
+    const key = `${channel}:${assets.sort().join(',')}`;
+    if (this.activeSubscriptions.has(key)) {
+      logger.debug(`Already subscribed to ${channel}, skipping`);
+      return false;
+    }
+    this.activeSubscriptions.add(key);
+    this.send(channel, { assets });
+    return true;
+  }
+
+  unsubscribeChannel(channel: string, assets: string[]) {
+    const key = `${channel}:${assets.sort().join(',')}`;
+    this.activeSubscriptions.delete(key);
+    this.send(channel, { assets });
+  }
+
+  // Re-send all tracked subscriptions after reconnect
+  private resubscribeAll() {
+    this.activeSubscriptions.forEach((key) => {
+      const [channel, assetsStr] = key.split(':');
+      const assets = assetsStr ? assetsStr.split(',') : [];
+      if (assets.length > 0) {
+        this.send(channel, { assets });
+        logger.debug(`Re-subscribed to ${channel} after reconnect`);
+      }
+    });
+  }
+
+  // Connection event handlers (returns cleanup function)
   onConnect(handler: ConnectionHandler) {
-    this.onConnectHandlers.push(handler);
+    this.onConnectHandlers.add(handler);
+    return () => { this.onConnectHandlers.delete(handler); };
   }
 
   onDisconnect(handler: ConnectionHandler) {
-    this.onDisconnectHandlers.push(handler);
+    this.onDisconnectHandlers.add(handler);
+    return () => { this.onDisconnectHandlers.delete(handler); };
   }
 
   onError(handler: ErrorHandler) {
-    this.onErrorHandlers.push(handler);
+    this.onErrorHandlers.add(handler);
+    return () => { this.onErrorHandlers.delete(handler); };
   }
 
   // Get connection status
@@ -192,9 +228,8 @@ const getWebSocketUrl = () => {
   return 'wss://aura-private-bootstrap-production.up.railway.app/ws';
 };
 
-export const websocket = new WebSocketService({ 
+export const websocket = new WebSocketService({
   url: getWebSocketUrl(),
   reconnectInterval: 5000,
   maxReconnectAttempts: 5,
 });
-

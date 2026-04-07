@@ -1,6 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { websocket } from '../services/WebSocketService';
-import { useAppStore } from '../stores/appStore';
 import { logger } from '../utils/Logger';
 
 interface PriceUpdate {
@@ -13,20 +12,20 @@ interface PriceUpdate {
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
-  const failCountRef = { current: 0 };
+  const failCountRef = useRef(0);
 
   useEffect(() => {
-    // Connect on mount
+    // Connect (idempotent — singleton won't create duplicate connections)
     websocket.connect();
 
-    // Connection handlers
-    websocket.onConnect(() => {
+    // Connection handlers — returns cleanup functions
+    const cleanupConnect = websocket.onConnect(() => {
       failCountRef.current = 0;
       setIsConnected(true);
       logger.info('WebSocket connected');
     });
 
-    websocket.onDisconnect(() => {
+    const cleanupDisconnect = websocket.onDisconnect(() => {
       failCountRef.current += 1;
       // Only show as disconnected after 3 failed attempts
       // This prevents the "Reconnecting" banner from flashing on startup
@@ -36,14 +35,20 @@ export function useWebSocket() {
       logger.info(`WebSocket disconnected (attempt ${failCountRef.current})`);
     });
 
-    websocket.onError((error) => {
+    const cleanupError = websocket.onError((error) => {
       logger.warn('WebSocket error (silent):', error);
       // Never show toast — WebSocket is non-critical
     });
 
-    // Cleanup on unmount
+    // Set initial state
+    setIsConnected(websocket.isConnected());
+
+    // Cleanup on unmount — remove handlers, don't disconnect
+    // (singleton stays alive for other consumers)
     return () => {
-      websocket.disconnect();
+      cleanupConnect();
+      cleanupDisconnect();
+      cleanupError();
     };
   }, []);
 
@@ -65,10 +70,14 @@ export function useWebSocket() {
 // Specialized hook for price updates
 export function usePriceUpdates(assets: string[]) {
   const [prices, setPrices] = useState<Map<string, PriceUpdate>>(new Map());
-  const { subscribe, send, isConnected } = useWebSocket();
+  const { isConnected, subscribe } = useWebSocket();
+
+  // Stabilize the assets array — only change when the actual values change
+  const assetsKey = assets.sort().join(',');
+  const stableAssets = useMemo(() => assets, [assetsKey]);
 
   useEffect(() => {
-    if (!isConnected || assets.length === 0) return;
+    if (!isConnected || stableAssets.length === 0) return;
 
     // Subscribe to price updates
     const unsubscribe = subscribe('price_update', (data: PriceUpdate) => {
@@ -79,19 +88,18 @@ export function usePriceUpdates(assets: string[]) {
       });
     });
 
-    // Request price updates for assets
-    send('subscribe_prices', { assets });
+    // Request price updates (tracked for re-subscribe on reconnect)
+    websocket.subscribeChannel('subscribe_prices', stableAssets);
 
     // Cleanup
     return () => {
       unsubscribe();
-      send('unsubscribe_prices', { assets });
+      websocket.unsubscribeChannel('unsubscribe_prices', stableAssets);
     };
-  }, [isConnected, assets, subscribe, send]);
+  }, [isConnected, stableAssets, subscribe]);
 
   return {
     prices,
     isConnected,
   };
 }
-
