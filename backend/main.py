@@ -427,24 +427,10 @@ def delete_session(session_id: str):
     if session_id in sessions:
         del sessions[session_id]
 
-@app.get("/", response_class=HTMLResponse)
-def read_root(request: Request, error: Optional[str] = None, success: Optional[str] = None):
-    """Root endpoint - Landing Page"""
-    # Check if user is already logged in
-    session_id = request.cookies.get("session_id")
-    session = get_session(session_id)
-    if session:
-        # User is logged in, redirect to dashboard
-        return RedirectResponse(url="/dashboard", status_code=303)
-    
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "error": error,
-            "success": success
-        }
-    )
+@app.get("/")
+async def root():
+    """Root endpoint - API health check"""
+    return JSONResponse({"status": "ok", "app": "AURA Trading API", "docs": "/docs"})
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
