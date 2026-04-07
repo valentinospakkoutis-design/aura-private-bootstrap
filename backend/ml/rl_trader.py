@@ -317,10 +317,18 @@ class PPOAgent:
         with torch.no_grad():
             s = torch.FloatTensor(state).unsqueeze(0)
             probs, _ = self.model(s)
-            p = probs.squeeze().numpy()
-            action = int(np.argmax(p))
+            try:
+                p = probs.squeeze().numpy()
+                action = int(np.argmax(p))
+                confidence = float(np.max(p))
+                # Clamp to valid range
+                confidence = max(0.0, min(1.0, confidence))
+            except Exception:
+                logger.warning("[RL] Failed to parse action probabilities, using fallback")
+                action = 0  # HOLD
+                confidence = 0.6
             names = ["HOLD", "BUY", "SELL"]
-            return names[action], float(p[action])
+            return names[action], confidence if confidence > 0 else 0.6
 
 
 # ── Training ─────────────────────────────────────────────────

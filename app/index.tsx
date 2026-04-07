@@ -3,8 +3,6 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
-import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
-import { AnimatedOrb } from '../mobile/src/components/AnimatedOrb';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { theme } from '../mobile/src/constants/theme';
 import { DateFormatter } from '../mobile/src/utils/DateFormatter';
@@ -74,19 +72,48 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
 ];
 
+interface PortfolioStats {
+  totalValue: number;
+  totalProfit: number;
+  profitPercentage: number;
+  openTrades: number;
+  closedTrades: number;
+  winRate: number;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAppStore();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [portfolio, setPortfolio] = useState<PortfolioStats | null>(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(true);
 
   useEffect(() => {
     loadUnreadCount();
+    loadPortfolio();
     const interval = setInterval(() => {
       loadUnreadCount();
+      loadPortfolio();
     }, 30000); // Every 30 seconds
 
     return () => clearInterval(interval);
   }, []);
+
+  const loadPortfolio = async () => {
+    try {
+      const stats = await api.getPortfolioStats();
+      if (stats && typeof stats.totalValue === 'number') {
+        setPortfolio(stats);
+      } else {
+        setPortfolio(null);
+      }
+    } catch (err) {
+      console.log('[Home] Portfolio load failed:', err);
+      setPortfolio(null);
+    } finally {
+      setPortfolioLoading(false);
+    }
+  };
 
   const loadUnreadCount = async () => {
     try {
@@ -137,46 +164,60 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Animated Orb */}
+        {/* Portfolio Summary */}
         <AnimatedCard delay={0} animationType="scale">
-          <View style={styles.orbContainer}>
-            <AnimatedOrb state="calm" size={width * 0.5} />
-            <Text style={styles.orbTitle}>Το AURA σου είναι έτοιμο</Text>
-            <Text style={styles.orbDescription}>
-              Το AI αναλύει τις αγορές 24/7 για εσένα
-            </Text>
-          </View>
-        </AnimatedCard>
-
-        {/* Quick Stats */}
-        <AnimatedCard delay={100} animationType="slideUp">
-          <Text style={styles.sectionTitle}>📊 Σήμερα</Text>
-          <View style={styles.statsRow}>
-            <TouchableOpacity style={styles.statItem} activeOpacity={0.7} onPress={() => router.push('/analytics')}>
-              <Text style={styles.statLabel}>Portfolio</Text>
-              <AnimatedCounter
-                value={12450.75}
-                decimals={2}
-                prefix="$"
-                style={styles.statValue}
-              />
-              <Text style={[styles.statChange, { color: theme.colors.market.bullish }]}>
-                +2.5%
+          {portfolioLoading ? (
+            <View style={styles.portfolioEmpty}>
+              <Text style={styles.portfolioEmptyText}>Φόρτωση portfolio...</Text>
+            </View>
+          ) : portfolio && portfolio.totalValue > 0 ? (
+            <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/analytics')}>
+              <View style={styles.portfolioCard}>
+                <Text style={styles.portfolioLabel}>Συνολική Αξία Portfolio</Text>
+                <Text style={styles.portfolioValue}>
+                  ${portfolio.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+                <View style={styles.portfolioPnlRow}>
+                  <Text style={[
+                    styles.portfolioPnl,
+                    { color: portfolio.profitPercentage >= 0 ? theme.colors.market.bullish : theme.colors.market.bearish }
+                  ]}>
+                    {portfolio.profitPercentage >= 0 ? '+' : ''}{portfolio.profitPercentage.toFixed(2)}%
+                  </Text>
+                  <Text style={styles.portfolioPnlLabel}> σήμερα</Text>
+                </View>
+              </View>
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>Ανοιχτά</Text>
+                  <Text style={styles.statValue}>{portfolio.openTrades}</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>Κλεισμένα</Text>
+                  <Text style={styles.statValue}>{portfolio.closedTrades}</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statLabel}>Win Rate</Text>
+                  <Text style={styles.statValue}>{portfolio.winRate.toFixed(0)}%</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.portfolioEmpty}>
+              <Text style={styles.portfolioEmptyIcon}>📊</Text>
+              <Text style={styles.portfolioEmptyText}>
+                Συνδέσου με broker για να δεις το portfolio σου
               </Text>
-            </TouchableOpacity>
-            <View style={styles.statDivider} />
-            <TouchableOpacity style={styles.statItem} activeOpacity={0.7} onPress={() => router.push('/live-trading')}>
-              <Text style={styles.statLabel}>Ανοιχτά Trades</Text>
-              <Text style={styles.statValue}>5</Text>
-              <Text style={styles.statChange}>3 winning</Text>
-            </TouchableOpacity>
-            <View style={styles.statDivider} />
-            <TouchableOpacity style={styles.statItem} activeOpacity={0.7} onPress={() => router.push('/ai-predictions')}>
-              <Text style={styles.statLabel}>AI Predictions</Text>
-              <Text style={styles.statValue}>12</Text>
-              <Text style={styles.statChange}>νέες σήμερα</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={styles.portfolioEmptyButton}
+                onPress={() => router.push('/settings')}
+              >
+                <Text style={styles.portfolioEmptyButtonText}>Ρυθμίσεις →</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </AnimatedCard>
 
         {/* Quick Actions */}
@@ -298,22 +339,60 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  orbContainer: {
+  portfolioCard: {
     alignItems: 'center',
     paddingVertical: theme.spacing.lg,
+    paddingBottom: theme.spacing.md,
   },
-  orbTitle: {
-    fontSize: theme.typography.sizes.xl,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginTop: theme.spacing.md,
-    textAlign: 'center',
-  },
-  orbDescription: {
+  portfolioLabel: {
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.xs,
+  },
+  portfolioValue: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  portfolioPnlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: theme.spacing.xs,
+  },
+  portfolioPnl: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '600',
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  portfolioPnlLabel: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.text.secondary,
+  },
+  portfolioEmpty: {
+    alignItems: 'center',
+    paddingVertical: theme.spacing.xl,
+  },
+  portfolioEmptyIcon: {
+    fontSize: 48,
+    marginBottom: theme.spacing.md,
+  },
+  portfolioEmptyText: {
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.secondary,
     textAlign: 'center',
+  },
+  portfolioEmptyButton: {
+    marginTop: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.borderRadius.medium,
+    backgroundColor: theme.colors.brand.primary + '20',
+  },
+  portfolioEmptyButtonText: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '600',
+    color: theme.colors.brand.primary,
   },
   sectionTitle: {
     fontSize: theme.typography.sizes.xl,
