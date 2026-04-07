@@ -449,13 +449,38 @@ def train_missing_models(days: int = 730) -> List[Dict]:
     return results
 
 
+def _daily_xgboost_retrain():
+    """Daily XGBoost retraining job — trains all symbols."""
+    logger.info("[scheduler] Starting daily XGBoost retraining...")
+    try:
+        results = train_all_symbols()
+        succeeded = len([r for r in results if "metrics" in r])
+        logger.info(f"[scheduler] Daily XGBoost retrain done: {succeeded}/{len(results)} succeeded")
+    except Exception as e:
+        logger.error(f"[scheduler] Daily XGBoost retrain failed: {e}")
+
+
+def _daily_predictions_refresh():
+    """Daily predictions refresh — generates fresh predictions for all symbols."""
+    logger.info("[scheduler] Starting daily predictions refresh...")
+    try:
+        from ai.asset_predictor import asset_predictor
+        result = asset_predictor.get_all_predictions(days=7)
+        count = len(result.get("predictions", {}))
+        logger.info(f"[scheduler] Daily predictions refresh done: {count} symbols")
+    except Exception as e:
+        logger.error(f"[scheduler] Daily predictions refresh failed: {e}")
+
+
 def setup_weekly_retraining():
-    """Schedule retraining every Sunday at 00:00 UTC using APScheduler."""
+    """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
 
         scheduler = BackgroundScheduler()
+
+        # Weekly full retraining — Sunday 00:00 UTC
         scheduler.add_job(
             train_all_symbols,
             trigger=CronTrigger(day_of_week="sun", hour=0, minute=0),
@@ -463,11 +488,30 @@ def setup_weekly_retraining():
             name="Weekly model retraining",
             replace_existing=True,
         )
+
+        # Daily XGBoost retraining — 06:00 UTC (09:00 Cyprus)
+        scheduler.add_job(
+            _daily_xgboost_retrain,
+            trigger=CronTrigger(hour=6, minute=0),
+            id="daily_xgboost_retrain",
+            name="Daily XGBoost retraining",
+            replace_existing=True,
+        )
+
+        # Daily predictions refresh — 06:05 UTC (09:05 Cyprus)
+        scheduler.add_job(
+            _daily_predictions_refresh,
+            trigger=CronTrigger(hour=6, minute=5),
+            id="daily_predictions_refresh",
+            name="Daily predictions refresh",
+            replace_existing=True,
+        )
+
         scheduler.start()
-        logger.info("[trainer] Weekly retraining scheduled: Sunday 00:00 UTC")
+        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05)")
         return scheduler
     except ImportError:
-        logger.warning("[trainer] APScheduler not installed, weekly retraining disabled")
+        logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
         return None
     except Exception as e:
         logger.error(f"[trainer] Failed to setup scheduler: {e}")

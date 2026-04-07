@@ -200,13 +200,13 @@ async def startup_event():
     asyncio.create_task(_train_missing_on_startup())
     print("[*] Checking for missing models in background...")
 
-    # Start weekly model retraining scheduler
+    # Start scheduled jobs (weekly retrain, daily XGBoost, daily predictions)
     try:
         from ml.auto_trainer import setup_weekly_retraining
         setup_weekly_retraining()
-        print("[+] Weekly model retraining scheduled (Sunday 00:00 UTC)")
+        print("[+] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05)")
     except Exception as e:
-        print(f"[!] Failed to setup retraining scheduler: {e}")
+        print(f"[!] Failed to setup scheduled jobs: {e}")
 
 # Shutdown event
 @app.on_event("shutdown")
