@@ -2708,3 +2708,43 @@ def get_rl_batch_predictions():
         return {"predictions": {}, "trained_symbols": [], "pending_symbols": [],
                 "trained_count": 0, "total_count": 34, "is_training": False, "error": str(e)}
 
+
+# ── Sentiment Endpoints (gated behind feature flags) ────────
+
+@app.get("/api/v1/sentiment/{symbol}")
+def get_sentiment_for_symbol(symbol: str):
+    """Get sentiment score for a single symbol."""
+    from config.feature_flags import ENABLE_SENTIMENT_DATA
+    if not ENABLE_SENTIMENT_DATA:
+        return {"enabled": False, "message": "Sentiment data layer not active"}
+
+    from services.sentiment_scheduler import get_cached_sentiment
+    return get_cached_sentiment(symbol.upper())
+
+
+@app.get("/api/v1/sentiment")
+def get_all_sentiment():
+    """Get sentiment scores for all tracked symbols."""
+    from config.feature_flags import ENABLE_SENTIMENT_DATA
+    if not ENABLE_SENTIMENT_DATA:
+        return {"enabled": False, "message": "Sentiment data layer not active"}
+
+    from services.sentiment_scheduler import get_all_sentiment as _get_all
+    return {"symbols": _get_all()}
+
+
+@app.get("/api/v1/sentiment/flags")
+def get_sentiment_flags():
+    """Get current state of all sentiment feature flags (diagnostic)."""
+    from config import feature_flags as ff
+    return {
+        "ENABLE_SENTIMENT": ff.ENABLE_SENTIMENT,
+        "ENABLE_SENTIMENT_DATA": ff.ENABLE_SENTIMENT_DATA,
+        "ENABLE_SENTIMENT_EXPOSURE": ff.ENABLE_SENTIMENT_EXPOSURE,
+        "ENABLE_SENTIMENT_SHADOW": ff.ENABLE_SENTIMENT_SHADOW,
+        "ENABLE_SENTIMENT_SOFT": ff.ENABLE_SENTIMENT_SOFT,
+        "ENABLE_SENTIMENT_HARD_FILTER": ff.ENABLE_SENTIMENT_HARD_FILTER,
+        "ENABLE_META_SENTIMENT": ff.ENABLE_META_SENTIMENT,
+        "ENABLE_SENTIMENT_TRAINING": ff.ENABLE_SENTIMENT_TRAINING,
+    }
+
