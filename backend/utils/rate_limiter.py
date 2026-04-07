@@ -141,13 +141,7 @@ async def rate_limit_middleware(request: Request, call_next):
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "RATE_LIMIT",
-                "message": "Rate limit exceeded. Please try again later.",
-                "remaining_per_minute": remaining_min,
-                "remaining_per_hour": remaining_hour,
-                "retry_after": 60
-            },
+            detail="Rate limit exceeded. Please try again later.",
             headers={
                 "X-RateLimit-Limit-Minute": str(rate_limiter.requests_per_minute),
                 "X-RateLimit-Remaining-Minute": str(remaining_min or 0),
