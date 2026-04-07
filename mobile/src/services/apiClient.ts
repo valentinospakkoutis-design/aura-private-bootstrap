@@ -1,5 +1,5 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
-import { getToken, saveToken, deleteToken } from '../utils/tokenStorage';
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { getToken, saveToken, deleteToken, getRefreshToken, saveRefreshToken, deleteRefreshToken } from '../utils/tokenStorage';
 import { getApiBaseUrl } from '../config/environment';
 import { logger } from '../utils/Logger';
 import { cacheService, CACHE_KEYS, CACHE_TTL } from './CacheService';
@@ -9,6 +9,8 @@ const BASE_URL = getApiBaseUrl();
 
 class ApiClient {
   private client: AxiosInstance;
+  private isRefreshing: boolean = false;
+  private refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = [];
 
   constructor() {
     this.client = axios.create({
@@ -27,7 +29,7 @@ class ApiClient {
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
           }
-          
+
           // Log API call
           logger.api(config.method?.toUpperCase() || 'GET', config.url || '', config.data);
         } catch (error) {
@@ -41,7 +43,7 @@ class ApiClient {
       }
     );
 
-    // Response interceptor - handle errors + logging
+    // Response interceptor - handle 401 with token refresh
     this.client.interceptors.response.use(
       (response) => {
         logger.debug('API Response:', response.status, response.data);
@@ -49,37 +51,96 @@ class ApiClient {
       },
       async (error: AxiosError) => {
         logger.error('API Error:', error.response?.status, error.message);
+        const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-        if (error.response?.status === 401) {
-          // Only clear session if the failed request was an authenticated one
-          // (had Authorization header) — don't wipe on public endpoint 401s
-          const hadAuth = error.config?.headers?.Authorization;
-          if (hadAuth) {
-            console.log('[apiClient] 401 on authenticated request:', error.config?.url);
-            try {
-              await deleteToken();
-            } catch (e) {
-              logger.warn('Error deleting auth token:', e);
+        if (
+          error.response?.status === 401 &&
+          originalRequest &&
+          !originalRequest._retry &&
+          originalRequest.headers?.Authorization &&
+          !originalRequest.url?.includes('/auth/refresh') &&
+          !originalRequest.url?.includes('/auth/login')
+        ) {
+          // Authenticated request got 401 — try refreshing
+          if (this.isRefreshing) {
+            // Another refresh is in progress — queue this request
+            return new Promise((resolve, reject) => {
+              this.refreshQueue.push({
+                resolve: (newToken: string) => {
+                  originalRequest._retry = true;
+                  originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                  resolve(this.client(originalRequest));
+                },
+                reject,
+              });
+            });
+          }
+
+          this.isRefreshing = true;
+          originalRequest._retry = true;
+
+          try {
+            const refreshToken = await getRefreshToken();
+            if (!refreshToken) {
+              throw new Error('No refresh token available');
             }
-            try {
-              const { useAppStore } = require('../stores/appStore');
-              useAppStore.getState().setUser(null);
-            } catch (e) {
-              logger.warn('Error clearing user state:', e);
+
+            console.log('[apiClient] Refreshing access token...');
+            const response = await this.client.post('/api/v1/auth/refresh', {
+              refresh_token: refreshToken,
+            });
+
+            const { access_token, refresh_token: newRefreshToken } = response.data;
+            await saveToken(access_token);
+            if (newRefreshToken) {
+              await saveRefreshToken(newRefreshToken);
             }
+
+            console.log('[apiClient] Token refreshed successfully');
+
+            // Retry queued requests with new token
+            this.refreshQueue.forEach((pending) => pending.resolve(access_token));
+            this.refreshQueue = [];
+
+            // Retry the original request
+            originalRequest.headers.Authorization = `Bearer ${access_token}`;
+            return this.client(originalRequest);
+          } catch (refreshError) {
+            console.log('[apiClient] Token refresh failed, logging out');
+            // Reject all queued requests
+            this.refreshQueue.forEach((pending) => pending.reject(refreshError));
+            this.refreshQueue = [];
+
+            // Clear auth state
+            await this.forceLogout();
+            return Promise.reject(refreshError);
+          } finally {
+            this.isRefreshing = false;
           }
         }
+
         return Promise.reject(error);
       }
     );
   }
 
+  private async forceLogout() {
+    try { await deleteToken(); } catch (e) { logger.warn('Error deleting token:', e); }
+    try { await deleteRefreshToken(); } catch (e) { logger.warn('Error deleting refresh token:', e); }
+    try {
+      const { useAppStore } = require('../stores/appStore');
+      useAppStore.getState().setUser(null);
+    } catch (e) { logger.warn('Error clearing user state:', e); }
+  }
+
   // Auth
   async login(email: string, password: string) {
     const response = await this.client.post('/api/v1/auth/login', { email, password });
-    const { access_token } = response.data;
+    const { access_token, refresh_token } = response.data;
     await saveToken(access_token);
-    // refresh_token is returned but not stored for now — access_token is sufficient
+    if (refresh_token) {
+      await saveRefreshToken(refresh_token);
+    }
     // Fetch user profile from /auth/me
     try {
       const meResponse = await this.client.get('/api/v1/auth/me', {
@@ -114,6 +175,7 @@ class ApiClient {
   async logout() {
     try {
       await deleteToken();
+      await deleteRefreshToken();
       logger.info('User logged out');
     } catch (error) {
       logger.warn('Error deleting auth token:', error);

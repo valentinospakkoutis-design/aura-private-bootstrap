@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 const TOKEN_KEY = 'auth_token';
+const REFRESH_TOKEN_KEY = 'refresh_token';
 
 export const saveToken = async (token: string): Promise<void> => {
   if (Platform.OS === 'web') {
@@ -23,5 +24,28 @@ export const deleteToken = async (): Promise<void> => {
     localStorage.removeItem(TOKEN_KEY);
   } else {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
+  }
+};
+
+export const saveRefreshToken = async (token: string): Promise<void> => {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  } else {
+    await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token);
+  }
+};
+
+export const getRefreshToken = async (): Promise<string | null> => {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  }
+  return await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+};
+
+export const deleteRefreshToken = async (): Promise<void> => {
+  if (Platform.OS === 'web') {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+  } else {
+    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
   }
 };
