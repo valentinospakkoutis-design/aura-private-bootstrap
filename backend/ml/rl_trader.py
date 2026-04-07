@@ -518,30 +518,44 @@ def train_all_rl(force_retrain: bool = False, job_id: str = "manual") -> List[Di
     from database.connection import SessionLocal
     from database.models import RLModel
 
-    db = SessionLocal()
+    total = len(ALL_SYMBOLS)
+    print(f"[TRAIN_ALL_START] {total} symbols to process, force_retrain={force_retrain}")
     results = []
 
-    for symbol in ALL_SYMBOLS:
+    for i, symbol in enumerate(ALL_SYMBOLS):
         try:
-            # Check if already trained
-            existing = db.query(RLModel).filter_by(symbol=symbol).first()
+            print(f"[TRAIN_SYMBOL_START] {symbol} ({i+1}/{total})")
+
+            # Check if already trained — fresh session per check to avoid stale connections
+            db = SessionLocal()
+            try:
+                existing = db.query(RLModel).filter_by(symbol=symbol).first()
+            finally:
+                db.close()
+
             if existing and not force_retrain:
-                print(f"[TRAIN_SKIPPED] {symbol}")
+                print(f"[TRAIN_SKIPPED] {symbol} — already has rl_models row")
                 continue
 
-            # Run training
-            print(f"\n[RL] === Training {symbol} ===")
+            # Run training (train_rl_agent manages its own DB session)
             r = train_rl_agent(symbol, episodes=150, job_id=job_id)
+
+            if r and "error" in r:
+                print(f"[TRAIN_SYMBOL_FAILED] {symbol}: {r.get('error')}")
+            else:
+                print(f"[TRAIN_SYMBOL_SUCCESS] {symbol}")
+
             if r:
                 results.append(r)
+            continue
 
         except Exception as e:
-            print(f"[TRAIN_ERROR] {symbol}: {e}")
+            print(f"[TRAIN_SYMBOL_FAILED] {symbol}: {e}")
             traceback.print_exc()
             results.append({"symbol": symbol, "error": str(e)})
             continue  # always move to next symbol
 
-    db.close()
+    print(f"[TRAIN_ALL_DONE] Processed {total} symbols, {len(results)} results collected")
     return results
 
 
