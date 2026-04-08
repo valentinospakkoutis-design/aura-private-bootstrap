@@ -88,6 +88,7 @@ async def register(user_create: UserCreate):
             "sub": str(new_user.id),
             "email": email_lower,
             "full_name": user_create.full_name or "",
+            "token_version": new_user.token_version,
         }
 
         access_token = create_access_token(token_data)
@@ -130,6 +131,7 @@ async def login(user_login: UserLogin):
             "sub": str(db_user.id),
             "email": email_lower,
             "full_name": db_user.full_name or "",
+            "token_version": db_user.token_version,
         }
 
         access_token = create_access_token(token_data)

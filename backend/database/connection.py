@@ -98,9 +98,12 @@ def init_db():
             conn.execute(text(
                 "ALTER TABLE rl_models ADD COLUMN IF NOT EXISTS metadata JSONB"
             ))
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"
+            ))
             conn.commit()
         except Exception as e:
-            print(f"[!] Could not add rl_models columns (may already exist): {e}")
+            print(f"[!] Could not add columns (may already exist): {e}")
     print("[+] Database tables created")
 
 

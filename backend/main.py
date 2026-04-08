@@ -76,9 +76,29 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sch
     try:
         from auth.jwt_handler import verify_token
         payload = verify_token(credentials.credentials, "access")
-        return payload
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Token versioning: reject tokens issued before password change / logout-all
+    from config.feature_flags import ENABLE_TOKEN_VERSIONING
+    if ENABLE_TOKEN_VERSIONING:
+        try:
+            from database.models import User as _User
+            uid = int(payload.get("sub", 0))
+            jwt_version = payload.get("token_version", 0)
+            db = SessionLocal()
+            user = db.query(_User).filter(_User.id == uid).first()
+            db.close()
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+            if jwt_version != user.token_version:
+                raise HTTPException(status_code=401, detail="Token has been revoked")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # Graceful degradation — don't break auth if DB is temporarily unavailable
+
+    return payload
 
 
 @app.get("/healthz")
@@ -2055,6 +2075,8 @@ def update_user_password(data: ChangePasswordRequest, payload=Depends(require_au
         if bcrypt.checkpw(data.new_password.encode("utf-8"), user.password_hash.encode("utf-8")):
             raise HTTPException(status_code=400, detail="New password must be different from current password")
         user.password_hash = bcrypt.hashpw(data.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        # Increment token_version to invalidate all existing tokens
+        user.token_version = (user.token_version or 0) + 1
         db.commit()
         return {"success": True, "message": "Password updated"}
     except HTTPException:
@@ -2062,6 +2084,24 @@ def update_user_password(data: ChangePasswordRequest, payload=Depends(require_au
     except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to update password")
+    finally:
+        db.close()
+
+
+@app.post("/api/user/logout-all")
+def logout_all_devices(payload=Depends(require_auth)):
+    """Invalidate all existing tokens by incrementing token_version."""
+    from config.feature_flags import ENABLE_TOKEN_VERSIONING
+    if not ENABLE_TOKEN_VERSIONING:
+        return {"success": True, "message": "Logout-all acknowledged (token versioning not active)"}
+    db, user = _get_db_user(payload)
+    try:
+        user.token_version = (user.token_version or 0) + 1
+        db.commit()
+        return {"success": True, "message": "All sessions invalidated"}
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to invalidate sessions")
     finally:
         db.close()
 
