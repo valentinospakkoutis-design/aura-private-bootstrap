@@ -101,6 +101,18 @@ def init_db():
             conn.execute(text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"
             ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS auth_audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    event_type TEXT NOT NULL,
+                    event_status TEXT NOT NULL,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    metadata JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             conn.commit()
         except Exception as e:
             print(f"[!] Could not add columns (may already exist): {e}")

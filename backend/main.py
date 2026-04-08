@@ -2078,6 +2078,8 @@ def update_user_password(data: ChangePasswordRequest, payload=Depends(require_au
         # Increment token_version to invalidate all existing tokens
         user.token_version = (user.token_version or 0) + 1
         db.commit()
+        from services.auth_audit import log_auth_event
+        log_auth_event("PASSWORD_CHANGE", "SUCCESS", user_id=user.id, email=user.email)
         return {"success": True, "message": "Password updated"}
     except HTTPException:
         raise
@@ -2098,6 +2100,8 @@ def logout_all_devices(payload=Depends(require_auth)):
     try:
         user.token_version = (user.token_version or 0) + 1
         db.commit()
+        from services.auth_audit import log_auth_event
+        log_auth_event("LOGOUT_ALL", "SUCCESS", user_id=user.id, email=user.email)
         return {"success": True, "message": "All sessions invalidated"}
     except Exception:
         db.rollback()
