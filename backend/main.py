@@ -852,6 +852,9 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
     price = price_info["price"]
 
     if live_trading_service.trading_mode == "live":
+        _enforce_live_kill_switch()
+        _pre_order_safety_check(broker, order.symbol, order.quantity)
+
         balance_info = broker.get_account_balance()
         portfolio_value = balance_info.get("total_balance", 0) or balance_info.get("available_balance", 0)
         current_positions = []
@@ -874,20 +877,25 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
                 }
             )
 
-        if not hasattr(broker, "place_live_order"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Broker {order.broker} does not support live orders"
-            )
-
+        client_order_id = _generate_client_order_id()
         execution_result = broker.place_live_order(
             symbol=order.symbol,
             side=order.side,
             quantity=order.quantity,
-            order_type=order.order_type
+            order_type=order.order_type,
+            client_order_id=client_order_id,
         )
 
-        # Structured error handling for Binance errors
+        # Audit log
+        _log_live_order_audit(
+            source="api_trading_order", symbol=order.symbol, side=order.side,
+            quantity=order.quantity, price=price, client_order_id=client_order_id,
+            status="filled" if "error" not in execution_result else "failed",
+            broker_order_id=execution_result.get("order_id"),
+            response_summary={"status": execution_result.get("status")},
+            error_message=execution_result.get("error"),
+        )
+
         if "error" in execution_result:
             parsed = _parse_binance_error(execution_result)
             raise HTTPException(status_code=400, detail=parsed)
@@ -2138,6 +2146,60 @@ def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
 # ── Live Trading Endpoints ───────────────────────────────────────────
 LIVE_ORDER_MAX_VALUE_USD = 100.0  # Safety limit per order — protects against accidental large orders
 
+
+def _is_live_trading_allowed() -> bool:
+    """Global kill switch. Returns True ONLY if env var ALLOW_LIVE_TRADING=true."""
+    return os.getenv("ALLOW_LIVE_TRADING", "false").lower() in ("true", "1", "yes")
+
+
+def _enforce_live_kill_switch():
+    """Raise 403 if live trading is globally disabled. Call before any live order."""
+    if not _is_live_trading_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail="Live trading is globally disabled. Set ALLOW_LIVE_TRADING=true to enable."
+        )
+
+
+def _generate_client_order_id() -> str:
+    """Generate a unique client order ID for Binance idempotency."""
+    import uuid
+    return f"AURA_{uuid.uuid4().hex[:20]}"
+
+
+def _log_live_order_audit(
+    source: str, symbol: str, side: str, quantity: float,
+    status: str, trading_mode: str = "live", price: float = None,
+    client_order_id: str = None, broker: str = "binance",
+    broker_order_id: str = None, response_summary: dict = None,
+    error_message: str = None, user_id: int = None,
+):
+    """Persist every live order attempt to DB for forensic audit."""
+    try:
+        from sqlalchemy import text as _text
+        db = SessionLocal()
+        db.execute(_text("""
+            INSERT INTO live_order_audit_logs
+            (user_id, source, symbol, side, quantity, price, trading_mode,
+             client_order_id, broker, status, broker_order_id, response_summary,
+             error_message, created_at)
+            VALUES (:uid, :src, :sym, :side, :qty, :price, :mode,
+                    :coid, :broker, :status, :boid, :resp::jsonb,
+                    :err, NOW())
+        """), {
+            "uid": user_id, "src": source, "sym": symbol, "side": side,
+            "qty": quantity, "price": price, "mode": trading_mode,
+            "coid": client_order_id, "broker": broker, "status": status,
+            "boid": broker_order_id,
+            "resp": json.dumps(response_summary) if response_summary else None,
+            "err": error_message,
+        })
+        db.commit()
+        db.close()
+    except Exception as e:
+        print(f"[!] Live order audit log failed (non-fatal): {e}")
+
+
 def _get_live_broker():
     """Get the first connected broker or raise 400."""
     if not broker_instances:
@@ -2148,7 +2210,7 @@ def _get_live_broker():
 
 
 def _pre_order_safety_check(broker, symbol: str, quantity: float):
-    """Prevent accidental large orders."""
+    """Prevent accidental large orders. Must be called on ALL live paths."""
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
     price = broker.get_symbol_price(symbol)
@@ -2199,13 +2261,23 @@ def get_live_positions():
 @app.post("/api/live-trading/order")
 def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)):
     """Place a real MARKET order on Binance Spot."""
+    _enforce_live_kill_switch()
     broker = _get_live_broker()
     price = _pre_order_safety_check(broker, order.symbol, order.quantity)
+    client_order_id = _generate_client_order_id()
     result = broker.place_live_order(
         symbol=order.symbol,
         side=order.side,
         quantity=order.quantity,
-        order_type="MARKET"
+        order_type="MARKET",
+        client_order_id=client_order_id,
+    )
+    _log_live_order_audit(
+        source="api_live_market", symbol=order.symbol, side=order.side,
+        quantity=order.quantity, price=price, client_order_id=client_order_id,
+        status="filled" if "error" not in result else "failed",
+        broker_order_id=result.get("order_id"),
+        error_message=result.get("error"),
     )
     if "error" in result:
         parsed = _parse_binance_error(result)
@@ -2216,13 +2288,23 @@ def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)
 @app.post("/api/live-trading/order/limit")
 def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)):
     """Place a LIMIT order with optional SL/TP."""
+    _enforce_live_kill_switch()
     broker = _get_live_broker()
     _pre_order_safety_check(broker, order.symbol, order.quantity)
+    client_order_id = _generate_client_order_id()
     result = broker.place_limit_order(
         symbol=order.symbol,
         side=order.side,
         quantity=order.quantity,
         price=order.price,
+        client_order_id=client_order_id,
+    )
+    _log_live_order_audit(
+        source="api_live_limit", symbol=order.symbol, side=order.side,
+        quantity=order.quantity, price=order.price, client_order_id=client_order_id,
+        status="submitted" if "error" not in result else "failed",
+        broker_order_id=result.get("order_id"),
+        error_message=result.get("error"),
     )
     if "error" in result:
         parsed = _parse_binance_error(result)
@@ -2281,12 +2363,22 @@ def get_futures_positions():
 @app.post("/api/live-trading/futures/order")
 def place_futures_order(order: LiveOrderRequest, _user=Depends(require_auth)):
     """Place a futures MARKET order."""
+    _enforce_live_kill_switch()
     broker = _get_live_broker()
     _pre_order_safety_check(broker, order.symbol, order.quantity)
+    client_order_id = _generate_client_order_id()
     result = broker.futures_create_order(
         symbol=order.symbol,
         side=order.side,
         quantity=order.quantity,
+        client_order_id=client_order_id,
+    )
+    _log_live_order_audit(
+        source="api_futures", symbol=order.symbol, side=order.side,
+        quantity=order.quantity, client_order_id=client_order_id,
+        status="filled" if "error" not in result else "failed",
+        broker_order_id=str(result.get("orderId", "")),
+        error_message=result.get("error"),
     )
     if "error" in result:
         parsed = _parse_binance_error(result)

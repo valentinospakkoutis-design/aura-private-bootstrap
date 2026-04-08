@@ -287,9 +287,10 @@ class BinanceAPI:
         
         return order
 
-    def place_live_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET") -> Dict:
+    def place_live_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET", client_order_id: str = None) -> Dict:
         """
         Place a real order on Binance.
+        client_order_id: unique idempotency key to prevent duplicate orders.
         """
         if not self.connected:
             return {
@@ -301,8 +302,10 @@ class BinanceAPI:
             "symbol": symbol.upper(),
             "side": side.upper(),
             "type": order_type.upper(),
-            "quantity": quantity
+            "quantity": quantity,
         }
+        if client_order_id:
+            payload["newClientOrderId"] = client_order_id
 
         response = self._signed_request("POST", "/api/v3/order", payload, timeout=20.0)
         if "error" in response:
@@ -359,7 +362,7 @@ class BinanceAPI:
 
     def place_limit_order(
         self, symbol: str, side: str, quantity: float,
-        price: float, time_in_force: str = "GTC"
+        price: float, time_in_force: str = "GTC", client_order_id: str = None
     ) -> Dict:
         """Place a LIMIT order."""
         if not self.connected:
@@ -372,6 +375,8 @@ class BinanceAPI:
             "quantity": quantity,
             "price": str(price),
         }
+        if client_order_id:
+            payload["newClientOrderId"] = client_order_id
         response = self._signed_request("POST", "/api/v3/order", payload, timeout=20.0)
         if "error" in response:
             return response
@@ -449,7 +454,7 @@ class BinanceAPI:
             return []
         return [p for p in result if float(p.get("positionAmt", 0)) != 0] if isinstance(result, list) else []
 
-    def futures_create_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET") -> Dict:
+    def futures_create_order(self, symbol: str, side: str, quantity: float, order_type: str = "MARKET", client_order_id: str = None) -> Dict:
         """Place a futures order."""
         payload = {
             "symbol": symbol.upper(),
@@ -457,6 +462,8 @@ class BinanceAPI:
             "type": order_type.upper(),
             "quantity": quantity,
         }
+        if client_order_id:
+            payload["newClientOrderId"] = client_order_id
         return self._futures_signed_request("POST", "/fapi/v1/order", payload, timeout=20.0)
 
     def get_trade_history(self, symbol: Optional[str] = None) -> List[Dict]:

@@ -124,6 +124,25 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS live_order_audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    source TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    quantity NUMERIC NOT NULL,
+                    price NUMERIC,
+                    trading_mode TEXT NOT NULL,
+                    client_order_id TEXT,
+                    broker TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    broker_order_id TEXT,
+                    response_summary JSONB,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             conn.commit()
         except Exception as e:
             print(f"[!] Could not add columns (may already exist): {e}")
