@@ -111,8 +111,14 @@ class PaperTradingService:
             "total_cost": total_cost,
             "status": "FILLED",
             "executed_at": datetime.now().isoformat(),
-            "paper_trading": True
+            "paper_trading": True,
         }
+
+        # Attach P/L and entry price to SELL orders
+        if side == 'SELL':
+            executed_order["pnl"] = pnl
+            executed_order["pnl_percent"] = (pnl / (avg_price * quantity) * 100) if avg_price * quantity > 0 else 0
+            executed_order["entry_price"] = avg_price
         
         # Add to history
         self.orders.append(executed_order)
@@ -192,14 +198,30 @@ class PaperTradingService:
         total_trades = len(self.trade_history)
         buy_trades = [t for t in self.trade_history if t['side'] == 'BUY']
         sell_trades = [t for t in self.trade_history if t['side'] == 'SELL']
-        
+
+        # Open trades = symbols still in portfolio with quantity > 0
+        open_trades = len([s for s, p in self.portfolio.items() if p.get("quantity", 0) > 0])
+
+        # Closed trades: each SELL closes (or partially closes) a position
+        # Calculate P/L per closed trade and win rate
+        closed_trades = []
+        for t in sell_trades:
+            pnl = t.get("pnl", 0)
+            closed_trades.append(t)
+
+        winning_trades = [t for t in closed_trades if t.get("pnl", 0) > 0]
+        win_rate = (len(winning_trades) / len(closed_trades) * 100) if closed_trades else 0
+
         portfolio = self.get_portfolio()
-        
+
         return {
             "total_trades": total_trades,
             "buy_trades": len(buy_trades),
             "sell_trades": len(sell_trades),
-            "active_positions": len(self.portfolio),
+            "active_positions": open_trades,
+            "open_trades": open_trades,
+            "closed_trades": len(closed_trades),
+            "win_rate": round(win_rate, 1),
             "current_balance": portfolio["total_value"],
             "total_pnl": portfolio["total_pnl"],
             "total_pnl_percent": portfolio["total_pnl_percent"],

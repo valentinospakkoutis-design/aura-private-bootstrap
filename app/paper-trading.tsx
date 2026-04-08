@@ -370,7 +370,7 @@ export default function PaperTradingScreen() {
               </View>
 
               {/* Profit/Loss - ANIMATED */}
-              {trade.status === 'open' && (
+              {(trade.status === 'open' || trade.status === 'closed') && (tradeProfit !== 0 || trade.status === 'open') && (
                 <View style={styles.profitContainer}>
                   <View style={styles.profitRow}>
                     <Text style={styles.profitLabel}>P/L:</Text>
