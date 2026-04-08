@@ -2403,7 +2403,14 @@ def place_futures_order(order: FuturesOrderRequest, _user=Depends(require_auth))
         )
 
     broker = _get_live_broker()
-    _pre_order_safety_check(broker, order.symbol, order.quantity)
+    # Futures safety: check effective exposure (notional * leverage)
+    price = _pre_order_safety_check(broker, order.symbol, order.quantity)
+    effective_exposure = price * order.quantity * order.leverage
+    if effective_exposure > LIVE_ORDER_MAX_VALUE_USD * 10:  # $1000 max effective exposure for futures
+        raise HTTPException(
+            status_code=400,
+            detail=f"Effective exposure ${effective_exposure:.2f} (${price * order.quantity:.2f} x {order.leverage}x) exceeds futures safety limit"
+        )
 
     # Set leverage before placing order
     lev_result = broker.futures_set_leverage(order.symbol, order.leverage)
@@ -2443,16 +2450,16 @@ def place_futures_order(order: FuturesOrderRequest, _user=Depends(require_auth))
     })
 
 
-# Legacy routes — redirect to new endpoints
+# Legacy routes — redirect to new endpoints (with auth)
 @app.get("/api/live-trading/futures/portfolio")
-def get_futures_portfolio_legacy():
+def get_futures_portfolio_legacy(_user=Depends(require_auth)):
     """Legacy — use GET /api/futures/balance instead."""
-    return get_futures_balance()
+    return get_futures_balance(_user=_user)
 
 @app.get("/api/live-trading/futures/positions")
-def get_futures_positions_legacy():
+def get_futures_positions_legacy(_user=Depends(require_auth)):
     """Legacy — use GET /api/futures/positions instead."""
-    return get_futures_positions()
+    return get_futures_positions(_user=_user)
 
 
 # ── Auto Trading Endpoints ───────────────────────────────────────────
