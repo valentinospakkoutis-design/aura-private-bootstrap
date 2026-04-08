@@ -109,6 +109,9 @@ def _restore_broker_connections():
         db.close()
         if loaded:
             print(f"[+] Auto-loaded {loaded} broker(s) from database")
+            for name, broker in broker_instances.items():
+                if not broker.testnet:
+                    print(f"[!] Warning: {name} is in LIVE mode — ensure Railway outbound IP is whitelisted on Binance")
         else:
             print("[*] No active broker credentials found in database")
     except Exception as e:
