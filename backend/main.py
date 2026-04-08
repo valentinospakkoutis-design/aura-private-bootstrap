@@ -153,6 +153,7 @@ async def startup_event():
             _restore_broker_connections()
             # Seed default user right after tables are created
             _seed_default_user()
+            print(f"[+] Loaded {_count_db_users()} users from PostgreSQL")
         else:
             print("[!] Database not configured - continuing without database")
     except Exception as e:
@@ -385,33 +386,16 @@ async def websocket_prices(websocket: WebSocket, token: str = Query(default=None
     """Alias WebSocket endpoint for price updates"""
     await websocket_endpoint(websocket, token=token)
 
-# User storage file
-USERS_DB_FILE = os.path.join(os.path.dirname(__file__), "users_db.json")
-
-def load_users_db():
-    """Load users from JSON file"""
-    if os.path.exists(USERS_DB_FILE):
-        try:
-            with open(USERS_DB_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error loading users DB: {e}")
-            return {}
-    return {}
-
-def save_users_db(users_db):
-    """Save users to JSON file"""
+# User count from PostgreSQL (logged at startup after DB init)
+def _count_db_users() -> int:
     try:
-        with open(USERS_DB_FILE, 'w', encoding='utf-8') as f:
-            json.dump(users_db, f, indent=2, ensure_ascii=False)
-        return True
-    except Exception as e:
-        print(f"Error saving users DB: {e}")
-        return False
-
-# Load users on startup
-users_db = load_users_db()
-print(f"Loaded {len(users_db)} users from database")
+        from database.models import User as _User
+        db = SessionLocal()
+        count = db.query(_User).count()
+        db.close()
+        return count
+    except Exception:
+        return 0
 
 # Session management (in-memory for now, use Redis in production)
 sessions = {}  # Format: {session_id: {"email": "...", "expires": datetime}}
@@ -456,19 +440,22 @@ def dashboard(request: Request):
         return RedirectResponse(url="/?error=" + quote("Παρακαλώ συνδεθείτε"), status_code=303)
     
     email = session["email"]
-    user = users_db.get(email)
-    if not user:
-        # User doesn't exist anymore
-        return RedirectResponse(url="/?error=" + quote("Ο χρήστης δεν βρέθηκε"), status_code=303)
-    
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "user_name": user["name"],
-            "user_email": email
-        }
-    )
+    from database.models import User as _User
+    db = SessionLocal()
+    try:
+        user = db.query(_User).filter(_User.email == email).first()
+        if not user:
+            return RedirectResponse(url="/?error=" + quote("Ο χρήστης δεν βρέθηκε"), status_code=303)
+        return templates.TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "user_name": user.full_name or email.split("@")[0],
+                "user_email": email
+            }
+        )
+    finally:
+        db.close()
 
 @app.get("/logout")
 def logout(request: Request):
@@ -509,42 +496,29 @@ async def login(
     email: str = Form(...),
     password: str = Form(...)
 ):
-    """Login endpoint"""
-    # Normalize email and password (lowercase, trim spaces)
+    """Login endpoint — reads from PostgreSQL, verifies with bcrypt."""
+    import bcrypt
+    from database.models import User as _User
+
     email = email.lower().strip()
     password = password.strip()
-    
-    # Check if user exists
-    if email not in users_db:
-        error_msg = quote("Λάθος email ή κωδικός")
-        return RedirectResponse(
-            url=f"/?error={error_msg}",
-            status_code=303
-        )
-    
-    stored_password = users_db[email]["password"]
-    stored_name = users_db[email]["name"]
 
-    if stored_password != password:
-        error_msg = quote("Λάθος κωδικός")
-        return RedirectResponse(
-            url=f"/?error={error_msg}",
-            status_code=303
-        )
-    
-    # Successful login - create session
-    session_id = create_session(email)
-    
-    # Redirect to dashboard with session cookie
-    response = RedirectResponse(url="/dashboard", status_code=303)
-    response.set_cookie(
-        key="session_id",
-        value=session_id,
-        max_age=86400,  # 24 hours
-        httponly=True,
-        samesite="lax"
-    )
-    return response
+    db = SessionLocal()
+    try:
+        user = db.query(_User).filter(_User.email == email).first()
+        if not user or not user.password_hash:
+            return RedirectResponse(url=f"/?error={quote('Λάθος email ή κωδικός')}", status_code=303)
+
+        if not bcrypt.checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
+            return RedirectResponse(url=f"/?error={quote('Λάθος κωδικός')}", status_code=303)
+
+        session_id = create_session(email)
+        response = RedirectResponse(url="/dashboard", status_code=303)
+        response.set_cookie(key="session_id", value=session_id, max_age=86400, httponly=True, samesite="lax")
+        return response
+    finally:
+        db.close()
+
 
 @app.post("/register")
 async def register(
@@ -554,51 +528,42 @@ async def register(
     password: str = Form(...),
     confirmPassword: str = Form(...)
 ):
-    """Register endpoint"""
-    # Normalize email and password (lowercase, trim spaces)
+    """Register endpoint — writes to PostgreSQL with bcrypt hash."""
+    import bcrypt
+    from database.models import User as _User
+
     email = email.lower().strip()
     name = name.strip()
     password = password.strip()
     confirmPassword = confirmPassword.strip()
-    
-    # Validate passwords match
+
     if password != confirmPassword:
-        error_msg = quote("Οι κωδικοί δεν ταιριάζουν")
-        return RedirectResponse(
-            url=f"/?error={error_msg}",
-            status_code=303
-        )
-    
-    # Check if user already exists
-    if email in users_db:
-        error_msg = quote("Το email χρησιμοποιείται ήδη")
-        return RedirectResponse(
-            url=f"/?error={error_msg}",
-            status_code=303
-        )
-    
-    # Validate password strength
-    if len(password) < 6:
-        error_msg = quote("Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες")
-        return RedirectResponse(
-            url=f"/?error={error_msg}",
-            status_code=303
-        )
-    
-    # Create user (in production, hash password and save to database)
-    users_db[email] = {
-        "name": name,
-        "password": password  # In production: hash this!
-    }
-    
-    # Save to file
-    save_users_db(users_db)
-    
-    success_msg = quote("Επιτυχής εγγραφή! Μπορείτε τώρα να συνδεθείτε")
-    return RedirectResponse(
-        url=f"/?success={success_msg}",
-        status_code=303
-    )
+        return RedirectResponse(url=f"/?error={quote('Οι κωδικοί δεν ταιριάζουν')}", status_code=303)
+
+    if len(password) < 8:
+        return RedirectResponse(url=f"/?error={quote('Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες')}", status_code=303)
+
+    db = SessionLocal()
+    try:
+        existing = db.query(_User).filter(_User.email == email).first()
+        if existing:
+            return RedirectResponse(url=f"/?error={quote('Το email χρησιμοποιείται ήδη')}", status_code=303)
+
+        hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        db.add(_User(
+            email=email,
+            password_hash=hashed,
+            full_name=name,
+            is_active=True,
+            is_verified=True,
+        ))
+        db.commit()
+        return RedirectResponse(url=f"/?success={quote('Επιτυχής εγγραφή! Μπορείτε τώρα να συνδεθείτε')}", status_code=303)
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url=f"/?error={quote('Σφάλμα κατά την εγγραφή')}", status_code=303)
+    finally:
+        db.close()
 
 @app.get("/api/quote-of-day")
 def get_quote_of_day():
