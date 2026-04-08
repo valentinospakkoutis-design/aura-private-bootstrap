@@ -82,21 +82,34 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sch
     # Token versioning: reject tokens issued before password change / logout-all
     from config.feature_flags import ENABLE_TOKEN_VERSIONING
     if ENABLE_TOKEN_VERSIONING:
+        import logging
+        _auth_logger = logging.getLogger("aura.auth")
+
+        token_version_in_token = payload.get("token_version")
+        if token_version_in_token is None:
+            _auth_logger.warning("[AUTH_TOKEN_VERSION_MISSING] JWT has no token_version claim")
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        try:
+            uid = int(payload.get("sub", 0))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=401, detail="Invalid token")
+
         try:
             from database.models import User as _User
-            uid = int(payload.get("sub", 0))
-            jwt_version = payload.get("token_version", 0)
             db = SessionLocal()
             user = db.query(_User).filter(_User.id == uid).first()
             db.close()
-            if not user:
-                raise HTTPException(status_code=401, detail="User not found")
-            if jwt_version != user.token_version:
-                raise HTTPException(status_code=401, detail="Token has been revoked")
-        except HTTPException:
-            raise
         except Exception:
-            pass  # Graceful degradation — don't break auth if DB is temporarily unavailable
+            _auth_logger.error("[AUTH_TOKEN_VERSION_CHECK_FAILED] DB error during token validation", exc_info=True)
+            raise HTTPException(status_code=503, detail="Authentication service unavailable")
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if user.token_version != token_version_in_token:
+            _auth_logger.warning(f"[AUTH_TOKEN_VERSION_MISMATCH] user={uid} jwt_ver={token_version_in_token} db_ver={user.token_version}")
+            raise HTTPException(status_code=401, detail="Token invalidated")
 
     return payload
 
