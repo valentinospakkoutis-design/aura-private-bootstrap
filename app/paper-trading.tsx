@@ -51,9 +51,12 @@ export default function PaperTradingScreen() {
   const [quantity, setQuantity] = useState('0.001');
   const [submitting, setSubmitting] = useState(false);
 
+  const initialLoadDone = React.useRef(false);
+
   const loadData = useCallback(async () => {
     try {
-      setLoading(true);
+      // Only show loading skeleton on first load, not refreshes
+      if (!initialLoadDone.current) setLoading(true);
       setError(null);
 
       const [tradesResult, statsResult] = await Promise.all([
@@ -61,13 +64,15 @@ export default function PaperTradingScreen() {
         api.getPortfolioStats().catch(() => null),
       ]);
 
-      setTrades(Array.isArray(tradesResult) ? tradesResult : []);
+      const normalizedTrades = Array.isArray(tradesResult) ? tradesResult : [];
+      setTrades(normalizedTrades);
       setStats(statsResult && typeof statsResult === 'object' ? statsResult : null);
     } catch (err) {
       console.error('Error loading paper trading data:', err);
       setError('Δεν ήταν δυνατή η φόρτωση δεδομένων.');
     } finally {
       setLoading(false);
+      initialLoadDone.current = true;
     }
   }, []);
 
@@ -90,7 +95,7 @@ export default function PaperTradingScreen() {
       setSubmitting(true);
       await api.placePaperOrder(symbol.toUpperCase().trim(), side, qty);
       showToast(`${side} ${qty} ${symbol} εκτελέστηκε!`, 'success');
-      setQuantity('');
+      setQuantity('0.001');
       await loadData();
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || 'Αποτυχία order';
@@ -222,7 +227,7 @@ export default function PaperTradingScreen() {
   if (!trades || trades.length === 0) {
     return (
       <PageTransition type="fade">
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {tradeForm}
           <View style={{ height: theme.spacing.lg }} />
           <NoTrades />
@@ -238,9 +243,10 @@ export default function PaperTradingScreen() {
 
   return (
     <PageTransition type="slideUp">
-      <ScrollView 
-        style={styles.container} 
+      <ScrollView
+        style={styles.container}
         contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
