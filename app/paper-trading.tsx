@@ -155,78 +155,38 @@ export default function PaperTradingScreen() {
     );
   }
 
-  // Trade form rendered inline (not as a component function to avoid remounts)
+  // Trade form — diagnostic: minimal inline form to isolate touch issues
   const tradeForm = (
-    <View style={styles.tradeFormCard}>
-      <Text style={styles.statsTitle}>📝 Νέο Trade</Text>
-
-      {/* Symbol */}
-      <View style={styles.formRow}>
-        <Text style={styles.formLabel}>Symbol</Text>
-        <TextInput
-          style={styles.formInput}
-          value={symbol}
-          onChangeText={(text) => setSymbol(text)}
-          placeholder="BTCUSDC"
-          placeholderTextColor="#999"
-          keyboardType="default"
-          returnKeyType="done"
-          autoCapitalize="characters"
-          autoCorrect={false}
-          autoComplete="off"
-          editable={true}
-          blurOnSubmit={false}
-        />
-      </View>
-
-      {/* Side Toggle */}
-      <View style={styles.formRow}>
-        <Text style={styles.formLabel}>Side</Text>
-        <View style={styles.sideToggle}>
-          <TouchableOpacity
-            style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
-            onPress={() => setSide('BUY')}
-          >
-            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 BUY</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
-            onPress={() => setSide('SELL')}
-          >
-            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 SELL</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Quantity */}
-      <View style={styles.formRow}>
-        <Text style={styles.formLabel}>Ποσότητα</Text>
-        <TextInput
-          style={styles.formInput}
-          value={quantity}
-          onChangeText={(text) => setQuantity(text)}
-          placeholder="0.001"
-          placeholderTextColor="#999"
-          keyboardType="decimal-pad"
-          returnKeyType="done"
-          autoCorrect={false}
-          autoCapitalize="none"
-          autoComplete="off"
-          editable={true}
-          blurOnSubmit={false}
-        />
-      </View>
-
-      {/* Submit */}
-      <Button
-        title={submitting ? 'Εκτέλεση...' : `${side} ${symbol}`}
-        onPress={handlePlaceOrder}
-        variant={side === 'BUY' ? 'primary' : 'secondary'}
-        size="large"
-        fullWidth
-        disabled={submitting || !quantity.trim()}
-        loading={submitting}
+    <View style={{ backgroundColor: 'white', padding: 20, margin: 10, borderRadius: 12 }}>
+      <Text style={{ fontSize: 16, marginBottom: 8, color: '#000' }}>Test Input:</Text>
+      <TextInput
+        style={{
+          borderWidth: 1,
+          borderColor: '#ccc',
+          padding: 12,
+          fontSize: 16,
+          borderRadius: 8,
+          backgroundColor: '#f5f5f5',
+          color: '#000',
+        }}
+        value={quantity}
+        onChangeText={setQuantity}
+        keyboardType="decimal-pad"
+        placeholder="Type here..."
+        placeholderTextColor="#999"
+        editable={true}
       />
+      <TouchableOpacity
+        style={{ backgroundColor: '#6C63FF', padding: 16, borderRadius: 12, marginTop: 12 }}
+        onPress={() => {
+          console.log('TEST BUTTON pressed, quantity=' + quantity);
+          handlePlaceOrder();
+        }}
+      >
+        <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold', fontSize: 16 }}>
+          TEST BUTTON — {side} {symbol} ({quantity})
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 
