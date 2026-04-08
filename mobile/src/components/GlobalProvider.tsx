@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useAppStore } from '../stores/appStore';
 import { Toast } from './Toast';
@@ -8,32 +8,46 @@ interface GlobalProviderProps {
   children: React.ReactNode;
 }
 
+// Stable Toast wrapper — prevents re-renders from affecting sibling TextInputs
+const StableToast = React.memo(({ toast, onHide }: { toast: any; onHide: () => void }) => {
+  if (!toast) return null;
+  return (
+    <Toast
+      message={toast.message}
+      type={toast.type}
+      onHide={onHide}
+    />
+  );
+});
+
+// Stable Modal wrapper
+const StableModal = React.memo(({ modal, onHide }: { modal: any; onHide: () => void }) => {
+  if (!modal) return null;
+  return (
+    <Modal
+      visible={modal.visible}
+      title={modal.title}
+      message={modal.message}
+      onClose={onHide}
+      onConfirm={modal.onConfirm}
+    />
+  );
+});
+
 export const GlobalProvider: React.FC<GlobalProviderProps> = ({ children }) => {
-  const { toast, hideToast, modal, hideModal } = useAppStore();
+  const toast = useAppStore((s) => s.toast);
+  const hideToast = useAppStore((s) => s.hideToast);
+  const modal = useAppStore((s) => s.modal);
+  const hideModal = useAppStore((s) => s.hideModal);
+
+  const stableHideToast = useCallback(() => hideToast(), [hideToast]);
+  const stableHideModal = useCallback(() => hideModal(), [hideModal]);
 
   return (
     <View style={styles.container}>
       {children}
-      
-      {/* Global Toast */}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onHide={hideToast}
-        />
-      )}
-
-      {/* Global Modal */}
-      {modal && (
-        <Modal
-          visible={modal.visible}
-          title={modal.title}
-          message={modal.message}
-          onClose={hideModal}
-          onConfirm={modal.onConfirm}
-        />
-      )}
+      <StableToast toast={toast} onHide={stableHideToast} />
+      <StableModal modal={modal} onHide={stableHideModal} />
     </View>
   );
 };
@@ -43,4 +57,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

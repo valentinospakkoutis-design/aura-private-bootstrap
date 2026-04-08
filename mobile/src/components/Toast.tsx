@@ -105,6 +105,7 @@ export const Toast: React.FC<ToastProps> = ({
 
   return (
     <Animated.View
+      pointerEvents="none"
       style={[
         styles.container,
         {

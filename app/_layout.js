@@ -112,7 +112,7 @@ function AppContent() {
           contentStyle: {
             backgroundColor: theme.colors.ui.background,
           },
-          animation: 'slide_from_right',
+          animation: 'fade',
         }}
       >
         {/* Auth Screens */}
