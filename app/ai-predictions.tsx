@@ -3,9 +3,7 @@ import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, To
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
-import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
-import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoPredictions } from '../mobile/src/components/NoPredictions';
 import { NoData } from '../mobile/src/components/NoData';
 import { theme } from '../mobile/src/constants/theme';
@@ -184,8 +182,8 @@ export default function AIPredictionsScreen() {
   const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => {
     const acc = modelAccuracy[item.symbol || ''] ?? null;
     return (
-    <AnimatedListItem
-      index={index}
+    <TouchableOpacity
+      activeOpacity={0.7}
       onPress={() => router.push(`/prediction-details?id=${item.id}`)}
       style={s.card}
     >
@@ -265,32 +263,29 @@ export default function AIPredictionsScreen() {
       })()}
 
       <Text style={s.viewDetails}>Δες Ανάλυση →</Text>
-    </AnimatedListItem>
+    </TouchableOpacity>
   );};
 
   // ── Loading / Error / Empty states ────────────────────────
   if (loading && !refreshing && (!predictions || predictions.length === 0)) {
     return (
-      <PageTransition type="fade">
-        <View style={s.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.brand.primary} />
-          <Text style={s.loadingTitle}>Το AI αναλύει assets...</Text>
-          <Text style={s.loadingSubtitle}>Αυτό μπορεί να πάρει έως 30 δευτερόλεπτα</Text>
-        </View>
-      </PageTransition>
+      <View style={s.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+        <Text style={s.loadingTitle}>Το AI αναλύει assets...</Text>
+        <Text style={s.loadingSubtitle}>Αυτό μπορεί να πάρει έως 30 δευτερόλεπτα</Text>
+      </View>
     );
   }
 
   if (error && (!predictions || predictions.length === 0)) {
-    return <PageTransition type="fade"><NoData onRetry={loadAll} /></PageTransition>;
+    return <View style={s.container}><NoData onRetry={loadAll} /></View>;
   }
 
   if (!predictions || predictions.length === 0) {
-    return <PageTransition type="fade"><NoPredictions /></PageTransition>;
+    return <View style={s.container}><NoPredictions /></View>;
   }
 
   return (
-    <PageTransition type="slideUp">
       <View style={s.container}>
         <FlatList
           data={filteredPredictions}
@@ -345,7 +340,6 @@ export default function AIPredictionsScreen() {
           showsVerticalScrollIndicator={false}
         />
       </View>
-    </PageTransition>
   );
 }
 
