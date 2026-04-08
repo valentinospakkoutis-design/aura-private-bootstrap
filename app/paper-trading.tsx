@@ -6,7 +6,6 @@ import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
 import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
-import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoTrades } from '../mobile/src/components/NoTrades';
 import { NoData } from '../mobile/src/components/NoData';
 import { Button } from '../mobile/src/components/Button';
@@ -134,72 +133,102 @@ export default function PaperTradingScreen() {
   // Loading state
   if (loading && !refreshing && !trades.length) {
     return (
-      <PageTransition type="fade">
-        <View style={styles.container}>
-          <View style={styles.content}>
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </View>
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </View>
-      </PageTransition>
+      </View>
     );
   }
 
   // Error state (only if no cached data)
   if (error && !trades.length && !stats) {
-    return (
-      <PageTransition type="fade">
-        <NoData onRetry={loadData} />
-      </PageTransition>
-    );
+    return <NoData onRetry={loadData} />;
   }
 
-  // Trade form — diagnostic: minimal inline form to isolate touch issues
+  // Trade form rendered inline (not as component function to avoid remounts)
   const tradeForm = (
-    <View style={{ backgroundColor: 'white', padding: 20, margin: 10, borderRadius: 12 }}>
-      <Text style={{ fontSize: 16, marginBottom: 8, color: '#000' }}>Test Input:</Text>
-      <TextInput
-        style={{
-          borderWidth: 1,
-          borderColor: '#ccc',
-          padding: 12,
-          fontSize: 16,
-          borderRadius: 8,
-          backgroundColor: '#f5f5f5',
-          color: '#000',
-        }}
-        value={quantity}
-        onChangeText={setQuantity}
-        keyboardType="decimal-pad"
-        placeholder="Type here..."
-        placeholderTextColor="#999"
-        editable={true}
+    <View style={styles.tradeFormCard}>
+      <Text style={styles.statsTitle}>📝 Νέο Trade</Text>
+
+      {/* Symbol */}
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Symbol</Text>
+        <TextInput
+          style={styles.formInput}
+          value={symbol}
+          onChangeText={setSymbol}
+          placeholder="BTCUSDC"
+          placeholderTextColor="#999"
+          keyboardType="default"
+          returnKeyType="next"
+          autoCapitalize="characters"
+          autoCorrect={false}
+          editable={true}
+          blurOnSubmit={false}
+        />
+      </View>
+
+      {/* Side Toggle */}
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Side</Text>
+        <View style={styles.sideToggle}>
+          <TouchableOpacity
+            style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
+            onPress={() => setSide('BUY')}
+          >
+            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 BUY</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
+            onPress={() => setSide('SELL')}
+          >
+            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 SELL</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Quantity */}
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Ποσότητα</Text>
+        <TextInput
+          style={styles.formInput}
+          value={quantity}
+          onChangeText={setQuantity}
+          placeholder="0.001"
+          placeholderTextColor="#999"
+          keyboardType="decimal-pad"
+          returnKeyType="done"
+          autoCorrect={false}
+          autoCapitalize="none"
+          editable={true}
+          blurOnSubmit={false}
+        />
+      </View>
+
+      {/* Submit */}
+      <Button
+        title={submitting ? 'Εκτέλεση...' : `${side} ${symbol}`}
+        onPress={handlePlaceOrder}
+        variant={side === 'BUY' ? 'primary' : 'secondary'}
+        size="large"
+        fullWidth
+        disabled={submitting || !quantity.trim()}
+        loading={submitting}
       />
-      <TouchableOpacity
-        style={{ backgroundColor: '#6C63FF', padding: 16, borderRadius: 12, marginTop: 12 }}
-        onPress={() => {
-          console.log('TEST BUTTON pressed, quantity=' + quantity);
-          handlePlaceOrder();
-        }}
-      >
-        <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold', fontSize: 16 }}>
-          TEST BUTTON — {side} {symbol} ({quantity})
-        </Text>
-      </TouchableOpacity>
     </View>
   );
 
   // Empty state — show form so user can start trading
   if (!trades || trades.length === 0) {
     return (
-      <PageTransition type="fade">
-        <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {tradeForm}
-          <View style={{ height: theme.spacing.lg }} />
-          <NoTrades />
-        </ScrollView>
-      </PageTransition>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {tradeForm}
+        <View style={{ height: theme.spacing.lg }} />
+        <NoTrades />
+      </ScrollView>
     );
   }
 
@@ -209,7 +238,6 @@ export default function PaperTradingScreen() {
     : theme.colors.market.bearish;
 
   return (
-    <PageTransition type="slideUp">
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -393,7 +421,6 @@ export default function PaperTradingScreen() {
       {/* Bottom Padding */}
       <View style={styles.bottomPadding} />
     </ScrollView>
-    </PageTransition>
   );
 }
 
