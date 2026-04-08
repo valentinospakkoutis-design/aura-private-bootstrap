@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -17,14 +17,23 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
   children,
   type = 'fade',
 }) => {
-  const opacity = useSharedValue(0);
-  const translateX = useSharedValue(50);
-  const translateY = useSharedValue(50);
-  const scale = useSharedValue(0.9);
+  const hasAnimated = useRef(false);
+  const opacity = useSharedValue(hasAnimated.current ? 1 : 0);
+  const translateX = useSharedValue(hasAnimated.current ? 0 : 50);
+  const translateY = useSharedValue(hasAnimated.current ? 0 : 30);
+  const scale = useSharedValue(hasAnimated.current ? 1 : 0.9);
 
   useEffect(() => {
+    if (hasAnimated.current) {
+      opacity.value = 1;
+      translateX.value = 0;
+      translateY.value = 0;
+      scale.value = 1;
+      return;
+    }
+
     opacity.value = withTiming(1, {
-      duration: 400,
+      duration: 300,
       easing: Easing.out(Easing.cubic),
     });
 
@@ -48,6 +57,8 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
         stiffness: 100,
       });
     }
+
+    hasAnimated.current = true;
   }, [type]);
 
   const animatedStyle = useAnimatedStyle(() => {

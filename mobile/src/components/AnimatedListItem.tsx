@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
 import { Platform } from 'react-native';
 import Animated, {
@@ -17,6 +17,7 @@ interface AnimatedListItemProps {
   index: number;
   onPress?: () => void;
   style?: ViewStyle;
+  skipEntrance?: boolean;
 }
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -26,18 +27,27 @@ export const AnimatedListItem: React.FC<AnimatedListItemProps> = ({
   index,
   onPress,
   style,
+  skipEntrance,
 }) => {
-  const opacity = useSharedValue(0);
-  const translateY = useSharedValue(20);
+  const hasAnimated = useRef(false);
+  const opacity = useSharedValue(skipEntrance || hasAnimated.current ? 1 : 0);
+  const translateY = useSharedValue(skipEntrance || hasAnimated.current ? 0 : 20);
   const scale = useSharedValue(1);
 
   useEffect(() => {
-    const delay = index * 100; // Stagger by 100ms per item
+    if (hasAnimated.current || skipEntrance) {
+      // Already animated once or skip requested — show immediately
+      opacity.value = 1;
+      translateY.value = 0;
+      return;
+    }
+
+    const delay = Math.min(index * 80, 400); // Cap total stagger at 400ms
 
     opacity.value = withDelay(
       delay,
       withTiming(1, {
-        duration: 400,
+        duration: 300,
         easing: Easing.out(Easing.ease),
       })
     );
@@ -49,6 +59,8 @@ export const AnimatedListItem: React.FC<AnimatedListItemProps> = ({
         stiffness: 100,
       })
     );
+
+    hasAnimated.current = true;
   }, [index]);
 
   const handlePressIn = () => {
