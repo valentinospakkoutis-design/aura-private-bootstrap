@@ -2337,53 +2337,122 @@ def cancel_live_order(symbol: str, order_id: int, _user=Depends(require_auth)):
 
 
 # ── Futures Endpoints ────────────────────────────────────────────────
-@app.get("/api/live-trading/futures/portfolio")
-def get_futures_portfolio():
-    """Returns real Binance Futures account."""
+ALLOWED_FUTURES_LEVERAGE = {1, 2, 5, 10}
+
+
+def _enforce_futures_kill_switch():
+    """Raise 403 if futures trading is globally disabled."""
+    from config.feature_flags import ALLOW_FUTURES_TRADING
+    if not ALLOW_FUTURES_TRADING:
+        raise HTTPException(
+            status_code=403,
+            detail="Futures trading is disabled. Set ALLOW_FUTURES_TRADING=true to enable."
+        )
+
+
+class FuturesOrderRequest(BaseModel):
+    symbol: str
+    side: str  # "LONG" or "SHORT" from frontend
+    quantity: float
+    leverage: int = 1
+
+
+@app.get("/api/futures/balance")
+def get_futures_balance(_user=Depends(require_auth)):
+    """Returns Binance Futures wallet balance."""
+    _enforce_futures_kill_switch()
     broker = _get_live_broker()
     account = broker.futures_account()
     if "error" in account:
         raise HTTPException(status_code=400, detail=account["error"])
-    return {
+    return sanitize_floats({
         "totalWalletBalance": account.get("totalWalletBalance"),
         "totalUnrealizedProfit": account.get("totalUnrealizedProfit"),
         "totalMarginBalance": account.get("totalMarginBalance"),
         "availableBalance": account.get("availableBalance"),
-    }
+    })
 
 
-@app.get("/api/live-trading/futures/positions")
-def get_futures_positions():
+@app.get("/api/futures/positions")
+def get_futures_positions(_user=Depends(require_auth)):
     """Returns open futures positions."""
+    _enforce_futures_kill_switch()
     broker = _get_live_broker()
     positions = broker.futures_positions()
-    return {"positions": positions, "count": len(positions)}
+    return sanitize_floats({"positions": positions, "count": len(positions)})
 
 
-@app.post("/api/live-trading/futures/order")
-def place_futures_order(order: LiveOrderRequest, _user=Depends(require_auth)):
-    """Place a futures MARKET order."""
+@app.post("/api/futures/order")
+def place_futures_order(order: FuturesOrderRequest, _user=Depends(require_auth)):
+    """Place a USDⓈ-M Futures MARKET order. One-way mode, market orders only in v1."""
+    _enforce_futures_kill_switch()
     _enforce_live_kill_switch()
+
+    # Validate side
+    side_upper = order.side.upper()
+    if side_upper not in ("LONG", "SHORT", "BUY", "SELL"):
+        raise HTTPException(status_code=400, detail="Side must be LONG or SHORT")
+    # Map LONG/SHORT to Binance order side (one-way mode)
+    binance_side = "BUY" if side_upper in ("LONG", "BUY") else "SELL"
+
+    # Validate leverage
+    if order.leverage not in ALLOWED_FUTURES_LEVERAGE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Leverage must be one of: {sorted(ALLOWED_FUTURES_LEVERAGE)}"
+        )
+
     broker = _get_live_broker()
     _pre_order_safety_check(broker, order.symbol, order.quantity)
+
+    # Set leverage before placing order
+    lev_result = broker.futures_set_leverage(order.symbol, order.leverage)
+    if "error" in lev_result:
+        raise HTTPException(status_code=400, detail=f"Failed to set leverage: {lev_result['error']}")
+
     client_order_id = _generate_client_order_id()
     result = broker.futures_create_order(
         symbol=order.symbol,
-        side=order.side,
+        side=binance_side,
         quantity=order.quantity,
         client_order_id=client_order_id,
     )
+
     _log_live_order_audit(
-        source="api_futures", symbol=order.symbol, side=order.side,
+        source="futures_manual", symbol=order.symbol, side=binance_side,
         quantity=order.quantity, client_order_id=client_order_id,
         status="filled" if "error" not in result else "failed",
         broker_order_id=str(result.get("orderId", "")),
         error_message=result.get("error"),
+        response_summary={"leverage": order.leverage, "requested_side": side_upper},
     )
+
     if "error" in result:
         parsed = _parse_binance_error(result)
         raise HTTPException(status_code=400, detail=parsed)
-    return result
+
+    return sanitize_floats({
+        "order_id": str(result.get("orderId", "")),
+        "symbol": result.get("symbol"),
+        "side": binance_side,
+        "requested_side": side_upper,
+        "quantity": float(result.get("origQty", order.quantity)),
+        "leverage": order.leverage,
+        "status": result.get("status"),
+        "client_order_id": client_order_id,
+    })
+
+
+# Legacy routes — redirect to new endpoints
+@app.get("/api/live-trading/futures/portfolio")
+def get_futures_portfolio_legacy():
+    """Legacy — use GET /api/futures/balance instead."""
+    return get_futures_balance()
+
+@app.get("/api/live-trading/futures/positions")
+def get_futures_positions_legacy():
+    """Legacy — use GET /api/futures/positions instead."""
+    return get_futures_positions()
 
 
 # ── Auto Trading Endpoints ───────────────────────────────────────────

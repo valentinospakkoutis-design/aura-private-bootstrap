@@ -267,9 +267,17 @@ function AppContent() {
           }}
         />
 
+        <Stack.Screen
+          name="futures-trading"
+          options={{
+            title: '📉 Futures',
+            headerShown: true,
+          }}
+        />
+
         {/* Dev/Test Screens */}
-        <Stack.Screen 
-          name="dev-test" 
+        <Stack.Screen
+          name="dev-test"
           options={{ 
             title: '🧪 Dev Test',
             headerShown: true,

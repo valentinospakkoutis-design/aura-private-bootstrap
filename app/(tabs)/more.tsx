@@ -11,6 +11,7 @@ const MORE_ITEMS = [
   { icon: '🎙️', title: 'Voice Briefing', href: '/voice-briefing' },
   { icon: '📝', title: 'Paper Trading', href: '/paper-trading' },
   { icon: '💰', title: 'Live Trading', href: '/live-trading' },
+  { icon: '📉', title: 'Futures', href: '/futures-trading' },
   { icon: '⚙️', title: 'Settings', href: '/settings' },
 ];
 

@@ -522,19 +522,19 @@ class ApiClient {
   }
 
   // ── Futures ────────────────────────────────────────────────
-  async getFuturesPortfolio() {
-    const response = await this.client.get('/api/live-trading/futures/portfolio');
+  async getFuturesBalance() {
+    const response = await this.client.get('/api/futures/balance');
     return response.data;
   }
 
   async getFuturesPositions() {
-    const response = await this.client.get('/api/live-trading/futures/positions');
+    const response = await this.client.get('/api/futures/positions');
     return response.data;
   }
 
-  async placeFuturesOrder(symbol: string, side: 'BUY' | 'SELL', quantity: number) {
-    const response = await this.client.post('/api/live-trading/futures/order', {
-      symbol, side, quantity,
+  async placeFuturesOrder(symbol: string, side: 'LONG' | 'SHORT', quantity: number, leverage: number = 1) {
+    const response = await this.client.post('/api/futures/order', {
+      symbol, side, quantity, leverage,
     });
     return response.data;
   }

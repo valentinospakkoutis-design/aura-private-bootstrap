@@ -466,6 +466,13 @@ class BinanceAPI:
             payload["newClientOrderId"] = client_order_id
         return self._futures_signed_request("POST", "/fapi/v1/order", payload, timeout=20.0)
 
+    def futures_set_leverage(self, symbol: str, leverage: int) -> Dict:
+        """Set leverage for a futures symbol."""
+        return self._futures_signed_request("POST", "/fapi/v1/leverage", {
+            "symbol": symbol.upper(),
+            "leverage": leverage,
+        })
+
     def get_trade_history(self, symbol: Optional[str] = None) -> List[Dict]:
         """Get real trade history from Binance."""
         if not self.connected:
