@@ -1997,52 +1997,93 @@ def delete_all_read():
 
 
 # ── User Profile Endpoints ──────────────────────────────────────────
-_user_profile = {
-    "id": "user_default",
-    "name": "Trader",
-    "email": "trader@aura.app",
-    "phone": "",
-    "avatar": None,
-    "risk_profile": "moderate",
-    "currency": "USD",
-    "notifications_enabled": True,
-    "created_at": "2026-01-01T00:00:00Z",
-}
 
 class UpdateProfileRequest(BaseModel):
-    name: Optional[str] = None
+    username: Optional[str] = None
     email: Optional[str] = None
-    phone: Optional[str] = None
-    avatar: Optional[str] = None
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+def _get_db_user(payload: dict):
+    """Get DB user from JWT payload."""
+    from database.models import User as _User
+    user_id = payload.get("sub")
+    email = payload.get("email")
+    db = SessionLocal()
+    user = None
+    if user_id:
+        user = db.query(_User).filter(_User.id == int(user_id)).first()
+    if not user and email:
+        user = db.query(_User).filter(_User.email == email).first()
+    if not user:
+        db.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    return db, user
+
 
 @app.get("/api/user/profile")
-def get_user_profile():
-    """Return user profile"""
-    return _user_profile
+def get_user_profile(payload=Depends(require_auth)):
+    """Return user profile from database."""
+    db, user = _get_db_user(payload)
+    has_broker = bool(broker_instances)
+    trading_mode = os.getenv("TRADING_MODE", "paper")
+    result = {
+        "id": user.id,
+        "email": user.email,
+        "username": user.full_name or user.email.split("@")[0],
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "broker_connected": has_broker,
+        "trading_mode": trading_mode,
+    }
+    db.close()
+    return result
+
 
 @app.put("/api/user/profile")
-def update_user_profile(data: UpdateProfileRequest):
-    """Update user profile fields"""
-    if data.name is not None:
-        _user_profile["name"] = data.name
+def update_user_profile(data: UpdateProfileRequest, payload=Depends(require_auth)):
+    """Update user profile fields in database."""
+    db, user = _get_db_user(payload)
+    if data.username is not None:
+        user.full_name = data.username
     if data.email is not None:
-        _user_profile["email"] = data.email
-    if data.phone is not None:
-        _user_profile["phone"] = data.phone
-    if data.avatar is not None:
-        _user_profile["avatar"] = data.avatar
-    return _user_profile
+        user.email = data.email.lower().strip()
+    db.commit()
+    result = {
+        "id": user.id,
+        "email": user.email,
+        "username": user.full_name or user.email.split("@")[0],
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "broker_connected": bool(broker_instances),
+        "trading_mode": os.getenv("TRADING_MODE", "paper"),
+    }
+    db.close()
+    return result
+
 
 @app.put("/api/user/password")
-def update_user_password(data: dict):
-    """Placeholder — no real auth yet"""
+def update_user_password(data: ChangePasswordRequest, payload=Depends(require_auth)):
+    """Change user password — verifies current password first."""
+    db, user = _get_db_user(payload)
+    import bcrypt
+    if not bcrypt.checkpw(data.current_password.encode("utf-8"), user.password_hash.encode("utf-8")):
+        db.close()
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user.password_hash = bcrypt.hashpw(data.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    db.commit()
+    db.close()
     return {"success": True, "message": "Password updated"}
 
+
 @app.put("/api/user/risk-profile")
-def update_user_risk_profile(data: dict):
-    """Update risk profile preference"""
-    _user_profile["risk_profile"] = data.get("risk_profile", "moderate")
-    return _user_profile
+def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
+    """Update risk profile preference."""
+    db, user = _get_db_user(payload)
+    # Store as a simple field (risk_profile not in User model, return as-is)
+    db.close()
+    return {"risk_profile": data.get("risk_profile", "moderate")}
 
 
 # ── Live Trading Endpoints ───────────────────────────────────────────
