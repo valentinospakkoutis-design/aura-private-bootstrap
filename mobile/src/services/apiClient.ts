@@ -405,7 +405,7 @@ class ApiClient {
       const d = response.data || {};
       // Map backend fields to frontend PortfolioStats interface
       return {
-        totalValue: d.current_balance ?? d.totalValue ?? 0,
+        totalValue: Number(d.total_value ?? d.current_balance ?? d.totalValue ?? 0),
         totalProfit: d.total_pnl ?? d.totalProfit ?? 0,
         profitPercentage: d.total_pnl_percent ?? d.profitPercentage ?? 0,
         openTrades: d.active_positions ?? d.openTrades ?? 0,

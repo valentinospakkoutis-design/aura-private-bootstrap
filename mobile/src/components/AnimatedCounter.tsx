@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Text, TextStyle } from 'react-native';
 import Animated, {
   useSharedValue,
-  useAnimatedProps,
   withTiming,
   Easing,
+  runOnJS,
+  useAnimatedReaction,
 } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
 
@@ -17,8 +18,6 @@ interface AnimatedCounterProps {
   style?: TextStyle;
 }
 
-const AnimatedText = Animated.createAnimatedComponent(Text);
-
 export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   value,
   duration = 1000,
@@ -27,26 +26,28 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   suffix = '',
   style,
 }) => {
-  const animatedValue = useSharedValue(0);
+  const safeValue = typeof value === 'number' && isFinite(value) ? value : 0;
+  const animatedValue = useSharedValue(safeValue);
+  const [displayText, setDisplayText] = useState(`${prefix}${safeValue.toFixed(decimals)}${suffix}`);
 
   useEffect(() => {
-    const safeValue = value ?? 0;
     animatedValue.value = withTiming(safeValue, {
       duration,
       easing: Easing.out(Easing.cubic),
     });
-  }, [value, duration]);
+  }, [safeValue, duration]);
 
-  const animatedProps = useAnimatedProps(() => {
-    const displayValue = (animatedValue.value ?? 0).toFixed(decimals);
-    return {
-      text: `${prefix}${displayValue}${suffix}`,
-    } as any;
-  });
+  useAnimatedReaction(
+    () => animatedValue.value,
+    (current) => {
+      const formatted = `${prefix}${current.toFixed(decimals)}${suffix}`;
+      runOnJS(setDisplayText)(formatted);
+    },
+    [prefix, suffix, decimals]
+  );
 
   return (
-    <AnimatedText
-      animatedProps={animatedProps}
+    <Text
       style={[
         {
           fontSize: theme.typography.sizes['2xl'],
@@ -56,7 +57,8 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
         },
         style,
       ]}
-    />
+    >
+      {displayText}
+    </Text>
   );
 };
-

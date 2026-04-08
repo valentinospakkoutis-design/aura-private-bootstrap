@@ -213,6 +213,7 @@ class PaperTradingService:
         win_rate = (len(winning_trades) / len(closed_trades) * 100) if closed_trades else 0
 
         portfolio = self.get_portfolio()
+        total_value = portfolio.get("total_value", self.cash)
 
         return {
             "total_trades": total_trades,
@@ -222,7 +223,8 @@ class PaperTradingService:
             "open_trades": open_trades,
             "closed_trades": len(closed_trades),
             "win_rate": round(win_rate, 1),
-            "current_balance": portfolio["total_value"],
+            "total_value": total_value,
+            "current_balance": total_value,
             "total_pnl": portfolio["total_pnl"],
             "total_pnl_percent": portfolio["total_pnl_percent"],
             "timestamp": datetime.now().isoformat()
