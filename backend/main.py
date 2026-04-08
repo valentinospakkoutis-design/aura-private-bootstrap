@@ -2008,50 +2008,26 @@ class ChangePasswordRequest(BaseModel):
 
 
 def _get_db_user(payload: dict):
-    """Get DB user from JWT payload."""
+    """Get DB user from JWT payload. Returns (db_session, user). Caller must close db."""
     from database.models import User as _User
     user_id = payload.get("sub")
-    email = payload.get("email")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+    try:
+        uid = int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token: malformed user ID")
     db = SessionLocal()
-    user = None
-    if user_id:
-        user = db.query(_User).filter(_User.id == int(user_id)).first()
-    if not user and email:
-        user = db.query(_User).filter(_User.email == email).first()
+    user = db.query(_User).filter(_User.id == uid).first()
     if not user:
         db.close()
         raise HTTPException(status_code=404, detail="User not found")
     return db, user
 
 
-@app.get("/api/user/profile")
-def get_user_profile(payload=Depends(require_auth)):
-    """Return user profile from database."""
-    db, user = _get_db_user(payload)
-    has_broker = bool(broker_instances)
-    trading_mode = os.getenv("TRADING_MODE", "paper")
-    result = {
-        "id": user.id,
-        "email": user.email,
-        "username": user.full_name or user.email.split("@")[0],
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "broker_connected": has_broker,
-        "trading_mode": trading_mode,
-    }
-    db.close()
-    return result
-
-
-@app.put("/api/user/profile")
-def update_user_profile(data: UpdateProfileRequest, payload=Depends(require_auth)):
-    """Update user profile fields in database."""
-    db, user = _get_db_user(payload)
-    if data.username is not None:
-        user.full_name = data.username
-    if data.email is not None:
-        user.email = data.email.lower().strip()
-    db.commit()
-    result = {
+def _user_response(user) -> dict:
+    """Build consistent profile response dict."""
+    return {
         "id": user.id,
         "email": user.email,
         "username": user.full_name or user.email.split("@")[0],
@@ -2059,31 +2035,77 @@ def update_user_profile(data: UpdateProfileRequest, payload=Depends(require_auth
         "broker_connected": bool(broker_instances),
         "trading_mode": os.getenv("TRADING_MODE", "paper"),
     }
-    db.close()
-    return result
+
+
+@app.get("/api/user/profile")
+def get_user_profile(payload=Depends(require_auth)):
+    """Return user profile from database."""
+    db, user = _get_db_user(payload)
+    try:
+        return _user_response(user)
+    finally:
+        db.close()
+
+
+@app.put("/api/user/profile")
+def update_user_profile(data: UpdateProfileRequest, payload=Depends(require_auth)):
+    """Update user profile fields in database."""
+    db, user = _get_db_user(payload)
+    try:
+        if data.username is not None:
+            stripped = data.username.strip()
+            if not stripped:
+                raise HTTPException(status_code=400, detail="Username cannot be empty")
+            user.full_name = stripped
+        if data.email is not None:
+            from database.models import User as _User
+            clean_email = data.email.lower().strip()
+            if not clean_email or "@" not in clean_email:
+                raise HTTPException(status_code=400, detail="Invalid email address")
+            existing = db.query(_User).filter(_User.email == clean_email, _User.id != user.id).first()
+            if existing:
+                raise HTTPException(status_code=409, detail="Email already in use")
+            user.email = clean_email
+        db.commit()
+        return _user_response(user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update profile")
+    finally:
+        db.close()
 
 
 @app.put("/api/user/password")
 def update_user_password(data: ChangePasswordRequest, payload=Depends(require_auth)):
     """Change user password — verifies current password first."""
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
     db, user = _get_db_user(payload)
-    import bcrypt
-    if not bcrypt.checkpw(data.current_password.encode("utf-8"), user.password_hash.encode("utf-8")):
+    try:
+        import bcrypt
+        if not bcrypt.checkpw(data.current_password.encode("utf-8"), user.password_hash.encode("utf-8")):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        user.password_hash = bcrypt.hashpw(data.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        db.commit()
+        return {"success": True, "message": "Password updated"}
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update password")
+    finally:
         db.close()
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-    user.password_hash = bcrypt.hashpw(data.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    db.commit()
-    db.close()
-    return {"success": True, "message": "Password updated"}
 
 
 @app.put("/api/user/risk-profile")
 def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
-    """Update risk profile preference."""
-    db, user = _get_db_user(payload)
-    # Store as a simple field (risk_profile not in User model, return as-is)
-    db.close()
-    return {"risk_profile": data.get("risk_profile", "moderate")}
+    """Update risk profile preference (stored in-memory, not persisted to DB)."""
+    risk = data.get("risk_profile", "moderate")
+    if risk not in ("conservative", "moderate", "aggressive"):
+        raise HTTPException(status_code=400, detail="Invalid risk profile. Must be: conservative, moderate, or aggressive")
+    return {"risk_profile": risk}
 
 
 # ── Live Trading Endpoints ───────────────────────────────────────────
