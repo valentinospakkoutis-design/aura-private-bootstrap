@@ -48,7 +48,7 @@ export default function PaperTradingScreen() {
   // Order form state
   const [symbol, setSymbol] = useState('BTCUSDC');
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
-  const [quantity, setQuantity] = useState('');
+  const [quantity, setQuantity] = useState('0.001');
   const [submitting, setSubmitting] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -57,7 +57,7 @@ export default function PaperTradingScreen() {
       setError(null);
 
       const [tradesResult, statsResult] = await Promise.all([
-        api.getPaperTrades().catch(() => []),
+        api.getPaperTrades(false).catch(() => []),
         api.getPortfolioStats().catch(() => null),
       ]);
 
@@ -150,9 +150,9 @@ export default function PaperTradingScreen() {
     );
   }
 
-  // Trade form component (reused in empty and normal state)
-  const TradeForm = () => (
-    <AnimatedCard delay={0} animationType="slideUp">
+  // Trade form rendered inline (not as a component function to avoid remounts)
+  const tradeForm = (
+    <View style={styles.tradeFormCard}>
       <Text style={styles.statsTitle}>📝 Νέο Trade</Text>
 
       {/* Symbol */}
@@ -165,6 +165,8 @@ export default function PaperTradingScreen() {
           placeholder="BTCUSDC"
           placeholderTextColor={theme.colors.text.secondary}
           autoCapitalize="characters"
+          autoCorrect={false}
+          editable={true}
         />
       </View>
 
@@ -197,6 +199,9 @@ export default function PaperTradingScreen() {
           placeholder="0.001"
           placeholderTextColor={theme.colors.text.secondary}
           keyboardType="decimal-pad"
+          returnKeyType="done"
+          autoCorrect={false}
+          editable={true}
         />
       </View>
 
@@ -210,7 +215,7 @@ export default function PaperTradingScreen() {
         disabled={submitting || !quantity.trim()}
         loading={submitting}
       />
-    </AnimatedCard>
+    </View>
   );
 
   // Empty state — show form so user can start trading
@@ -218,7 +223,7 @@ export default function PaperTradingScreen() {
     return (
       <PageTransition type="fade">
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-          <TradeForm />
+          {tradeForm}
           <View style={{ height: theme.spacing.lg }} />
           <NoTrades />
         </ScrollView>
@@ -299,7 +304,7 @@ export default function PaperTradingScreen() {
       )}
 
       {/* Trade Form */}
-      <TradeForm />
+      {tradeForm}
 
       {/* Trades List - SWIPEABLE */}
       <Text style={styles.sectionTitle}>Πρόσφατα Trades ({trades.length})</Text>
@@ -586,6 +591,17 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.sm,
     fontWeight: '600',
     color: theme.colors.semantic.error,
+  },
+  tradeFormCard: {
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: theme.spacing.md,
   },
   bottomPadding: {
     height: theme.spacing.xl,
