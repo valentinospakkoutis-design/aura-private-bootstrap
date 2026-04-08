@@ -7,13 +7,10 @@ import { api } from '../mobile/src/services/apiClient';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
 import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
-import { AnimatedButton } from '../mobile/src/components/AnimatedButton';
 import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
 import { Button } from '../mobile/src/components/Button';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
-import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoTrades } from '../mobile/src/components/NoTrades';
-import { NoData } from '../mobile/src/components/NoData';
 import { theme } from '../mobile/src/constants/theme';
 import { NumberFormatter } from '../mobile/src/utils/NumberFormatter';
 import { DateFormatter } from '../mobile/src/utils/DateFormatter';
@@ -50,28 +47,14 @@ export default function LiveTradingScreen() {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-
-  const {
-    loading: loadingTrades,
-    error: tradesError,
-    execute: fetchTrades,
-  } = useApi(() => api.getTrades(50), { showLoading: false, showToast: false });
-
-  const {
-    loading: loadingStats,
-    execute: fetchStats,
-  } = useApi(() => api.getPortfolioStats(), { showLoading: false, showToast: false });
-
-  const {
-    loading: loadingBrokers,
-    execute: fetchBrokers,
-  } = useApi(() => api.getBrokers(), { showLoading: false, showToast: false });
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [tradingMode, setTradingMode] = useState<string>('paper');
+  const [brokerConnected, setBrokerConnected] = useState(false);
 
   const {
     loading: closingTrade,
     execute: closeTrade,
   } = useApi((tradeId: string) => {
-    // Placeholder - implement actual API call
     return Promise.resolve({ success: true });
   }, { showLoading: false, showToast: false });
 
@@ -81,11 +64,18 @@ export default function LiveTradingScreen() {
 
   const loadData = async () => {
     try {
-      const [tradesData, statsData, brokersData] = await Promise.all([
-        fetchTrades().catch(() => []),
-        fetchStats().catch(() => null),
-        fetchBrokers().catch(() => null),
+      const [tradesData, statsData, brokersData, modeData] = await Promise.all([
+        api.getLiveTrades(false).catch(() => []),
+        api.getPortfolioStats().catch(() => null),
+        api.getBrokers(false).catch(() => null),
+        api.getAutoTradingStatus().catch(() => null),
       ]);
+
+      // Also get trading mode directly
+      try {
+        const modeResp = await api.getLiveStats();
+        // getLiveStats calls /api/trading/portfolio which returns mode info
+      } catch {}
 
       if (Array.isArray(tradesData)) {
         setTrades(tradesData);
@@ -93,6 +83,8 @@ export default function LiveTradingScreen() {
       if (statsData && typeof statsData === 'object') {
         setStats(statsData as LiveStats);
       }
+
+      // Check broker connection
       if (brokersData) {
         const brokerList = brokersData?.brokers ?? (Array.isArray(brokersData) ? brokersData : []);
         const mapped = brokerList.map((b: any) => ({
@@ -101,9 +93,12 @@ export default function LiveTradingScreen() {
           connected: b.connected ?? false,
         }));
         setBrokers(mapped);
+        setBrokerConnected(mapped.some((b: any) => b.connected));
       }
     } catch (err) {
       console.error('Failed to load live trading data:', err);
+    } finally {
+      setInitialLoading(false);
     }
   };
 
@@ -145,59 +140,38 @@ export default function LiveTradingScreen() {
     );
   }, [router]);
 
-  // Check if user has connected brokers
-  const hasConnectedBrokers = brokers && brokers.some((b) => b.connected);
-
-  if (!hasConnectedBrokers && !loadingBrokers) {
+  // Loading state — wait for initial data load
+  if (initialLoading) {
     return (
-      <PageTransition type="fade">
-        <View style={styles.container}>
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🔌</Text>
-            <Text style={styles.emptyTitle}>Δεν Έχεις Συνδεδεμένο Broker</Text>
-            <Text style={styles.emptyDescription}>
-              Για να κάνεις live trading, πρέπει πρώτα να συνδέσεις ένα broker.
-            </Text>
-            <AnimatedButton
-              title="Σύνδεση Broker"
-              onPress={() => router.push({ pathname: '/brokers' } as any)}
-              variant="primary"
-              size="large"
-              fullWidth
-            />
-          </View>
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </View>
-      </PageTransition>
+      </View>
     );
   }
 
-  if ((loadingTrades || loadingStats || loadingBrokers) && !refreshing && !trades.length) {
+  // No broker connected — show connection prompt
+  if (!brokerConnected) {
     return (
-      <PageTransition type="fade">
-        <View style={styles.container}>
-          <View style={styles.content}>
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </View>
+      <View style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyIcon}>🔌</Text>
+          <Text style={styles.emptyTitle}>Δεν Έχεις Συνδεδεμένο Broker</Text>
+          <Text style={styles.emptyDescription}>
+            Για να κάνεις live trading, πρέπει πρώτα να συνδέσεις ένα broker.
+          </Text>
+          <Button
+            title="Σύνδεση Broker"
+            onPress={() => router.push({ pathname: '/brokers' } as any)}
+            variant="primary"
+            size="large"
+            fullWidth
+          />
         </View>
-      </PageTransition>
-    );
-  }
-
-  if (tradesError && !trades.length) {
-    return (
-      <PageTransition type="fade">
-        <NoData onRetry={loadData} />
-      </PageTransition>
-    );
-  }
-
-  if (!trades || trades.length === 0) {
-    return (
-      <PageTransition type="fade">
-        <NoTrades />
-      </PageTransition>
+      </View>
     );
   }
 
@@ -206,9 +180,8 @@ export default function LiveTradingScreen() {
     : theme.colors.market.bearish;
 
   return (
-    <PageTransition type="slideUp">
-      <ScrollView 
-        style={styles.container} 
+      <ScrollView
+        style={styles.container}
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
@@ -406,7 +379,6 @@ export default function LiveTradingScreen() {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
-    </PageTransition>
   );
 }
 
