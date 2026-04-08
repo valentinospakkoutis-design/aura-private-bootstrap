@@ -2087,6 +2087,8 @@ def update_user_password(data: ChangePasswordRequest, payload=Depends(require_au
         import bcrypt
         if not bcrypt.checkpw(data.current_password.encode("utf-8"), user.password_hash.encode("utf-8")):
             raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if bcrypt.checkpw(data.new_password.encode("utf-8"), user.password_hash.encode("utf-8")):
+            raise HTTPException(status_code=400, detail="New password must be different from current password")
         user.password_hash = bcrypt.hashpw(data.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
         db.commit()
         return {"success": True, "message": "Password updated"}
