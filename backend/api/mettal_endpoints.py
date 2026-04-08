@@ -67,8 +67,8 @@ async def register(user_create: UserCreate):
         existing = db.query(DBUser).filter(DBUser.email == email_lower).first()
         if existing:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error": "USER_EXISTS", "message": "User already exists"}
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User already exists"
             )
 
         password_hash = security_manager.hash_password(user_create.password)
@@ -175,7 +175,7 @@ async def refresh_token_endpoint(refresh_request: RefreshTokenRequest):
     except AuthenticationError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"error": "INVALID_REFRESH_TOKEN", "message": str(e)}
+            detail="Invalid or expired refresh token"
         )
 
 @router.get("/auth/me", response_model=dict)
@@ -191,7 +191,6 @@ async def get_current_user_info(request: Request):
         raise AuthenticationError("Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
-    print(f"[/auth/me] Token validation for: {token[:20]}...")
 
     try:
         user_info = get_user_from_token(token)
@@ -203,7 +202,7 @@ async def get_current_user_info(request: Request):
     except AuthenticationError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"error": "INVALID_TOKEN", "message": str(e)}
+            detail="Invalid or expired token"
         )
 
 @router.post("/auth/logout")
