@@ -88,6 +88,7 @@ async def register(user_create: UserCreate):
             "sub": str(new_user.id),
             "email": email_lower,
             "full_name": user_create.full_name or "",
+            "token_version": new_user.token_version,
         }
 
         access_token = create_access_token(token_data)
@@ -102,7 +103,7 @@ async def register(user_create: UserCreate):
         db.close()
 
 @router.post("/auth/login", response_model=Token)
-async def login(user_login: UserLogin):
+async def login(user_login: UserLogin, request: Request):
     """
     Login with email and password (JWT-based, PostgreSQL)
 
@@ -110,30 +111,41 @@ async def login(user_login: UserLogin):
     """
     from database.connection import SessionLocal
     from database.models import User as DBUser
+    from services.auth_audit import log_auth_event
 
     if not SessionLocal:
         raise HTTPException(status_code=503, detail="Database not available")
 
     email_lower = user_login.email.lower().strip()
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+    user_agent = request.headers.get("User-Agent", "")
 
     db = SessionLocal()
     try:
         db_user = db.query(DBUser).filter(DBUser.email == email_lower).first()
 
         if not db_user or not db_user.password_hash:
+            log_auth_event("LOGIN", "FAILED", email=email_lower, ip_address=client_ip,
+                           user_agent=user_agent, metadata={"reason": "user_not_found"})
             raise AuthenticationError("Invalid email or password")
 
         if not security_manager.verify_password(user_login.password, db_user.password_hash):
+            log_auth_event("LOGIN", "FAILED", user_id=db_user.id, email=email_lower,
+                           ip_address=client_ip, user_agent=user_agent, metadata={"reason": "wrong_password"})
             raise AuthenticationError("Invalid email or password")
 
         token_data = {
             "sub": str(db_user.id),
             "email": email_lower,
             "full_name": db_user.full_name or "",
+            "token_version": db_user.token_version,
         }
 
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
+
+        log_auth_event("LOGIN", "SUCCESS", user_id=db_user.id, email=email_lower,
+                       ip_address=client_ip, user_agent=user_agent)
 
         return Token(
             access_token=access_token,

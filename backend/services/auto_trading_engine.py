@@ -192,20 +192,43 @@ class AutoTradingEngine:
             self._log_event("BLOCKED", f"{symbol}: order value ${order_value:.2f} exceeds limit ${self.config['max_order_value_usd']:.0f}")
             return None
 
+        # ── Kill switch check ────────────────────────────────────
+        import os
+        if os.getenv("ALLOW_LIVE_TRADING", "false").lower() not in ("true", "1", "yes"):
+            self._log_event("BLOCKED", f"{symbol}: ALLOW_LIVE_TRADING is disabled")
+            return None
+
         # ── Place order ──────────────────────────────────────────
         try:
+            import uuid
+            client_order_id = f"AURA_AUTO_{uuid.uuid4().hex[:16]}"
+
             self._log_event("ORDER_ATTEMPT",
                 f"{side} {quantity} {symbol} @ ~${price:.2f} "
-                f"(confidence {confidence:.0%}, Smart Score {smart_score:.1f})")
+                f"(confidence {confidence:.0%}, Smart Score {smart_score:.1f}, coid={client_order_id})")
             logger.info(f"[auto-trader] Placing {side} {symbol} qty={quantity} "
-                f"confidence={confidence:.0%} smart_score={smart_score:.1f}")
+                f"confidence={confidence:.0%} smart_score={smart_score:.1f} coid={client_order_id}")
 
             result = self.broker.place_live_order(
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
                 order_type="MARKET",
+                client_order_id=client_order_id,
             )
+
+            # Persistent audit log
+            try:
+                from main import _log_live_order_audit
+                _log_live_order_audit(
+                    source="auto_trader", symbol=symbol, side=side,
+                    quantity=quantity, price=price, client_order_id=client_order_id,
+                    status="filled" if "error" not in result else "failed",
+                    broker_order_id=result.get("order_id"),
+                    error_message=result.get("error"),
+                )
+            except Exception:
+                pass  # Audit failure must not block trading
 
             if "error" in result:
                 self._log_event("ORDER_FAILED", f"{symbol}: {result['error']}", result)

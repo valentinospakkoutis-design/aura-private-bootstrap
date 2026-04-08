@@ -98,9 +98,54 @@ def init_db():
             conn.execute(text(
                 "ALTER TABLE rl_models ADD COLUMN IF NOT EXISTS metadata JSONB"
             ))
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS auth_audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    event_type TEXT NOT NULL,
+                    event_status TEXT NOT NULL,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    metadata JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_2fa_settings (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    secret_encrypted TEXT NOT NULL,
+                    is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    recovery_codes_json JSONB,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS live_order_audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    source TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    quantity NUMERIC NOT NULL,
+                    price NUMERIC,
+                    trading_mode TEXT NOT NULL,
+                    client_order_id TEXT,
+                    broker TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    broker_order_id TEXT,
+                    response_summary JSONB,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             conn.commit()
         except Exception as e:
-            print(f"[!] Could not add rl_models columns (may already exist): {e}")
+            print(f"[!] Could not add columns (may already exist): {e}")
     print("[+] Database tables created")
 
 
