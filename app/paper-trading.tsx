@@ -166,12 +166,16 @@ export default function PaperTradingScreen() {
         <TextInput
           style={styles.formInput}
           value={symbol}
-          onChangeText={setSymbol}
+          onChangeText={(text) => setSymbol(text)}
           placeholder="BTCUSDC"
-          placeholderTextColor={theme.colors.text.secondary}
+          placeholderTextColor="#999"
+          keyboardType="default"
+          returnKeyType="done"
           autoCapitalize="characters"
           autoCorrect={false}
+          autoComplete="off"
           editable={true}
+          blurOnSubmit={false}
         />
       </View>
 
@@ -200,13 +204,16 @@ export default function PaperTradingScreen() {
         <TextInput
           style={styles.formInput}
           value={quantity}
-          onChangeText={(v) => setQuantity(v.replace(',', '.'))}
+          onChangeText={(text) => setQuantity(text)}
           placeholder="0.001"
-          placeholderTextColor={theme.colors.text.secondary}
+          placeholderTextColor="#999"
           keyboardType="decimal-pad"
           returnKeyType="done"
           autoCorrect={false}
+          autoCapitalize="none"
+          autoComplete="off"
           editable={true}
+          blurOnSubmit={false}
         />
       </View>
 
