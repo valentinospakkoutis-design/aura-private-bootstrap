@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 import json
+import math
 import os
 import secrets
 import asyncio
@@ -35,6 +36,18 @@ from cache.connection import get_redis, check_redis_connection
 from utils.error_handler import handle_error, AuraError, get_error_message
 from utils.rate_limiter import rate_limit_middleware, get_client_identifier
 from utils.security import security_manager
+
+def sanitize_floats(obj):
+    """Replace NaN/Infinity with None to prevent JSON serialization errors."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_floats(i) for i in obj]
+    return obj
 
 app = FastAPI(
     title="AURA Backend API",
@@ -1072,7 +1085,7 @@ def reset_paper_trading():
 @app.get("/api/ai/predict/{symbol}")
 def get_prediction(symbol: str, days: int = 7):
     """Επιστρέφει AI prediction για οποιοδήποτε asset (metals, stocks, crypto, derivatives)"""
-    return asset_predictor.predict_price(symbol.upper(), days)
+    return sanitize_floats(asset_predictor.predict_price(symbol.upper(), days))
 
 @app.get("/api/ai/predictions")
 def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
@@ -1197,7 +1210,7 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
     except Exception as e:
         print(f"[!] Sentiment shadow mode failed (non-fatal): {e}")
 
-    return result
+    return sanitize_floats(result)
 
 @app.get("/api/v1/market/movers")
 def get_market_movers():
@@ -1287,7 +1300,7 @@ def get_extended_predictions(days: int = 7):
             except Exception as e:
                 print(f"[!] Extended prediction failed for {symbol}: {e}")
 
-    return {"predictions": results, "count": len(results)}
+    return sanitize_floats({"predictions": results, "count": len(results)})
 
 
 @app.get("/api/ai/predictions/{prediction_id}")
@@ -1362,13 +1375,13 @@ def get_prediction_by_id(prediction_id: str):
         "modelVersion": p.get("model_version", "v1.0"),
     }
     print(f"[DEBUG] Prediction detail response: asset={result['asset']}, price={result['price']}, targetPrice={result['targetPrice']}")
-    return result
+    return sanitize_floats(result)
 
 
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
     """Επιστρέφει trading signal για οποιοδήποτε asset"""
-    return asset_predictor.get_trading_signal(symbol.upper())
+    return sanitize_floats(asset_predictor.get_trading_signal(symbol.upper()))
 
 @app.get("/api/ai/signals")
 def get_all_signals(asset_type: Optional[str] = None):
@@ -1406,12 +1419,12 @@ def get_asset_info(symbol: str):
 @app.get("/api/ai/predict/metals/{symbol}")
 def get_metal_prediction(symbol: str, days: int = 7):
     """Legacy endpoint - Επιστρέφει AI prediction για ένα metal"""
-    return precious_metals_predictor.predict_price(symbol.upper(), days)
+    return sanitize_floats(precious_metals_predictor.predict_price(symbol.upper(), days))
 
 @app.get("/api/ai/predictions/metals")
 def get_metals_predictions(days: int = 7):
     """Legacy endpoint - Επιστρέφει predictions για όλα τα precious metals"""
-    return precious_metals_predictor.get_all_predictions(days)
+    return sanitize_floats(precious_metals_predictor.get_all_predictions(days))
 
 @app.get("/api/ai/status")
 def get_ai_status():
@@ -2721,14 +2734,14 @@ def get_rl_batch_predictions():
                 }
 
         db.close()
-        return {
+        return sanitize_floats({
             "predictions": predictions,
             "trained_symbols": trained_symbols,
             "pending_symbols": [s for s in all_symbols if s not in trained_symbols],
             "trained_count": len(trained_symbols),
             "total_count": len(all_symbols),
             "is_training": False,
-        }
+        })
     except Exception as e:
         return {"predictions": {}, "trained_symbols": [], "pending_symbols": [],
                 "trained_count": 0, "total_count": 34, "is_training": False, "error": str(e)}
@@ -2744,7 +2757,7 @@ def get_sentiment_for_symbol(symbol: str):
         return {"enabled": False, "message": "Sentiment data layer not active"}
 
     from services.sentiment_scheduler import get_cached_sentiment
-    return get_cached_sentiment(symbol.upper())
+    return sanitize_floats(get_cached_sentiment(symbol.upper()))
 
 
 @app.get("/api/v1/sentiment")
