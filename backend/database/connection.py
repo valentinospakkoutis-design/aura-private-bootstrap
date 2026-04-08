@@ -113,6 +113,17 @@ def init_db():
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_2fa_settings (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    secret_encrypted TEXT NOT NULL,
+                    is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    recovery_codes_json JSONB,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             conn.commit()
         except Exception as e:
             print(f"[!] Could not add columns (may already exist): {e}")
