@@ -123,6 +123,27 @@ def api_ping():
     return {"ok": True}
 
 
+@app.get("/api/debug/binance-key")
+def debug_binance_key(_user=Depends(require_auth)):
+    """TEMPORARY debug endpoint — shows key metadata, not actual keys."""
+    if not broker_instances:
+        _restore_broker_connections()
+    if not broker_instances:
+        return {"error": "No broker connected"}
+    broker = next(iter(broker_instances.values()))
+    key = broker.api_key or ""
+    secret = broker.api_secret or ""
+    return {
+        "key_prefix": key[:8] if key else "NONE",
+        "secret_prefix": secret[:8] if secret else "NONE",
+        "key_length": len(key),
+        "secret_length": len(secret),
+        "testnet": broker.testnet,
+        "connected": broker.connected,
+        "base_url": broker.base_url,
+    }
+
+
 def _restore_broker_connections():
     """Restore broker connections from database on startup."""
     try:
@@ -2181,17 +2202,16 @@ def _log_live_order_audit(
         db.execute(_text("""
             INSERT INTO live_order_audit_logs
             (user_id, source, symbol, side, quantity, price, trading_mode,
-             client_order_id, broker, status, broker_order_id, response_summary,
+             client_order_id, broker, status, broker_order_id,
              error_message, created_at)
             VALUES (:uid, :src, :sym, :side, :qty, :price, :mode,
-                    :coid, :broker, :status, :boid, :resp::jsonb,
+                    :coid, :broker, :status, :boid,
                     :err, NOW())
         """), {
             "uid": user_id, "src": source, "sym": symbol, "side": side,
             "qty": quantity, "price": price, "mode": trading_mode,
             "coid": client_order_id, "broker": broker, "status": status,
             "boid": broker_order_id,
-            "resp": json.dumps(response_summary) if response_summary else None,
             "err": error_message,
         })
         db.commit()
