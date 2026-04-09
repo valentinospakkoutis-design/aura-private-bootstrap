@@ -277,6 +277,28 @@ class RLPrediction(Base):
     predicted_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserProfile(Base):
+    """
+    Per-user personalization — risk, objectives, mode, overrides.
+    Mutable state (one active profile per user).
+    """
+    __tablename__ = "user_profiles"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, unique=True, nullable=False, index=True)
+    risk_profile = Column(String(20), nullable=False, default="moderate")  # conservative/moderate/aggressive
+    investment_objective = Column(String(30), default="balanced_growth")  # capital_preservation/balanced_growth/aggressive_growth
+    preferred_mode = Column(String(20), default="manual_assist")  # manual_assist/guided/autopilot
+    confidence_threshold_override = Column(Float, nullable=True)
+    max_portfolio_exposure_override = Column(Float, nullable=True)
+    max_position_size_override = Column(Float, nullable=True)
+    behavior_flags_json = Column(JSON, default={})
+    notes_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ═══════════════════════════════════════════════════════════════
 #  NEXT-GEN SCHEMA — Trust, Explainability, Intelligence
 # ═══════════════════════════════════════════════════════════════

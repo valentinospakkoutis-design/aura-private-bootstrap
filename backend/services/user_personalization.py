@@ -36,34 +36,35 @@ PROFILE_PARAMS = {
 }
 
 VALID_PROFILES = set(PROFILE_PARAMS.keys())
-VALID_OBJECTIVES = {"growth", "income", "preservation", "speculation"}
+VALID_OBJECTIVES = {"capital_preservation", "balanced_growth", "aggressive_growth",
+                     "growth", "income", "preservation", "speculation"}
+VALID_MODES = {"manual_assist", "guided", "autopilot"}
 
 
 def get_user_profile(user_id: int) -> Dict:
     """Load user profile from DB. Returns defaults if not set."""
     try:
         from database.connection import SessionLocal
-        from sqlalchemy import text
+        from database.models import UserProfile
         db = SessionLocal()
-        row = db.execute(
-            text("SELECT risk_profile, objective, confidence_threshold_override, "
-                 "max_position_override, behavior_flags FROM user_profiles WHERE user_id = :uid"),
-            {"uid": user_id},
-        ).fetchone()
+        row = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
         db.close()
 
         if row:
-            profile_name = row[0] if row[0] in VALID_PROFILES else "moderate"
+            profile_name = row.risk_profile if row.risk_profile in VALID_PROFILES else "moderate"
             params = dict(PROFILE_PARAMS[profile_name])
             params["risk_profile"] = profile_name
-            params["objective"] = row[1] or "growth"
+            params["objective"] = row.investment_objective or "balanced_growth"
+            params["preferred_mode"] = row.preferred_mode or "manual_assist"
             params["user_id"] = user_id
-            # Apply per-user overrides if set
-            if row[2] is not None:
-                params["confidence_threshold"] = float(row[2])
-            if row[3] is not None:
-                params["max_positions"] = int(row[3])
-            params["behavior_flags"] = row[4] or {}
+            if row.confidence_threshold_override is not None:
+                params["confidence_threshold"] = float(row.confidence_threshold_override)
+            if row.max_position_size_override is not None:
+                params["max_positions"] = int(row.max_position_size_override)
+            if row.max_portfolio_exposure_override is not None:
+                params["max_portfolio_exposure"] = float(row.max_portfolio_exposure_override)
+            params["behavior_flags"] = row.behavior_flags_json or {}
+            params["notes"] = row.notes_json or {}
             return params
     except Exception as e:
         logger.warning(f"[personalization] Failed to load profile for user {user_id}: {e}")
@@ -80,50 +81,50 @@ def get_user_profile(user_id: int) -> Dict:
 def save_user_profile(
     user_id: int,
     risk_profile: str,
-    objective: str = "growth",
+    objective: str = "balanced_growth",
+    preferred_mode: str = "manual_assist",
     confidence_threshold_override: Optional[float] = None,
     max_position_override: Optional[int] = None,
+    max_portfolio_exposure_override: Optional[float] = None,
     behavior_flags: Optional[dict] = None,
+    notes: Optional[dict] = None,
 ) -> Dict:
-    """Save or update user profile in DB."""
+    """Save or update user profile in DB using ORM."""
     if risk_profile not in VALID_PROFILES:
         return {"error": f"Invalid risk_profile. Must be one of: {sorted(VALID_PROFILES)}"}
     if objective not in VALID_OBJECTIVES:
         return {"error": f"Invalid objective. Must be one of: {sorted(VALID_OBJECTIVES)}"}
+    if preferred_mode not in VALID_MODES:
+        return {"error": f"Invalid preferred_mode. Must be one of: {sorted(VALID_MODES)}"}
 
     try:
         from database.connection import SessionLocal
-        from sqlalchemy import text
-        import json
+        from database.models import UserProfile
 
         db = SessionLocal()
-        existing = db.execute(
-            text("SELECT id FROM user_profiles WHERE user_id = :uid"), {"uid": user_id}
-        ).fetchone()
-
-        flags_json = json.dumps(behavior_flags or {})
+        existing = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
 
         if existing:
-            db.execute(text(
-                "UPDATE user_profiles SET risk_profile = :rp, objective = :obj, "
-                "confidence_threshold_override = :cto, max_position_override = :mpo, "
-                "behavior_flags = :flags::jsonb, updated_at = NOW() "
-                "WHERE user_id = :uid"
-            ), {
-                "rp": risk_profile, "obj": objective,
-                "cto": confidence_threshold_override, "mpo": max_position_override,
-                "flags": flags_json, "uid": user_id,
-            })
+            existing.risk_profile = risk_profile
+            existing.investment_objective = objective
+            existing.preferred_mode = preferred_mode
+            existing.confidence_threshold_override = confidence_threshold_override
+            existing.max_position_size_override = max_position_override
+            existing.max_portfolio_exposure_override = max_portfolio_exposure_override
+            existing.behavior_flags_json = behavior_flags or {}
+            existing.notes_json = notes or {}
         else:
-            db.execute(text(
-                "INSERT INTO user_profiles (user_id, risk_profile, objective, "
-                "confidence_threshold_override, max_position_override, behavior_flags) "
-                "VALUES (:uid, :rp, :obj, :cto, :mpo, :flags::jsonb)"
-            ), {
-                "uid": user_id, "rp": risk_profile, "obj": objective,
-                "cto": confidence_threshold_override, "mpo": max_position_override,
-                "flags": flags_json,
-            })
+            db.add(UserProfile(
+                user_id=user_id,
+                risk_profile=risk_profile,
+                investment_objective=objective,
+                preferred_mode=preferred_mode,
+                confidence_threshold_override=confidence_threshold_override,
+                max_position_size_override=max_position_override,
+                max_portfolio_exposure_override=max_portfolio_exposure_override,
+                behavior_flags_json=behavior_flags or {},
+                notes_json=notes or {},
+            ))
         db.commit()
         db.close()
 

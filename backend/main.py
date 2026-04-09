@@ -2641,16 +2641,19 @@ def logout_all_devices(payload=Depends(require_auth)):
 
 @app.put("/api/user/risk-profile")
 def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
-    """Update user risk profile — persisted to user_profiles table."""
+    """Update user profile — risk, objective, mode, overrides."""
     from services.user_personalization import save_user_profile
     user_id = int(payload.get("sub", 0))
     result = save_user_profile(
         user_id=user_id,
         risk_profile=data.get("risk_profile", "moderate"),
-        objective=data.get("objective", "growth"),
+        objective=data.get("objective", "balanced_growth"),
+        preferred_mode=data.get("preferred_mode", "manual_assist"),
         confidence_threshold_override=data.get("confidence_threshold"),
         max_position_override=data.get("max_positions"),
+        max_portfolio_exposure_override=data.get("max_portfolio_exposure"),
         behavior_flags=data.get("behavior_flags"),
+        notes=data.get("notes"),
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])

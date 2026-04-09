@@ -101,6 +101,22 @@ def init_db():
             conn.execute(text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"
             ))
+            # Extend user_profiles with new personalization columns
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS investment_objective TEXT DEFAULT 'balanced_growth'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS preferred_mode TEXT DEFAULT 'manual_assist'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS max_portfolio_exposure_override NUMERIC"
+            ))
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS max_position_size_override NUMERIC"
+            ))
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS notes_json JSONB DEFAULT '{}'"
+            ))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS auth_audit_logs (
                     id SERIAL PRIMARY KEY,
