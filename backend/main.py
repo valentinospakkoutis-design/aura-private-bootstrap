@@ -2397,6 +2397,52 @@ def get_live_trading_history(limit: int = 50):
         return {"trades": [], "total": 0, "error": str(e)}
 
 
+class ClosePositionRequest(BaseModel):
+    symbol: str
+    quantity: float
+
+
+@app.post("/api/live-trading/close")
+def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth)):
+    """Close a position by selling the specified quantity at market price."""
+    _enforce_live_kill_switch()
+    broker = _get_live_broker()
+
+    if data.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be positive")
+
+    client_order_id = _generate_client_order_id()
+    result = broker.place_live_order(
+        symbol=data.symbol.upper(),
+        side="SELL",
+        quantity=data.quantity,
+        order_type="MARKET",
+        client_order_id=client_order_id,
+    )
+
+    _log_live_order_audit(
+        source="close_position", symbol=data.symbol.upper(), side="SELL",
+        quantity=data.quantity, client_order_id=client_order_id,
+        status="filled" if "error" not in result else "failed",
+        broker_order_id=result.get("order_id"),
+        price=result.get("price"),
+        error_message=result.get("error"),
+    )
+
+    if "error" in result:
+        parsed = _parse_binance_error(result)
+        raise HTTPException(status_code=400, detail=parsed)
+
+    return sanitize_floats({
+        "success": True,
+        "symbol": data.symbol.upper(),
+        "quantity": data.quantity,
+        "price": result.get("price"),
+        "order_id": result.get("order_id"),
+        "client_order_id": client_order_id,
+    })
+
+
 @app.get("/api/live-trading/portfolio")
 def get_live_portfolio():
     """Returns real Binance account balance."""

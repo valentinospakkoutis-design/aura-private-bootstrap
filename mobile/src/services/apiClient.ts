@@ -505,6 +505,11 @@ class ApiClient {
     return response.data;
   }
 
+  async closeLivePosition(symbol: string, quantity: number) {
+    const response = await this.client.post('/api/live-trading/close', { symbol, quantity });
+    return response.data;
+  }
+
   async getLivePositions() {
     const response = await this.client.get('/api/live-trading/positions');
     return response.data;

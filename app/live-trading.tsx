@@ -142,6 +142,31 @@ export default function LiveTradingScreen() {
     }
   }, [symbol, side, quantity, showToast, loadData]);
 
+  const handleClosePosition = useCallback((assetSymbol: string, amount: number, valueUsdc: number) => {
+    const tradingSymbol = `${assetSymbol}USDC`;
+    Alert.alert(
+      `Κλείσιμο θέσης ${assetSymbol}`,
+      `Θα πουλήσεις ${amount < 1 ? amount.toFixed(6) : amount.toFixed(4)} ${assetSymbol} (~$${valueUsdc.toFixed(2)}) στην τρέχουσα τιμή.`,
+      [
+        { text: 'Ακύρωση', style: 'cancel' },
+        {
+          text: 'Πούλα',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.closeLivePosition(tradingSymbol, amount);
+              showToast(`Sold ${amount} ${assetSymbol}`, 'success');
+              await loadData();
+            } catch (err: any) {
+              const msg = err?.response?.data?.detail || err?.message || 'Close failed';
+              showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), 'error');
+            }
+          },
+        },
+      ]
+    );
+  }, [showToast, loadData]);
+
   const handleCloseTrade = useCallback((tradeId: string) => {
     showModal(
       '⚠️ Κλείσιμο Live Trade',
@@ -301,20 +326,58 @@ export default function LiveTradingScreen() {
         )}
 
         {/* Live Positions */}
-        {livePortfolio && livePortfolio.positions && livePortfolio.positions.length > 0 && (
-          <View style={styles.orderCard}>
-            <Text style={styles.statsTitle}>💼 Assets ({livePortfolio.positions.length})</Text>
-            {livePortfolio.positions.map((pos: any, i: number) => (
-              <View key={pos.symbol || i} style={styles.positionRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.positionSymbol}>{pos.symbol}</Text>
-                  <Text style={styles.positionAmount}>{pos.amount < 1 ? pos.amount.toFixed(6) : pos.amount.toFixed(4)}</Text>
-                </View>
-                <Text style={styles.positionValue}>${pos.value_usdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-              </View>
-            ))}
-          </View>
-        )}
+        {livePortfolio && livePortfolio.positions && livePortfolio.positions.length > 0 && (() => {
+          // Compute avg buy price per asset from trade history
+          const avgPrices: Record<string, number> = {};
+          for (const t of liveHistory) {
+            if (t.side === 'BUY' && t.price > 0) {
+              const base = t.symbol?.replace('USDC', '').replace('USDT', '') || '';
+              if (!avgPrices[base] || t.price > 0) avgPrices[base] = t.price;
+            }
+          }
+
+          return (
+            <View style={styles.orderCard}>
+              <Text style={styles.statsTitle}>💼 Assets ({livePortfolio.positions.length})</Text>
+              {livePortfolio.positions.map((pos: any, i: number) => {
+                const isStable = ['USDC', 'USDT', 'BUSD', 'USD'].includes(pos.symbol);
+                const avgBuy = avgPrices[pos.symbol] || 0;
+                const currentPricePerUnit = pos.amount > 0 ? pos.value_usdc / pos.amount : 0;
+                const pnl = avgBuy > 0 ? (currentPricePerUnit - avgBuy) * pos.amount : 0;
+                const pnlColor = pnl >= 0 ? theme.colors.market.bullish : theme.colors.market.bearish;
+
+                return (
+                  <View key={pos.symbol || i} style={styles.positionRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.positionSymbol}>{pos.symbol}</Text>
+                      <Text style={styles.positionAmount}>
+                        {pos.amount < 1 ? pos.amount.toFixed(6) : pos.amount.toFixed(4)}
+                      </Text>
+                      {!isStable && avgBuy > 0 && (
+                        <Text style={[styles.positionAmount, { color: pnlColor }]}>
+                          P/L: {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'flex-end' as const, gap: 4 }}>
+                      <Text style={styles.positionValue}>
+                        ${pos.value_usdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                      {!isStable && (
+                        <TouchableOpacity
+                          style={styles.closeBtn}
+                          onPress={() => handleClosePosition(pos.symbol, pos.amount, pos.value_usdc)}
+                        >
+                          <Text style={styles.closeBtnText}>CLOSE</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
 
         {/* Order Form */}
         <View style={styles.orderCard}>
@@ -894,6 +957,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.text.primary,
     fontFamily: theme.typography.fontFamily.mono,
+  },
+  closeBtn: {
+    backgroundColor: theme.colors.semantic.error + '20',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  closeBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.semantic.error,
   },
 });
 
