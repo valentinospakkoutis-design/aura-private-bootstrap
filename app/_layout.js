@@ -340,14 +340,17 @@ function AppContent() {
 }
 
 export default function RootLayout() {
+  const { LanguageProvider } = require('../mobile/src/hooks/useLanguage');
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
-        <ThemeProvider>
-          <GlobalProvider>
-            <AppContent />
-          </GlobalProvider>
-        </ThemeProvider>
+        <LanguageProvider>
+          <ThemeProvider>
+            <GlobalProvider>
+              <AppContent />
+            </GlobalProvider>
+          </ThemeProvider>
+        </LanguageProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
   );

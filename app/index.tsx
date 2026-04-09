@@ -9,6 +9,7 @@ import { DateFormatter } from '../mobile/src/utils/DateFormatter';
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import { api } from '../mobile/src/services/apiClient';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 
 const { width } = Dimensions.get('window');
 
@@ -85,6 +86,7 @@ interface PortfolioStats {
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAppStore();
+  const { t } = useLanguage();
   const [unreadCount, setUnreadCount] = useState(0);
   const [portfolio, setPortfolio] = useState<PortfolioStats | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
@@ -131,9 +133,9 @@ export default function HomeScreen() {
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Καλημέρα';
-    if (hour < 18) return 'Καλησπέρα';
-    return 'Καληνύχτα';
+    if (hour < 12) return t('goodMorning');
+    if (hour < 18) return t('goodAfternoon');
+    return t('goodEvening');
   };
 
   const handleQuickAction = (route: string) => {
@@ -175,7 +177,7 @@ export default function HomeScreen() {
             <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/analytics')}>
               <View style={styles.portfolioCard}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={styles.portfolioLabel}>Συνολική Αξία Portfolio</Text>
+                  <Text style={styles.portfolioLabel}>{t('totalPortfolioValue')}</Text>
                   <View style={{
                     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
                     backgroundColor: portfolio.mode === 'live' ? '#ef444420' : '#22c55e20',
@@ -203,12 +205,12 @@ export default function HomeScreen() {
               </View>
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>Ανοιχτά</Text>
+                  <Text style={styles.statLabel}>{t('openTrades')}</Text>
                   <Text style={styles.statValue}>{portfolio.openTrades}</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>Κλεισμένα</Text>
+                  <Text style={styles.statLabel}>{t('closedTrades')}</Text>
                   <Text style={styles.statValue}>{portfolio.closedTrades}</Text>
                 </View>
                 <View style={styles.statDivider} />
@@ -222,7 +224,7 @@ export default function HomeScreen() {
             <View style={styles.portfolioEmpty}>
               <Text style={styles.portfolioEmptyIcon}>📊</Text>
               <Text style={styles.portfolioEmptyText}>
-                Συνδέσου με broker για να δεις το portfolio σου
+                {t('connectBrokerPrompt')}
               </Text>
               <TouchableOpacity
                 style={styles.portfolioEmptyButton}
@@ -235,7 +237,7 @@ export default function HomeScreen() {
         </AnimatedCard>
 
         {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>⚡ Γρήγορες Ενέργειες</Text>
+        <Text style={styles.sectionTitle}>⚡ {t('quickActions')}</Text>
         <View style={styles.actionsGrid}>
           {QUICK_ACTIONS.map((action, index) => (
             <AnimatedCard

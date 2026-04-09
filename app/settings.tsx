@@ -11,6 +11,7 @@ import { PageTransition } from '../mobile/src/components/PageTransition';
 import { useTheme } from '../mobile/src/context/ThemeContext';
 import { useBiometrics } from '../mobile/src/hooks/useBiometrics';
 import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { lightTheme } from '../mobile/src/constants/theme';
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
@@ -21,7 +22,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { user, setUser, showToast, showModal } = useAppStore();
   const { theme, themeMode, setThemeMode, isDark } = useTheme();
-  
+  const { language, setLanguage, t } = useLanguage();
+
   // Create styles with current theme
   const styles = createStyles(theme);
   
@@ -336,6 +338,29 @@ export default function SettingsScreen() {
             ? 'Το θέμα αλλάζει αυτόματα με βάση τις ρυθμίσεις του συστήματος'
             : `Χρήση ${themeMode === 'light' ? 'φωτεινού' : 'σκοτεινού'} θέματος`}
         </Text>
+      </AnimatedCard>
+
+      {/* Language Section */}
+      <AnimatedCard delay={150} animationType="slideUp">
+        <Text style={styles.sectionTitle}>🌐 {t('language')}</Text>
+        <View style={styles.themeOptions}>
+          {([{ code: 'el', flag: '🇬🇷', label: 'Ελληνικα' }, { code: 'en', flag: '🇬🇧', label: 'English' }] as const).map((lang) => (
+            <TouchableOpacity
+              key={lang.code}
+              style={[styles.themeOption, language === lang.code && styles.themeOptionActive]}
+              onPress={() => {
+                setLanguage(lang.code as 'el' | 'en');
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                showToast(lang.code === 'el' ? 'Γλωσσα: Ελληνικα' : 'Language: English', 'success');
+              }}
+            >
+              <Text style={styles.themeOptionIcon}>{lang.flag}</Text>
+              <Text style={[styles.themeOptionText, language === lang.code && styles.themeOptionTextActive]}>
+                {lang.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </AnimatedCard>
 
       {/* Storage & Cache Section */}

@@ -2,22 +2,24 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { theme } from '../../mobile/src/constants/theme';
-
-const MORE_ITEMS = [
-  { icon: '📊', title: 'Analytics', href: '/analytics' },
-  { icon: '🔗', title: 'Brokers', href: '/brokers' },
-  { icon: '👤', title: 'Profile', href: '/profile' },
-  { icon: '🔔', title: 'Notifications', href: '/notifications' },
-  { icon: '🎙️', title: 'Voice Briefing', href: '/voice-briefing' },
-  { icon: '📝', title: 'Paper Trading', href: '/paper-trading' },
-  { icon: '💰', title: 'Live Trading', href: '/live-trading' },
-  { icon: '📉', title: 'Futures', href: '/futures-trading' },
-  { icon: '🟡', title: 'Bybit Futures', href: '/bybit-trading' },
-  { icon: '⚙️', title: 'Settings', href: '/settings' },
-];
+import { useLanguage } from '../../mobile/src/hooks/useLanguage';
 
 export default function MoreScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
+
+  const MORE_ITEMS = [
+    { icon: '📊', title: t('analytics'), href: '/analytics' },
+    { icon: '🔗', title: t('brokers'), href: '/brokers' },
+    { icon: '👤', title: t('profile'), href: '/profile' },
+    { icon: '🔔', title: t('notifications'), href: '/notifications' },
+    { icon: '🎙️', title: t('voiceBriefing'), href: '/voice-briefing' },
+    { icon: '📝', title: t('paperTrading'), href: '/paper-trading' },
+    { icon: '💰', title: 'Live Trading', href: '/live-trading' },
+    { icon: '📉', title: t('futures'), href: '/futures-trading' },
+    { icon: '🟡', title: t('bybitFutures'), href: '/bybit-trading' },
+    { icon: '⚙️', title: t('settings'), href: '/settings' },
+  ];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
