@@ -1128,8 +1128,26 @@ def get_trade_history(limit: int = 50):
 
 @app.get("/api/paper-trading/statistics")
 def get_trading_statistics():
-    """Επιστρέφει trading statistics"""
-    return paper_trading_service.get_statistics()
+    """Επιστρέφει trading statistics — live Binance data αν mode=live."""
+    if live_trading_service.trading_mode == "live" and broker_instances:
+        try:
+            broker = next(iter(broker_instances.values()))
+            account = broker.get_account_balance()
+            if "error" not in account:
+                total_balance = account.get("total_balance", 0)
+                trades = broker.get_trade_history()
+                result = paper_trading_service.get_statistics()
+                result["current_balance"] = total_balance
+                result["total_value"] = total_balance
+                result["total_trades"] = len(trades) if isinstance(trades, list) else result.get("total_trades", 0)
+                result["mode"] = "live"
+                return sanitize_floats(result)
+        except Exception as e:
+            print(f"[!] Live stats failed, falling back to paper: {e}")
+
+    result = paper_trading_service.get_statistics()
+    result["mode"] = "paper"
+    return sanitize_floats(result)
 
 class PaperOrderRequest(BaseModel):
     symbol: str

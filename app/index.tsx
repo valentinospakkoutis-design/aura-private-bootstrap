@@ -79,6 +79,7 @@ interface PortfolioStats {
   openTrades: number;
   closedTrades: number;
   winRate: number;
+  mode?: string;
 }
 
 export default function HomeScreen() {
@@ -173,7 +174,20 @@ export default function HomeScreen() {
           ) : portfolio && portfolio.totalValue > 0 ? (
             <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/analytics')}>
               <View style={styles.portfolioCard}>
-                <Text style={styles.portfolioLabel}>Συνολική Αξία Portfolio</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={styles.portfolioLabel}>Συνολική Αξία Portfolio</Text>
+                  <View style={{
+                    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+                    backgroundColor: portfolio.mode === 'live' ? '#ef444420' : '#22c55e20',
+                  }}>
+                    <Text style={{
+                      fontSize: 11, fontWeight: '700',
+                      color: portfolio.mode === 'live' ? '#ef4444' : '#22c55e',
+                    }}>
+                      {portfolio.mode === 'live' ? '🔴 LIVE' : '🟢 PAPER'}
+                    </Text>
+                  </View>
+                </View>
                 <Text style={styles.portfolioValue}>
                   ${portfolio.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>

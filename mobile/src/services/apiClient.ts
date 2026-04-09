@@ -411,6 +411,7 @@ class ApiClient {
         openTrades: d.active_positions ?? d.openTrades ?? 0,
         closedTrades: (d.total_trades ?? 0) - (d.active_positions ?? 0),
         winRate: d.win_rate ?? d.winRate ?? 0,
+        mode: d.mode ?? 'paper',
       };
     } catch {
       // Fallback to analytics performance
