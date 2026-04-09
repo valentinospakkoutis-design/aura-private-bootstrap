@@ -109,20 +109,45 @@ class AutoTradingEngine:
             return asset_symbol[:-4] + "USDC"
         return asset_symbol
 
-    def _calculate_position_size(self, price: float) -> float:
-        """Calculate quantity for a fixed $10 USDC order."""
+    def _calculate_position_size(self, price: float, confidence: float = 0.5, volatility: float = 0.3) -> float:
+        """Calculate risk-adjusted quantity using the position sizing engine."""
         if price <= 0:
             return 0.0
 
-        position_value = self.config["fixed_order_value_usd"]
-
-        # Verify we have enough balance
         balance = self._get_available_balance()
-        if balance < position_value:
+        if balance <= 0:
             return 0.0
 
-        quantity = position_value / price
-        return round(quantity, 6)
+        try:
+            from services.position_sizing import calculate_position_size, SizingInput
+            exposure = sum(
+                p.get("quantity", 0) * p.get("entry_price", 0)
+                for p in self.open_positions.values()
+            ) / balance if balance > 0 else 0
+
+            result = calculate_position_size(SizingInput(
+                account_balance=balance,
+                signal_confidence=confidence,
+                volatility=volatility,
+                current_drawdown=0.0,  # TODO: track cumulative drawdown
+                current_portfolio_exposure=min(1.0, exposure),
+                price=price,
+                user_risk_profile="moderate",
+            ))
+
+            # Respect the fixed order value cap from config
+            max_notional = self.config["fixed_order_value_usd"]
+            notional = min(result.recommended_notional, max_notional)
+            quantity = notional / price if price > 0 else 0
+            self._log_event("SIZING", f"Sized: ${notional:.2f} ({result.reasoning})")
+            return round(quantity, 6)
+        except Exception as e:
+            # Fallback to fixed sizing
+            logger.warning(f"[auto-trader] Position sizing failed, using fixed: {e}")
+            position_value = self.config["fixed_order_value_usd"]
+            if balance < position_value:
+                return 0.0
+            return round(position_value / price, 6)
 
     def place_auto_order(self, prediction: dict) -> Optional[dict]:
         """Place an automated order based on a prediction. Returns position dict or None."""
@@ -188,7 +213,8 @@ class AutoTradingEngine:
             return None
 
         side = "BUY" if action == "buy" else "SELL"
-        quantity = self._calculate_position_size(price)
+        vol = abs(prediction.get("trend_score", 0.3)) if "trend_score" in prediction else 0.3
+        quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol)
 
         if quantity <= 0:
             self._log_event("SKIP", f"{symbol}: insufficient balance for position")

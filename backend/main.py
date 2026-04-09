@@ -1581,9 +1581,42 @@ def get_ai_decision(symbol: str):
     # Build trading signal alongside explanation
     signal = asset_predictor.get_trading_signal(sym)
 
+    # Position sizing recommendation
+    sizing = None
+    try:
+        from services.position_sizing import calculate_position_size, SizingInput
+        balance = 10000  # default
+        if broker_instances:
+            broker = next(iter(broker_instances.values()))
+            acct = broker.get_account_balance()
+            if "error" not in acct:
+                balance = acct.get("total_balance", 10000) or 10000
+
+        sizing_result = calculate_position_size(SizingInput(
+            account_balance=balance,
+            signal_confidence=explanation.confidence_score,
+            volatility=min(1.0, abs(prediction.get("trend_score", 0.3))),
+            current_drawdown=0.0,
+            current_portfolio_exposure=0.0,
+            price=prediction.get("current_price", 1),
+            user_risk_profile="moderate",
+        ))
+        sizing = {
+            "recommended_notional": sizing_result.recommended_notional,
+            "quantity": sizing_result.quantity,
+            "confidence_multiplier": sizing_result.confidence_multiplier,
+            "volatility_multiplier": sizing_result.volatility_multiplier,
+            "drawdown_multiplier": sizing_result.drawdown_multiplier,
+            "final_risk_pct": sizing_result.final_risk_pct,
+            "reasoning": sizing_result.reasoning,
+        }
+    except Exception as e:
+        print(f"[!] Position sizing failed (non-fatal): {e}")
+
     result = {
         "signal": sanitize_floats(signal),
-        "explanation": explanation.dict(),
+        "explanation": explanation.model_dump(),
+        "sizing": sanitize_floats(sizing) if sizing else None,
     }
     return sanitize_floats(result)
 
