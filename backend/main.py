@@ -1819,6 +1819,44 @@ def get_simulation_strategies():
     return {"strategies": {k: {"label": v["label"], "description": v["description"]} for k, v in STRATEGIES.items()}}
 
 
+@app.get("/api/strategies")
+def list_strategies():
+    """List all registered trading strategies."""
+    from services.strategy_engine import strategy_registry
+    return {"strategies": strategy_registry.list_all()}
+
+
+@app.get("/api/strategies/evaluate/{symbol}")
+def evaluate_strategies(symbol: str):
+    """Evaluate all strategies for a symbol and return consensus."""
+    from services.strategy_engine import strategy_registry
+
+    sym = symbol.upper()
+    prediction = asset_predictor.predict_price(sym, days=7)
+    if "error" in prediction:
+        raise HTTPException(status_code=400, detail=prediction["error"])
+
+    # Build market_data combining prediction + smart score
+    market_data = dict(prediction)
+    try:
+        from services.smart_score import smart_score_calculator
+        ss = smart_score_calculator.calculate_smart_score(sym)
+        market_data["smart_score"] = ss.get("smart_score", 50)
+        market_data["signals"] = ss.get("signals", {})
+    except Exception:
+        market_data["smart_score"] = 50
+        market_data["signals"] = {}
+
+    results = strategy_registry.evaluate_all(sym, market_data)
+    consensus = strategy_registry.consensus(sym, market_data)
+
+    return sanitize_floats({
+        "symbol": sym,
+        "strategies": results,
+        "consensus": consensus,
+    })
+
+
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
     """Επιστρέφει trading signal για οποιοδήποτε asset"""
