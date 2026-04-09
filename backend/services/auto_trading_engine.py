@@ -29,12 +29,15 @@ class AutoTradingEngine:
     def __init__(self):
         self.is_running = False
         self.broker = None  # BinanceAPI instance
-        self.check_interval = 300  # check every 5 minutes
+        self.check_interval = 60  # check every 60 seconds
+        self.last_run = None
+        self.total_auto_trades = 0
         self.config = {
-            "confidence_threshold": 0.80,   # only trade >= 80% confidence
+            "confidence_threshold": 0.90,   # only trade >= 90% confidence
             "fixed_order_value_usd": 10.0,  # fixed $10 USDC per trade
             "stop_loss_pct": 0.03,          # 3% stop loss
-            "max_positions": 5,             # max concurrent positions
+            "take_profit_pct": 0.05,        # 5% take profit
+            "max_positions": 3,             # max 3 concurrent positions
             "max_order_value_usd": 100.0,   # hard safety limit per order
             "smart_score_threshold": 75,    # only trade when Smart Score > 75
             "enabled": False,               # OFF by default
@@ -60,12 +63,17 @@ class AutoTradingEngine:
         logger.info("[auto-trader] Auto trading DISABLED")
 
     def get_status(self) -> dict:
+        from services.live_trading import live_trading_service
         return {
             "enabled": self.config["enabled"],
             "is_running": self.is_running,
+            "mode": live_trading_service.trading_mode,
             "config": self.config,
             "open_positions_count": len(self.open_positions),
             "positions": list(self.open_positions.values()),
+            "total_auto_trades": self.total_auto_trades,
+            "last_run": self.last_run,
+            "next_run_in_seconds": self.check_interval,
             "recent_log": self.trade_log[-20:],
         }
 
@@ -277,13 +285,13 @@ class AutoTradingEngine:
         while self.is_running:
             try:
                 if self.config["enabled"] and self.broker and self.broker.connected:
+                    self.last_run = datetime.utcnow().isoformat()
                     predictions = await get_predictions_func()
                     high_conf = [
                         p for p in predictions
                         if p.get("confidence", 0) >= self.config["confidence_threshold"]
                     ]
                     if high_conf:
-                        # Log scan with Smart Score preview for each candidate
                         score_previews = []
                         for p in high_conf[:5]:
                             sym = self.get_trading_symbol(p.get("symbol", ""))
@@ -293,7 +301,9 @@ class AutoTradingEngine:
                             f"Found {len(high_conf)} high-confidence predictions | "
                             f"Smart Scores: {', '.join(score_previews)}")
                     for prediction in high_conf:
-                        self.place_auto_order(prediction)
+                        result = self.place_auto_order(prediction)
+                        if result:
+                            self.total_auto_trades += 1
             except Exception as e:
                 logger.error(f"[auto-trader] Loop error: {e}")
                 self._log_event("ERROR", f"Loop error: {e}")

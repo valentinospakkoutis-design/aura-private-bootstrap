@@ -2627,6 +2627,34 @@ def update_auto_trading_config(config: AutoTradingConfigUpdate, _user=Depends(re
     return auto_trader.get_status()
 
 
+@app.post("/api/auto-trading/toggle")
+def toggle_auto_trading(data: dict, _user=Depends(require_auth)):
+    """Toggle auto trading on/off. Body: { "enabled": true/false }"""
+    enabled = data.get("enabled", False)
+    if enabled:
+        if not broker_instances:
+            _restore_broker_connections()
+        if not broker_instances:
+            raise HTTPException(status_code=400, detail="No broker connected. Connect a broker first.")
+        broker = next(iter(broker_instances.values()))
+        auto_trader.set_broker(broker)
+        try:
+            auto_trader.enable()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"success": True, "enabled": True, "status": auto_trader.get_status()}
+    else:
+        auto_trader.disable()
+        return {"success": True, "enabled": False, "status": auto_trader.get_status()}
+
+
+@app.get("/api/auto-trading/log")
+def get_auto_trading_log():
+    """Get the last 20 auto-trading decisions."""
+    logs = auto_trader.trade_log[-20:]
+    return {"log": list(reversed(logs)), "count": len(logs)}
+
+
 @app.get("/api/auto-trading/smart-score/{symbol}")
 def get_smart_score(symbol: str):
     """Calculate Smart Score for a symbol — shows all signal breakdowns."""

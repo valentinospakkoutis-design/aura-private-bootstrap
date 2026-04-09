@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl, Alert } from 'react-native';
 import { api } from '../mobile/src/services/apiClient';
 import { Button } from '../mobile/src/components/Button';
-import { PageTransition } from '../mobile/src/components/PageTransition';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { theme } from '../mobile/src/constants/theme';
@@ -10,15 +9,20 @@ import { theme } from '../mobile/src/constants/theme';
 interface AutoTradingStatus {
   enabled: boolean;
   is_running: boolean;
+  mode: string;
   config: {
     confidence_threshold: number;
     fixed_order_value_usd: number;
     stop_loss_pct: number;
+    take_profit_pct: number;
     max_positions: number;
     max_order_value_usd: number;
   };
   open_positions_count: number;
   positions: any[];
+  total_auto_trades: number;
+  last_run: string | null;
+  next_run_in_seconds: number;
   recent_log: Array<{ type: string; message: string; timestamp: string }>;
 }
 
@@ -50,7 +54,7 @@ export default function AutoTradingScreen() {
     setRefreshing(false);
   }, [loadStatus]);
 
-  const handleToggle = useCallback(async (value: boolean) => {
+  const doToggle = useCallback(async (value: boolean) => {
     setToggling(true);
     try {
       if (value) {
@@ -69,14 +73,29 @@ export default function AutoTradingScreen() {
     }
   }, [showToast, loadStatus]);
 
+  const handleToggle = useCallback((value: boolean) => {
+    if (value) {
+      Alert.alert(
+        'Enable Auto Trading',
+        'The engine will automatically place orders based on AI predictions.\n\nAre you sure?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Enable', style: 'destructive', onPress: () => doToggle(true) },
+        ]
+      );
+    } else {
+      doToggle(false);
+    }
+  }, [doToggle]);
+
   if (loading) {
     return (
-      <PageTransition type="fade">
-        <View style={styles.container}>
+      <View style={styles.container}>
+        <View style={styles.content}>
           <SkeletonCard />
           <SkeletonCard />
         </View>
-      </PageTransition>
+      </View>
     );
   }
 
@@ -84,9 +103,9 @@ export default function AutoTradingScreen() {
   const config = status?.config;
   const positions = status?.positions ?? [];
   const logs = status?.recent_log ?? [];
+  const mode = status?.mode ?? 'paper';
 
   return (
-    <PageTransition type="slideUp">
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -118,6 +137,16 @@ export default function AutoTradingScreen() {
               thumbColor={isEnabled ? theme.colors.semantic.success : '#f4f3f4'}
             />
           </View>
+          <View style={[styles.modeBadge, { backgroundColor: mode === 'live' ? theme.colors.semantic.error + '20' : theme.colors.semantic.success + '20' }]}>
+            <Text style={[styles.modeBadgeText, { color: mode === 'live' ? theme.colors.semantic.error : theme.colors.semantic.success }]}>
+              {mode === 'live' ? '🔴 LIVE MODE' : '🟢 PAPER MODE'}
+            </Text>
+          </View>
+          {status?.last_run && (
+            <Text style={styles.statusMeta}>
+              Last run: {new Date(status.last_run).toLocaleTimeString('el-GR')} | Trades: {status.total_auto_trades} | Next in: {status.next_run_in_seconds}s
+            </Text>
+          )}
         </View>
 
         {/* Config Card */}
@@ -135,6 +164,10 @@ export default function AutoTradingScreen() {
             <View style={styles.configRow}>
               <Text style={styles.configLabel}>Stop Loss</Text>
               <Text style={styles.configValue}>{(config.stop_loss_pct * 100).toFixed(0)}%</Text>
+            </View>
+            <View style={styles.configRow}>
+              <Text style={styles.configLabel}>Take Profit</Text>
+              <Text style={styles.configValue}>{((config.take_profit_pct || 0.05) * 100).toFixed(0)}%</Text>
             </View>
             <View style={styles.configRow}>
               <Text style={styles.configLabel}>Max Positions</Text>
@@ -194,7 +227,6 @@ export default function AutoTradingScreen() {
 
         <View style={{ height: theme.spacing.xl * 2 }} />
       </ScrollView>
-    </PageTransition>
   );
 }
 
@@ -302,5 +334,21 @@ const styles = StyleSheet.create({
   logTime: {
     fontSize: theme.typography.sizes.xs,
     color: theme.colors.text.secondary,
+  },
+  modeBadge: {
+    alignSelf: 'flex-start' as const,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.medium,
+    marginTop: theme.spacing.sm,
+  },
+  modeBadgeText: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '700' as const,
+  },
+  statusMeta: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing.sm,
   },
 });
