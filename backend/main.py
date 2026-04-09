@@ -1780,6 +1780,45 @@ def get_ai_feed(
     return sanitize_floats({"events": events, "count": len(events)})
 
 
+class SimulationRequest(BaseModel):
+    strategy: str = "ai_follow"
+    symbols: List[str] = ["BTCUSDC", "ETHUSDC", "BNBUSDC"]
+    timeframe_days: int = 30
+    capital: float = 10000.0
+    confidence_threshold: Optional[float] = None
+    stop_loss_pct: float = 3.0
+    take_profit_pct: float = 5.0
+    max_positions: int = 3
+    position_size_pct: float = 5.0
+
+
+@app.post("/api/simulation/run")
+def run_simulation_endpoint(req: SimulationRequest, _user=Depends(require_auth)):
+    """Run a strategy simulation. Results are hypothetical — not real trading."""
+    from services.simulation_engine import run_simulation, STRATEGIES
+    result = run_simulation(
+        strategy=req.strategy,
+        symbols=req.symbols,
+        timeframe_days=req.timeframe_days,
+        initial_capital=req.capital,
+        confidence_threshold=req.confidence_threshold,
+        stop_loss_pct=req.stop_loss_pct / 100,
+        take_profit_pct=req.take_profit_pct / 100,
+        max_positions=req.max_positions,
+        position_size_pct=req.position_size_pct,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return sanitize_floats(result)
+
+
+@app.get("/api/simulation/strategies")
+def get_simulation_strategies():
+    """Get available simulation strategies."""
+    from services.simulation_engine import STRATEGIES
+    return {"strategies": {k: {"label": v["label"], "description": v["description"]} for k, v in STRATEGIES.items()}}
+
+
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
     """Επιστρέφει trading signal για οποιοδήποτε asset"""

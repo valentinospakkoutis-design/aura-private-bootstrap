@@ -1,0 +1,83 @@
+{
+  "BTCUSDC": {
+    "predictions": [
+      {
+        "predicted_price": 74250.99,
+        "predicted_date": "2026-04-16T22:25:07.233298",
+        "confidence": 84.5,
+        "recorded_at": "2026-04-09T22:25:07.233371"
+      },
+      {
+        "predicted_price": 70097.34,
+        "predicted_date": "2026-04-16T22:25:08.239624",
+        "confidence": 78.6,
+        "recorded_at": "2026-04-09T22:25:08.239639"
+      },
+      {
+        "predicted_price": 73592.75,
+        "predicted_date": "2026-04-16T22:25:08.241158",
+        "confidence": 79.2,
+        "recorded_at": "2026-04-09T22:25:08.241172"
+      },
+      {
+        "predicted_price": 71559.62,
+        "predicted_date": "2026-04-16T22:25:09.162318",
+        "confidence": 66.9,
+        "recorded_at": "2026-04-09T22:25:09.162338"
+      },
+      {
+        "predicted_price": 71037.11,
+        "predicted_date": "2026-04-16T22:25:09.170211",
+        "confidence": 71.1,
+        "recorded_at": "2026-04-09T22:25:09.170231"
+      },
+      {
+        "predicted_price": 69667.21,
+        "predicted_date": "2026-04-16T22:25:09.172056",
+        "confidence": 82.0,
+        "recorded_at": "2026-04-09T22:25:09.172075"
+      }
+    ],
+    "accuracy_history": []
+  },
+  "ETHUSDC": {
+    "predictions": [
+      {
+        "predicted_price": 2266.98,
+        "predicted_date": "2026-04-16T22:25:08.235511",
+        "confidence": 80.7,
+        "recorded_at": "2026-04-09T22:25:08.235544"
+      },
+      {
+        "predicted_price": 2154.1,
+        "predicted_date": "2026-04-16T22:25:08.242258",
+        "confidence": 78.5,
+        "recorded_at": "2026-04-09T22:25:08.242274"
+      },
+      {
+        "predicted_price": 2248.28,
+        "predicted_date": "2026-04-16T22:25:09.164893",
+        "confidence": 75.9,
+        "recorded_at": "2026-04-09T22:25:09.164937"
+      }
+    ],
+    "accuracy_history": []
+  },
+  "BNBUSDC": {
+    "predictions": [
+      {
+        "predicted_price": 607.45,
+        "predicted_date": "2026-04-16T22:25:09.158960",
+        "confidence": 65.7,
+        "recorded_at": "2026-04-09T22:25:09.158987"
+      },
+      {
+        "predicted_price": 608.25,
+        "predicted_date": "2026-04-16T22:25:09.167857",
+        "confidence": 66.5,
+        "recorded_at": "2026-04-09T22:25:09.167883"
+      }
+    ],
+    "accuracy_history": []
+  }
+}
