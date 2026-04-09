@@ -51,6 +51,7 @@ export default function LiveTradingScreen() {
   const [tradingMode, setTradingMode] = useState<string>('paper');
   const [livePortfolio, setLivePortfolio] = useState<any>(null);
   const [brokerConnected, setBrokerConnected] = useState(false);
+  const [liveHistory, setLiveHistory] = useState<any[]>([]);
 
   // Order form state
   const [symbol, setSymbol] = useState('BTCUSDC');
@@ -73,11 +74,14 @@ export default function LiveTradingScreen() {
 
   const loadData = async () => {
     try {
-      const [tradesData, brokersData, portfolioData] = await Promise.all([
+      const [tradesData, brokersData, portfolioData, historyData] = await Promise.all([
         api.getLiveTrades(false).catch(() => []),
         api.getBrokers(false).catch(() => null),
         api.getLivePortfolioFull().catch(() => null),
+        api.getLiveTradeHistory().catch(() => ({ trades: [] })),
       ]);
+
+      setLiveHistory(historyData?.trades || []);
 
       if (Array.isArray(tradesData)) {
         setTrades(tradesData);
@@ -376,7 +380,51 @@ export default function LiveTradingScreen() {
           />
         </View>
 
-        {/* Trades List */}
+        {/* Live Trade History */}
+        {liveHistory.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Trade History ({liveHistory.length})</Text>
+            {liveHistory.map((trade: any, index: number) => {
+              const isBuy = trade.side === 'BUY';
+              const sideColor = isBuy ? theme.colors.market.bullish : theme.colors.market.bearish;
+              return (
+                <View key={trade.id || index} style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <View>
+                      <Text style={styles.historySymbol}>{trade.symbol}</Text>
+                      <Text style={styles.historyTime}>
+                        {trade.timestamp ? new Date(trade.timestamp).toLocaleString('el-GR', {
+                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                        }) : ''}
+                      </Text>
+                    </View>
+                    <View style={[styles.historyBadge, { backgroundColor: sideColor + '20' }]}>
+                      <Text style={[styles.historyBadgeText, { color: sideColor }]}>
+                        {isBuy ? '📈' : '📉'} {trade.side}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.historyBody}>
+                    <View style={styles.historyRow}>
+                      <Text style={styles.historyLabel}>Quantity</Text>
+                      <Text style={styles.historyValue}>{trade.quantity}</Text>
+                    </View>
+                    {trade.price > 0 && (
+                      <View style={styles.historyRow}>
+                        <Text style={styles.historyLabel}>Price</Text>
+                        <Text style={styles.historyValue}>
+                          ${trade.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        )}
+
+        {/* Open Positions */}
         {trades.length === 0 ? (
           <NoTrades />
         ) : (
@@ -789,6 +837,60 @@ const styles = StyleSheet.create({
   },
   positionValue: {
     fontSize: theme.typography.sizes.md,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  historyCard: {
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  historySymbol: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+  },
+  historyTime: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.secondary,
+    marginTop: 2,
+  },
+  historyBadge: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.borderRadius.medium,
+  },
+  historyBadgeText: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '700',
+  },
+  historyBody: {
+    gap: theme.spacing.xs,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  historyLabel: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.text.secondary,
+  },
+  historyValue: {
+    fontSize: theme.typography.sizes.sm,
     fontWeight: '600',
     color: theme.colors.text.primary,
     fontFamily: theme.typography.fontFamily.mono,

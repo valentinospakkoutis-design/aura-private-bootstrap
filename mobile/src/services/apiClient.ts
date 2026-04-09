@@ -500,6 +500,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getLiveTradeHistory() {
+    const response = await this.client.get('/api/live-trading/history');
+    return response.data;
+  }
+
   async getLivePositions() {
     const response = await this.client.get('/api/live-trading/positions');
     return response.data;

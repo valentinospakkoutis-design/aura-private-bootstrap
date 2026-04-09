@@ -2363,6 +2363,40 @@ class LimitOrderRequest(BaseModel):
     take_profit: Optional[float] = None
 
 
+@app.get("/api/live-trading/history")
+def get_live_trading_history(limit: int = 50):
+    """Returns executed live orders from audit log."""
+    try:
+        from sqlalchemy import text as _text
+        db = SessionLocal()
+        rows = db.execute(_text("""
+            SELECT client_order_id, symbol, side, quantity, price,
+                   status, created_at, broker_order_id, source
+            FROM live_order_audit_logs
+            WHERE status IN ('filled', 'success', 'submitted')
+            ORDER BY created_at DESC
+            LIMIT :lim
+        """), {"lim": limit}).fetchall()
+        db.close()
+
+        trades = []
+        for r in rows:
+            trades.append({
+                "id": r[0] or r[7] or "",
+                "symbol": r[1],
+                "side": r[2],
+                "quantity": float(r[3]) if r[3] else 0,
+                "price": float(r[4]) if r[4] else 0,
+                "status": r[5],
+                "timestamp": r[6].isoformat() if r[6] else None,
+                "source": r[8],
+            })
+        return sanitize_floats({"trades": trades, "total": len(trades)})
+    except Exception as e:
+        print(f"[!] Live history query failed: {e}")
+        return {"trades": [], "total": 0, "error": str(e)}
+
+
 @app.get("/api/live-trading/portfolio")
 def get_live_portfolio():
     """Returns real Binance account balance."""
