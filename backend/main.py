@@ -3142,6 +3142,29 @@ def toggle_auto_trading(data: dict, _user=Depends(require_auth)):
         return {"success": True, "enabled": False, "status": auto_trader.get_status()}
 
 
+@app.post("/api/autopilot/mode")
+def set_autopilot_mode(data: dict, _user=Depends(require_auth)):
+    """Set autopilot mode: safe / balanced / aggressive."""
+    from services.autopilot_config import apply_mode
+    mode = data.get("mode", "balanced")
+    result = apply_mode(mode, auto_trader)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/autopilot/mode")
+def get_autopilot_mode():
+    """Get current autopilot mode and available modes."""
+    from services.autopilot_config import get_current_mode, get_all_modes, get_mode_config
+    current = get_current_mode()
+    return {
+        "current_mode": current,
+        "current_config": get_mode_config(current),
+        "available_modes": get_all_modes(),
+    }
+
+
 @app.get("/api/auto-trading/log")
 def get_auto_trading_log():
     """Get the last 20 auto-trading decisions."""
