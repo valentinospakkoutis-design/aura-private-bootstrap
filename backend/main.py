@@ -123,6 +123,15 @@ def api_ping():
     return {"ok": True}
 
 
+@app.get("/api/myip")
+async def get_my_ip():
+    """Returns the outbound IP of this server (for Binance IP whitelist)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.get("https://api.ipify.org?format=json")
+        return response.json()
+
+
 @app.get("/api/debug/binance-key")
 def debug_binance_key(_user=Depends(require_auth)):
     """TEMPORARY debug endpoint — shows key metadata, not actual keys."""
