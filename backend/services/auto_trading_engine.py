@@ -173,7 +173,12 @@ class AutoTradingEngine:
             return None
 
         if confidence < self.config["confidence_threshold"]:
-            return None  # silent skip — most predictions won't pass
+            try:
+                from ai.trust_layer import verdict_from_auto_trader_skip
+                verdict_from_auto_trader_skip(symbol, f"Confidence {confidence:.0%} < {self.config['confidence_threshold']:.0%}", confidence=confidence)
+            except Exception:
+                pass
+            return None  # skip — confidence too low
 
         # ── Smart Score gate ─────────────────────────────────────
         from services.smart_score import smart_score_calculator
@@ -185,6 +190,11 @@ class AutoTradingEngine:
         fear_greed = signals.get("fear_greed", {}).get("score", 50)
         if fear_greed < 25:
             self._log_event("SKIP", f"{symbol}: extreme fear (F&G={fear_greed:.0f}), market too risky")
+            try:
+                from ai.trust_layer import verdict_from_auto_trader_skip
+                verdict_from_auto_trader_skip(symbol, f"Extreme fear F&G={fear_greed:.0f}", confidence=confidence, fear_greed=fear_greed)
+            except Exception:
+                pass
             return None
 
         if smart_score < self.config["smart_score_threshold"]:
@@ -196,6 +206,11 @@ class AutoTradingEngine:
                 f"vol={signals.get('volume',{}).get('score',0):.0f} "
                 f"MTF={signals.get('multi_timeframe',{}).get('score',0):.0f} "
                 f"pred={signals.get('prediction',{}).get('score',0):.0f}]")
+            try:
+                from ai.trust_layer import verdict_from_auto_trader_skip
+                verdict_from_auto_trader_skip(symbol, f"Smart Score {smart_score:.0f} < {self.config['smart_score_threshold']}", confidence=confidence, smart_score=smart_score, fear_greed=fear_greed)
+            except Exception:
+                pass
             return None
 
         if len(self.open_positions) >= self.config["max_positions"]:

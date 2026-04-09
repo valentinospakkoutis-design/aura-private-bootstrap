@@ -194,11 +194,16 @@ def calculate_position_size(inp: SizingInput) -> SizingResult:
 
     reasoning_parts.append(f"Final: ${notional:.2f} -> {decision.upper()}")
 
-    # ── Log cap triggers ────────────────────────────────────────
+    # ── Log cap triggers + trust verdict ─────────────────────────
     if cap_adjustments:
         sym_label = inp.symbol or "unknown"
         for adj in cap_adjustments:
             logger.info(f"[SIZING_CAP] {sym_label}: {adj}")
+        try:
+            from ai.trust_layer import verdict_from_sizing
+            verdict_from_sizing(sym_label, decision, cap_adjustments, notional)
+        except Exception:
+            pass
 
     return SizingResult(
         recommended_notional=round(notional, 2),

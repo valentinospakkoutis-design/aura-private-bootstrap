@@ -248,6 +248,20 @@ def assess_portfolio(
         for w in warnings:
             logger.info(f"[PORTFOLIO_RISK] {w}")
 
+    # Trust layer verdict
+    if warnings or adjustment != "ok":
+        try:
+            from ai.trust_layer import verdict_from_portfolio
+            verdict_from_portfolio(
+                symbol=proposed_symbol or "",
+                risk_score=risk_score,
+                adjustment=adjustment,
+                warnings=warnings,
+                size_factor=size_factor,
+            )
+        except Exception:
+            pass
+
     return PortfolioRiskAssessment(
         portfolio_risk_score=round(risk_score, 1),
         total_exposure_usd=round(total_exposure, 2),
