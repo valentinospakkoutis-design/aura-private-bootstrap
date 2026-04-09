@@ -51,6 +51,15 @@ export function useNotifications() {
         setPushToken(token);
         setIsRegistered(true);
         logger.info('Push notifications registered successfully');
+
+        // Register token with backend
+        try {
+          const { api } = require('../services/apiClient');
+          await api.registerPushToken(token);
+          logger.info('Push token registered with backend');
+        } catch (err) {
+          logger.warn('Failed to register push token with backend:', err);
+        }
       }
     } catch (error) {
       logger.error('Failed to register push notifications:', error);

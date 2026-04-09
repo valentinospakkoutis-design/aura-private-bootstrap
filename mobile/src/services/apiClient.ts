@@ -555,6 +555,14 @@ class ApiClient {
     return response.data;
   }
 
+  async registerPushToken(token: string) {
+    const response = await this.client.post('/api/notifications/register-token', {
+      token,
+      platform: require('react-native').Platform.OS,
+    });
+    return response.data;
+  }
+
   // Notifications
   async getNotifications(useCache: boolean = true) {
     if (useCache) {

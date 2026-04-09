@@ -268,6 +268,13 @@ class AutoTradingEngine:
 
             self._log_event("ORDER_FILLED", f"{side} {quantity} {symbol} @ ${entry_price:.2f}", position)
             logger.info(f"[auto-trader] Position opened: {symbol} {side} @ ${entry_price:.2f}")
+
+            # Push notification
+            try:
+                from services.push_notifications import notify_auto_trade
+                notify_auto_trade(symbol, side, entry_price, confidence)
+            except Exception:
+                pass
             return position
 
         except Exception as e:

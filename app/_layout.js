@@ -4,7 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { GlobalProvider } from '../mobile/src/components/GlobalProvider';
 import ErrorBoundary from '../mobile/src/components/ErrorBoundary';
 import { ThemeProvider, useTheme } from '../mobile/src/context/ThemeContext';
-// import { useNotifications } from '../mobile/src/hooks/useNotifications'; // Temporarily disabled to prevent crashes
+import { useNotifications } from '../mobile/src/hooks/useNotifications';
 import OfflineBanner from '../mobile/src/components/OfflineBanner';
 import { StatusBar } from 'expo-status-bar';
 import { initMonitoring } from '../mobile/src/services/monitoring';
@@ -75,6 +75,13 @@ function AuthGuard({ children }) {
 
 function AppContent() {
   const { theme, isDark } = useTheme();
+
+  // Register for push notifications on app start
+  try {
+    useNotifications();
+  } catch (e) {
+    console.warn('[Notifications] Hook failed (non-fatal):', e);
+  }
 
   useEffect(() => {
     // Initialize monitoring on app start (with error handling)

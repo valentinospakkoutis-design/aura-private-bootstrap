@@ -2129,6 +2129,41 @@ def delete_all_read():
     return {"status": "deleted", "count": count}
 
 
+class PushTokenRequest(BaseModel):
+    token: str
+    platform: str = "android"
+
+
+@app.post("/api/notifications/register-token")
+def register_push_token(data: PushTokenRequest, payload=Depends(require_auth)):
+    """Register an Expo push token for this user."""
+    if not data.token or not data.token.startswith("ExponentPushToken"):
+        raise HTTPException(status_code=400, detail="Invalid push token format")
+
+    user_id = int(payload.get("sub", 0))
+    try:
+        from sqlalchemy import text as _text
+        db = SessionLocal()
+        # Upsert: update if token exists, insert if not
+        existing = db.execute(
+            _text("SELECT id FROM push_tokens WHERE token = :tok"), {"tok": data.token}
+        ).fetchone()
+        if existing:
+            db.execute(_text(
+                "UPDATE push_tokens SET user_id = :uid, platform = :plat, is_active = true, updated_at = NOW() WHERE token = :tok"
+            ), {"uid": user_id, "plat": data.platform, "tok": data.token})
+        else:
+            db.execute(_text(
+                "INSERT INTO push_tokens (user_id, token, platform) VALUES (:uid, :tok, :plat)"
+            ), {"uid": user_id, "tok": data.token, "plat": data.platform})
+        db.commit()
+        db.close()
+        return {"success": True, "message": "Push token registered"}
+    except Exception as e:
+        print(f"[!] Push token registration failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to register push token")
+
+
 # ── User Profile Endpoints ──────────────────────────────────────────
 
 class UpdateProfileRequest(BaseModel):
@@ -2485,6 +2520,14 @@ def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)
     if "error" in result:
         parsed = _parse_binance_error(result)
         raise HTTPException(status_code=400, detail=parsed)
+
+    # Push notification on successful order
+    try:
+        from services.push_notifications import notify_order_executed
+        notify_order_executed(order.symbol, order.side, order.quantity, price)
+    except Exception:
+        pass
+
     return result
 
 

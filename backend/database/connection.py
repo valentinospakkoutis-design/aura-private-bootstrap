@@ -143,6 +143,17 @@ def init_db():
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS push_tokens (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    token TEXT UNIQUE NOT NULL,
+                    platform TEXT DEFAULT 'android',
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             conn.commit()
         except Exception as e:
             print(f"[!] Could not add columns (may already exist): {e}")
