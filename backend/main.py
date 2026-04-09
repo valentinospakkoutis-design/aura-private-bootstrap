@@ -957,8 +957,24 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
 
 @app.get("/api/trading/portfolio")
 def get_trading_portfolio():
-    """Επιστρέφει portfolio state"""
-    # Get current prices for all positions
+    """Επιστρέφει portfolio — live Binance balance αν υπάρχει broker, αλλιώς paper."""
+    if live_trading_service.trading_mode == "live" and broker_instances:
+        try:
+            broker = next(iter(broker_instances.values()))
+            account = broker.get_account_balance()
+            if "error" not in account:
+                return sanitize_floats({
+                    "total_value": account.get("total_balance", 0),
+                    "cash": account.get("available_balance", 0),
+                    "locked": account.get("locked_balance", 0),
+                    "positions": [],
+                    "mode": "live",
+                    "broker": "binance",
+                })
+        except Exception as e:
+            print(f"[!] Live portfolio fetch failed, falling back to paper: {e}")
+
+    # Fallback: paper trading
     current_prices = {}
     for broker_name, broker in broker_instances.items():
         for symbol in broker.get_supported_symbols():
@@ -967,8 +983,68 @@ def get_trading_portfolio():
                 current_prices[symbol] = price_info["price"]
             except:
                 pass
-    
-    return paper_trading_service.get_portfolio(current_prices)
+    result = paper_trading_service.get_portfolio(current_prices)
+    result["mode"] = "paper"
+    return result
+
+
+@app.get("/api/live-trading/portfolio/full")
+def get_live_portfolio_full():
+    """Returns full Binance portfolio with per-asset USDC values."""
+    if not broker_instances:
+        _restore_broker_connections()
+    if not broker_instances:
+        raise HTTPException(status_code=400, detail="No broker connected")
+
+    broker = next(iter(broker_instances.values()))
+    account_info = broker._signed_request("GET", "/api/v3/account")
+    if "error" in account_info:
+        raise HTTPException(status_code=400, detail=account_info["error"])
+
+    # Get all balances > 0
+    balances = []
+    for item in account_info.get("balances", []):
+        free = float(item.get("free", 0))
+        locked = float(item.get("locked", 0))
+        total = free + locked
+        if total > 0:
+            balances.append({
+                "asset": item["asset"],
+                "free": free,
+                "locked": locked,
+                "total": total,
+            })
+
+    # Get USDC values via ticker prices
+    positions = []
+    total_value_usdc = 0.0
+    for bal in balances:
+        asset = bal["asset"]
+        if asset in ("USDC", "USDT", "BUSD", "USD"):
+            value_usdc = bal["total"]
+        else:
+            price = broker.get_symbol_price(f"{asset}USDC")
+            if price <= 0:
+                price = broker.get_symbol_price(f"{asset}USDT")
+            value_usdc = bal["total"] * price if price > 0 else 0
+        total_value_usdc += value_usdc
+        positions.append({
+            "symbol": asset,
+            "amount": bal["total"],
+            "free": bal["free"],
+            "locked": bal["locked"],
+            "value_usdc": round(value_usdc, 2),
+        })
+
+    # Sort by value descending
+    positions.sort(key=lambda p: p["value_usdc"], reverse=True)
+
+    return sanitize_floats({
+        "total_value": round(total_value_usdc, 2),
+        "cash": next((p["amount"] for p in positions if p["symbol"] == "USDC"), 0),
+        "positions": positions,
+        "mode": "live",
+    })
 
 @app.get("/api/trading/history")
 def get_trading_history(limit: int = 50):

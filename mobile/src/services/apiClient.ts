@@ -494,6 +494,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getLivePortfolioFull() {
+    const response = await this.client.get('/api/live-trading/portfolio/full');
+    return response.data;
+  }
+
   async getLivePositions() {
     const response = await this.client.get('/api/live-trading/positions');
     return response.data;

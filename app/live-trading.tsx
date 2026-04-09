@@ -49,6 +49,7 @@ export default function LiveTradingScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [tradingMode, setTradingMode] = useState<string>('paper');
+  const [livePortfolio, setLivePortfolio] = useState<any>(null);
   const [brokerConnected, setBrokerConnected] = useState(false);
 
   // Order form state
@@ -66,28 +67,32 @@ export default function LiveTradingScreen() {
 
   useEffect(() => {
     loadData();
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadData = async () => {
     try {
-      const [tradesData, statsData, brokersData, modeData] = await Promise.all([
+      const [tradesData, brokersData, portfolioData] = await Promise.all([
         api.getLiveTrades(false).catch(() => []),
-        api.getPortfolioStats().catch(() => null),
         api.getBrokers(false).catch(() => null),
-        api.getAutoTradingStatus().catch(() => null),
+        api.getLivePortfolioFull().catch(() => null),
       ]);
-
-      // Also get trading mode directly
-      try {
-        const modeResp = await api.getLiveStats();
-        // getLiveStats calls /api/trading/portfolio which returns mode info
-      } catch {}
 
       if (Array.isArray(tradesData)) {
         setTrades(tradesData);
       }
-      if (statsData && typeof statsData === 'object') {
-        setStats(statsData as LiveStats);
+      if (portfolioData && portfolioData.total_value !== undefined) {
+        setLivePortfolio(portfolioData);
+        setStats({
+          totalValue: portfolioData.total_value || 0,
+          totalProfit: 0,
+          profitPercentage: 0,
+          openTrades: (portfolioData.positions || []).filter((p: any) => p.symbol !== 'USDC' && p.symbol !== 'USDT').length,
+          closedTrades: 0,
+          winRate: 0,
+          totalInvested: portfolioData.total_value || 0,
+        });
       }
 
       // Check broker connection
@@ -289,6 +294,22 @@ export default function LiveTradingScreen() {
             </View>
 
           </AnimatedCard>
+        )}
+
+        {/* Live Positions */}
+        {livePortfolio && livePortfolio.positions && livePortfolio.positions.length > 0 && (
+          <View style={styles.orderCard}>
+            <Text style={styles.statsTitle}>💼 Assets ({livePortfolio.positions.length})</Text>
+            {livePortfolio.positions.map((pos: any, i: number) => (
+              <View key={pos.symbol || i} style={styles.positionRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.positionSymbol}>{pos.symbol}</Text>
+                  <Text style={styles.positionAmount}>{pos.amount < 1 ? pos.amount.toFixed(6) : pos.amount.toFixed(4)}</Text>
+                </View>
+                <Text style={styles.positionValue}>${pos.value_usdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+            ))}
+          </View>
         )}
 
         {/* Order Form */}
@@ -747,6 +768,30 @@ const styles = StyleSheet.create({
   },
   sideTextActive: {
     color: theme.colors.text.primary,
+  },
+  positionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.ui.border,
+  },
+  positionSymbol: {
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
+  },
+  positionAmount: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.text.secondary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  positionValue: {
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    fontFamily: theme.typography.fontFamily.mono,
   },
 });
 
