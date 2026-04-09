@@ -3,7 +3,7 @@ SQLAlchemy models for AURA database
 """
 
 import os
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY, LargeBinary
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY, LargeBinary, Numeric, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -275,4 +275,149 @@ class RLPrediction(Base):
     action = Column(String(10))
     confidence = Column(Float)
     predicted_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  NEXT-GEN SCHEMA — Trust, Explainability, Intelligence
+# ═══════════════════════════════════════════════════════════════
+
+class DecisionAudit(Base):
+    """Append-only log of every AI decision with full explainability."""
+    __tablename__ = "decision_audit"
+    __table_args__ = (
+        Index("ix_decision_audit_symbol_ts", "symbol", "created_at"),
+        Index("ix_decision_audit_user", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    action = Column(String(20), nullable=False)  # BUY/SELL/HOLD/NO-TRADE/BLOCKED
+    confidence_score = Column(Float)
+    confidence_band = Column(String(10))  # low/medium/high
+    market_regime = Column(String(20))  # bullish/bearish/sideways/volatile
+    reason_codes = Column(ARRAY(Text), default=[])
+    blocked_by = Column(ARRAY(Text), default=[])
+    sizing_adjustments = Column(ARRAY(Text), default=[])
+    improvement_triggers = Column(ARRAY(Text), default=[])
+    narrative_summary = Column(Text)
+    machine_summary = Column(Text)
+    smart_score = Column(Float)
+    trend_score = Column(Float)
+    price_change_pct = Column(Float)
+    signal_agreement = Column(Float)
+    using_ml_model = Column(Boolean)
+    risk_profile = Column(String(20))
+    sizing_decision = Column(String(10))  # execute/reduce/block
+    sizing_notional = Column(Numeric)
+    portfolio_risk_score = Column(Float)
+    source = Column(String(30), default="decision_engine")
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AutopilotConfig(Base):
+    """Mutable user autopilot mode configuration."""
+    __tablename__ = "autopilot_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, unique=True, nullable=False)
+    mode = Column(String(20), nullable=False, default="balanced")  # safe/balanced/aggressive
+    confidence_threshold = Column(Float, default=0.90)
+    smart_score_threshold = Column(Integer, default=75)
+    max_positions = Column(Integer, default=3)
+    stop_loss_pct = Column(Float, default=0.03)
+    take_profit_pct = Column(Float, default=0.05)
+    fixed_order_value = Column(Float, default=10.0)
+    check_interval_seconds = Column(Integer, default=60)
+    is_enabled = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PortfolioSnapshot(Base):
+    """Append-only periodic snapshot of portfolio state for analytics."""
+    __tablename__ = "portfolio_snapshots"
+    __table_args__ = (
+        Index("ix_portfolio_snap_user_ts", "user_id", "snapshot_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    total_value_usd = Column(Numeric, nullable=False)
+    cash_usd = Column(Numeric)
+    positions_value_usd = Column(Numeric)
+    position_count = Column(Integer)
+    exposure_by_class = Column(JSON)  # {"crypto": 70, "stock": 20, ...}
+    exposure_by_symbol = Column(JSON)  # {"BTC": 2000, "ETH": 1500, ...}
+    portfolio_risk_score = Column(Float)
+    concentration_warnings = Column(ARRAY(Text), default=[])
+    snapshot_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SimulationRun(Base):
+    """Append-only record of each simulation execution."""
+    __tablename__ = "simulation_runs"
+    __table_args__ = (
+        Index("ix_sim_run_user_ts", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    strategy = Column(String(30), nullable=False)
+    symbols = Column(ARRAY(Text))
+    timeframe_days = Column(Integer)
+    initial_capital = Column(Numeric, nullable=False)
+    final_capital = Column(Numeric)
+    pnl = Column(Numeric)
+    pnl_pct = Column(Float)
+    max_drawdown_pct = Column(Float)
+    sharpe_ratio = Column(Float)
+    win_rate_pct = Column(Float)
+    total_trades = Column(Integer)
+    profit_factor = Column(Float)
+    config_json = Column(JSON)  # Full input params for reproducibility
+    trades_json = Column(JSON)  # All trades for replay
+    disclaimer_accepted = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class StrategyHealth(Base):
+    """Append-only health/performance tracking per strategy."""
+    __tablename__ = "strategy_health"
+    __table_args__ = (
+        Index("ix_strat_health_name_ts", "strategy_name", "recorded_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_name = Column(String(30), nullable=False, index=True)
+    symbol = Column(String(20), nullable=True)
+    score = Column(Float)
+    signal_action = Column(String(10))
+    signal_confidence = Column(Float)
+    consensus_action = Column(String(10))
+    consensus_agreement = Column(Float)
+    explanation = Column(Text)
+    recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class RiskEvent(Base):
+    """Append-only log of risk events — blocks, reductions, alerts."""
+    __tablename__ = "risk_events"
+    __table_args__ = (
+        Index("ix_risk_event_symbol_ts", "symbol", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    symbol = Column(String(20), index=True)
+    event_type = Column(String(30), nullable=False)  # block/reduce/alert/skip
+    reason_codes = Column(ARRAY(Text), default=[])
+    explanation = Column(Text)
+    source = Column(String(30))  # auto_trader/position_sizing/portfolio_state
+    severity = Column(String(10), default="warning")
+    sizing_before = Column(Numeric)
+    sizing_after = Column(Numeric)
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
