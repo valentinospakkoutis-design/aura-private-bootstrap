@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TextInput, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
@@ -50,6 +50,12 @@ export default function LiveTradingScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [tradingMode, setTradingMode] = useState<string>('paper');
   const [brokerConnected, setBrokerConnected] = useState(false);
+
+  // Order form state
+  const [symbol, setSymbol] = useState('BTCUSDC');
+  const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [quantity, setQuantity] = useState('0.0001');
+  const [submitting, setSubmitting] = useState(false);
 
   const {
     loading: closingTrade,
@@ -107,6 +113,25 @@ export default function LiveTradingScreen() {
     await loadData();
     setRefreshing(false);
   }, [loadData]);
+
+  const handlePlaceOrder = useCallback(async () => {
+    const qty = parseFloat(quantity);
+    if (!symbol.trim()) { showToast('Εισήγαγε symbol', 'error'); return; }
+    if (isNaN(qty) || qty <= 0) { showToast('Εισήγαγε έγκυρη ποσότητα', 'error'); return; }
+
+    try {
+      setSubmitting(true);
+      await api.placeLiveOrder(symbol.toUpperCase().trim(), side, qty);
+      showToast(`${side} ${qty} ${symbol} εκτελέστηκε!`, 'success');
+      setQuantity('0.0001');
+      await loadData();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Αποτυχία order';
+      showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [symbol, side, quantity, showToast, loadData]);
 
   const handleCloseTrade = useCallback((tradeId: string) => {
     showModal(
@@ -183,6 +208,7 @@ export default function LiveTradingScreen() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -264,6 +290,70 @@ export default function LiveTradingScreen() {
 
           </AnimatedCard>
         )}
+
+        {/* Order Form */}
+        <View style={styles.orderCard}>
+          <Text style={styles.statsTitle}>📝 Νέο Live Order</Text>
+
+          <View style={styles.formRow}>
+            <Text style={styles.formLabel}>Symbol</Text>
+            <TextInput
+              style={styles.formInput}
+              value={symbol}
+              onChangeText={setSymbol}
+              placeholder="BTCUSDC"
+              placeholderTextColor="#999"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={true}
+              blurOnSubmit={false}
+            />
+          </View>
+
+          <View style={styles.formRow}>
+            <Text style={styles.formLabel}>Side</Text>
+            <View style={styles.sideToggle}>
+              <TouchableOpacity
+                style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
+                onPress={() => setSide('BUY')}
+              >
+                <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 BUY</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
+                onPress={() => setSide('SELL')}
+              >
+                <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 SELL</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.formRow}>
+            <Text style={styles.formLabel}>Ποσότητα</Text>
+            <TextInput
+              style={styles.formInput}
+              value={quantity}
+              onChangeText={setQuantity}
+              placeholder="0.0001"
+              placeholderTextColor="#999"
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              autoCorrect={false}
+              editable={true}
+              blurOnSubmit={false}
+            />
+          </View>
+
+          <Button
+            title={submitting ? 'Εκτέλεση...' : `${side} ${symbol}`}
+            onPress={handlePlaceOrder}
+            variant={side === 'BUY' ? 'primary' : 'secondary'}
+            size="large"
+            fullWidth
+            disabled={submitting || !quantity.trim()}
+            loading={submitting}
+          />
+        </View>
 
         {/* Trades List */}
         {trades.length === 0 ? (
@@ -599,6 +689,64 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: theme.spacing.xl,
+  },
+  orderCard: {
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  formRow: {
+    marginBottom: theme.spacing.md,
+  },
+  formLabel: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '600' as const,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
+  },
+  formInput: {
+    backgroundColor: theme.colors.ui.background,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    borderRadius: theme.borderRadius.medium,
+    padding: theme.spacing.md,
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.primary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  sideToggle: {
+    flexDirection: 'row' as const,
+    gap: theme.spacing.sm,
+  },
+  sideButton: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.borderRadius.medium,
+    borderWidth: 2,
+    borderColor: theme.colors.ui.border,
+    alignItems: 'center' as const,
+  },
+  sideBuy: {
+    borderColor: theme.colors.market.bullish,
+    backgroundColor: theme.colors.market.bullish + '15',
+  },
+  sideSell: {
+    borderColor: theme.colors.market.bearish,
+    backgroundColor: theme.colors.market.bearish + '15',
+  },
+  sideText: {
+    fontSize: theme.typography.sizes.md,
+    fontWeight: '700' as const,
+    color: theme.colors.text.secondary,
+  },
+  sideTextActive: {
+    color: theme.colors.text.primary,
   },
 });
 
