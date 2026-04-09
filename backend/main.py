@@ -1567,7 +1567,62 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
     except Exception:
         ss = None
 
-    explanation = build_explanation(prediction, ss)
+    # Portfolio awareness — assess concentration risk
+    portfolio_assessment = None
+    risk_context = None
+    try:
+        from services.portfolio_state import assess_portfolio
+        positions = []
+        if broker_instances:
+            broker = next(iter(broker_instances.values()))
+            try:
+                full_portfolio = broker._signed_request("GET", "/api/v3/account")
+                if "error" not in full_portfolio:
+                    for item in full_portfolio.get("balances", []):
+                        total = float(item.get("free", 0)) + float(item.get("locked", 0))
+                        if total > 0 and item["asset"] not in ("USDC", "USDT", "BUSD", "USD"):
+                            price = broker.get_symbol_price(f"{item['asset']}USDC")
+                            if price <= 0:
+                                price = broker.get_symbol_price(f"{item['asset']}USDT")
+                            positions.append({
+                                "symbol": item["asset"],
+                                "amount": total,
+                                "value_usdc": total * price if price > 0 else 0,
+                            })
+            except Exception:
+                pass
+
+        balance = 10000
+        if broker_instances:
+            try:
+                acct = next(iter(broker_instances.values())).get_account_balance()
+                if "error" not in acct:
+                    balance = acct.get("total_balance", 10000) or 10000
+            except Exception:
+                pass
+
+        portfolio_assessment = assess_portfolio(
+            positions=positions,
+            account_balance=balance,
+            proposed_symbol=sym,
+            proposed_value=balance * 0.02,  # estimate 2% trade
+        )
+
+        # Build risk context for explanation layer
+        if portfolio_assessment.adjustment_recommendation == "block":
+            risk_context = {
+                "blocked": True,
+                "block_reason": "PORTFOLIO_CONCENTRATION",
+                "size_factor": 0.0,
+            }
+        elif portfolio_assessment.size_factor < 1.0:
+            risk_context = {
+                "size_factor": portfolio_assessment.size_factor,
+            }
+    except Exception as e:
+        print(f"[!] Portfolio assessment failed (non-fatal): {e}")
+
+    explanation = build_explanation(prediction, ss, risk_context=risk_context)
 
     # Audit log
     try:
@@ -1623,10 +1678,24 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
     except Exception as e:
         print(f"[!] Position sizing failed (non-fatal): {e}")
 
+    # Build portfolio summary for response
+    portfolio_summary = None
+    if portfolio_assessment:
+        portfolio_summary = {
+            "risk_score": portfolio_assessment.portfolio_risk_score,
+            "total_exposure_usd": portfolio_assessment.total_exposure_usd,
+            "position_count": portfolio_assessment.position_count,
+            "exposure_by_class_pct": portfolio_assessment.exposure_by_class_pct,
+            "concentration_warnings": portfolio_assessment.concentration_warnings,
+            "adjustment": portfolio_assessment.adjustment_recommendation,
+            "size_factor": portfolio_assessment.size_factor,
+        }
+
     result = {
         "signal": sanitize_floats(signal),
         "explanation": explanation.model_dump(),
         "sizing": sanitize_floats(sizing) if sizing else None,
+        "portfolio": sanitize_floats(portfolio_summary) if portfolio_summary else None,
         "user_profile": {
             "risk_profile": risk_profile_name,
             "objective": user_profile.get("objective", "growth"),
@@ -1635,6 +1704,52 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
         },
     }
     return sanitize_floats(result)
+
+
+@app.get("/api/portfolio/risk")
+def get_portfolio_risk(payload=Depends(require_auth)):
+    """Get portfolio risk assessment — exposure, concentration, recommendations."""
+    from services.portfolio_state import assess_portfolio
+
+    positions = []
+    balance = 10000
+    try:
+        if broker_instances:
+            broker = next(iter(broker_instances.values()))
+            acct = broker.get_account_balance()
+            if "error" not in acct:
+                balance = acct.get("total_balance", 10000) or 10000
+
+            full = broker._signed_request("GET", "/api/v3/account")
+            if "error" not in full:
+                for item in full.get("balances", []):
+                    total = float(item.get("free", 0)) + float(item.get("locked", 0))
+                    if total > 0 and item["asset"] not in ("USDC", "USDT", "BUSD", "USD"):
+                        price = broker.get_symbol_price(f"{item['asset']}USDC")
+                        if price <= 0:
+                            price = broker.get_symbol_price(f"{item['asset']}USDT")
+                        positions.append({
+                            "symbol": item["asset"],
+                            "amount": total,
+                            "value_usdc": total * price if price > 0 else 0,
+                        })
+    except Exception as e:
+        print(f"[!] Portfolio risk fetch failed: {e}")
+
+    assessment = assess_portfolio(positions=positions, account_balance=balance)
+    return sanitize_floats({
+        "risk_score": assessment.portfolio_risk_score,
+        "total_exposure_usd": assessment.total_exposure_usd,
+        "position_count": assessment.position_count,
+        "exposure_by_symbol": assessment.exposure_by_symbol,
+        "exposure_by_class": assessment.exposure_by_class,
+        "exposure_by_class_pct": assessment.exposure_by_class_pct,
+        "correlated_exposure": assessment.correlated_exposure,
+        "concentration_warnings": assessment.concentration_warnings,
+        "adjustment": assessment.adjustment_recommendation,
+        "adjustment_details": assessment.adjustment_details,
+        "size_factor": assessment.size_factor,
+    })
 
 
 @app.get("/api/ai/signal/{symbol}")
