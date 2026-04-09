@@ -1545,17 +1545,23 @@ def get_prediction_by_id(prediction_id: str):
 
 
 @app.get("/api/ai/decision/{symbol}")
-def get_ai_decision(symbol: str):
-    """Returns a full explainable AI trading decision with structured reasoning."""
+def get_ai_decision(symbol: str, payload=Depends(require_auth)):
+    """Returns a personalized, explainable AI trading decision."""
     from ai.decision_explanation import build_explanation
     from services.smart_score import smart_score_calculator
+    from services.user_personalization import get_user_profile
 
     sym = symbol.upper()
+    user_id = int(payload.get("sub", 0))
+
+    # Load user's personalized trading parameters
+    user_profile = get_user_profile(user_id)
+    risk_profile_name = user_profile.get("risk_profile", "moderate")
+
     prediction = asset_predictor.predict_price(sym, days=7)
     if "error" in prediction:
         raise HTTPException(status_code=400, detail=prediction["error"])
 
-    # Get smart score for signal context
     try:
         ss = smart_score_calculator.calculate_smart_score(sym)
     except Exception:
@@ -1563,29 +1569,30 @@ def get_ai_decision(symbol: str):
 
     explanation = build_explanation(prediction, ss)
 
-    # Audit log the decision
+    # Audit log
     try:
         from services.auth_audit import log_auth_event
         log_auth_event(
             "AI_DECISION", "GENERATED",
+            user_id=user_id,
             metadata={
                 "symbol": sym,
                 "action": explanation.action,
                 "confidence": explanation.confidence_score,
                 "band": explanation.confidence_band,
+                "risk_profile": risk_profile_name,
             },
         )
     except Exception:
         pass
 
-    # Build trading signal alongside explanation
     signal = asset_predictor.get_trading_signal(sym)
 
-    # Position sizing recommendation
+    # Position sizing with user's risk profile
     sizing = None
     try:
         from services.position_sizing import calculate_position_size, SizingInput
-        balance = 10000  # default
+        balance = 10000
         if broker_instances:
             broker = next(iter(broker_instances.values()))
             acct = broker.get_account_balance()
@@ -1599,7 +1606,8 @@ def get_ai_decision(symbol: str):
             current_drawdown=0.0,
             current_portfolio_exposure=0.0,
             price=prediction.get("current_price", 1),
-            user_risk_profile="moderate",
+            user_risk_profile=risk_profile_name,
+            symbol=sym,
         ))
         sizing = {
             "recommended_notional": sizing_result.recommended_notional,
@@ -1619,6 +1627,12 @@ def get_ai_decision(symbol: str):
         "signal": sanitize_floats(signal),
         "explanation": explanation.model_dump(),
         "sizing": sanitize_floats(sizing) if sizing else None,
+        "user_profile": {
+            "risk_profile": risk_profile_name,
+            "objective": user_profile.get("objective", "growth"),
+            "confidence_threshold": user_profile.get("confidence_threshold"),
+            "max_positions": user_profile.get("max_positions"),
+        },
     }
     return sanitize_floats(result)
 
@@ -2407,11 +2421,28 @@ def logout_all_devices(payload=Depends(require_auth)):
 
 @app.put("/api/user/risk-profile")
 def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
-    """Update risk profile preference (stored in-memory, not persisted to DB)."""
-    risk = data.get("risk_profile", "moderate")
-    if risk not in ("conservative", "moderate", "aggressive"):
-        raise HTTPException(status_code=400, detail="Invalid risk profile. Must be: conservative, moderate, or aggressive")
-    return {"risk_profile": risk}
+    """Update user risk profile — persisted to user_profiles table."""
+    from services.user_personalization import save_user_profile
+    user_id = int(payload.get("sub", 0))
+    result = save_user_profile(
+        user_id=user_id,
+        risk_profile=data.get("risk_profile", "moderate"),
+        objective=data.get("objective", "growth"),
+        confidence_threshold_override=data.get("confidence_threshold"),
+        max_position_override=data.get("max_positions"),
+        behavior_flags=data.get("behavior_flags"),
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/user/trading-profile")
+def get_user_trading_profile(payload=Depends(require_auth)):
+    """Get the user's personalized trading parameters."""
+    from services.user_personalization import get_user_profile
+    user_id = int(payload.get("sub", 0))
+    return get_user_profile(user_id)
 
 
 # ── Live Trading Endpoints ───────────────────────────────────────────

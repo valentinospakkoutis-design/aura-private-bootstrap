@@ -154,6 +154,19 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    risk_profile TEXT NOT NULL DEFAULT 'moderate',
+                    objective TEXT DEFAULT 'growth',
+                    confidence_threshold_override NUMERIC,
+                    max_position_override NUMERIC,
+                    behavior_flags JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             conn.commit()
         except Exception as e:
             print(f"[!] Could not add columns (may already exist): {e}")
