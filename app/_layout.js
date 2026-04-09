@@ -282,6 +282,14 @@ function AppContent() {
           }}
         />
 
+        <Stack.Screen
+          name="bybit-trading"
+          options={{
+            title: '🟡 Bybit',
+            headerShown: true,
+          }}
+        />
+
         {/* Dev/Test Screens */}
         <Stack.Screen
           name="dev-test"

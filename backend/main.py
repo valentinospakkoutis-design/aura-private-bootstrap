@@ -163,7 +163,11 @@ def _restore_broker_connections():
             try:
                 api_key = security_manager.decrypt_api_key(row.encrypted_api_key)
                 api_secret = security_manager.decrypt_api_key(row.encrypted_api_secret)
-                broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
+                if row.broker_name == "bybit":
+                    from brokers.bybit import BybitAPI
+                    broker = BybitAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
+                else:
+                    broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
                 broker.connected = True
                 broker_instances[row.broker_name] = broker
                 loaded += 1
@@ -723,6 +727,35 @@ async def connect_broker(connection: BrokerConnection, _user=Depends(require_aut
             if result["status"] == "connected":
                 broker_instances[connection.broker.lower()] = broker
                 # Persist to database (sync DB in threadpool)
+                await asyncio.to_thread(
+                    _save_broker_to_db,
+                    connection.broker.lower(),
+                    connection.api_key,
+                    connection.api_secret,
+                    connection.testnet
+                )
+                return {
+                    "status": "connected",
+                    "broker": connection.broker,
+                    "message": "Successfully connected and saved to database",
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                print(f"[broker] Connection FAILED: {result}")
+                raise HTTPException(status_code=400, detail=result)
+        elif connection.broker.lower() == "bybit":
+            from brokers.bybit import BybitAPI
+            broker = BybitAPI(
+                api_key=connection.api_key,
+                api_secret=connection.api_secret,
+                testnet=connection.testnet
+            )
+            print(f"[broker] Testing connection to {'testnet' if connection.testnet else 'LIVE'} Bybit...")
+            result = await asyncio.to_thread(broker.test_connection)
+            print(f"[broker] Connection result: {result.get('status', 'unknown')}")
+
+            if result["status"] == "connected":
+                broker_instances[connection.broker.lower()] = broker
                 await asyncio.to_thread(
                     _save_broker_to_db,
                     connection.broker.lower(),
@@ -2706,6 +2739,101 @@ def get_futures_portfolio_legacy(_user=Depends(require_auth)):
 def get_futures_positions_legacy(_user=Depends(require_auth)):
     """Legacy — use GET /api/futures/positions instead."""
     return get_futures_positions(_user=_user)
+
+
+# ── Bybit Endpoints ─────────────────────────────────────────────────
+
+ALLOWED_BYBIT_LEVERAGE = {1, 2, 5, 10}
+
+
+def _get_bybit_broker():
+    """Get the Bybit broker instance or raise."""
+    if "bybit" not in broker_instances:
+        _restore_broker_connections()
+    if "bybit" not in broker_instances:
+        raise HTTPException(status_code=400, detail="Bybit not connected. Use POST /api/brokers/connect with broker='bybit'.")
+    return broker_instances["bybit"]
+
+
+class BybitOrderRequest(BaseModel):
+    symbol: str
+    side: str  # "Buy" or "Sell"
+    qty: float
+    leverage: int = 1
+
+
+@app.get("/api/bybit/balance")
+def get_bybit_balance(_user=Depends(require_auth)):
+    """Get Bybit unified wallet balance."""
+    broker = _get_bybit_broker()
+    result = broker.get_balance()
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return sanitize_floats(result)
+
+
+@app.get("/api/bybit/positions")
+def get_bybit_positions(_user=Depends(require_auth)):
+    """Get open Bybit USDT perpetual positions."""
+    broker = _get_bybit_broker()
+    positions = broker.get_positions()
+    return sanitize_floats({"positions": positions, "count": len(positions)})
+
+
+@app.post("/api/bybit/order")
+def place_bybit_order(order: BybitOrderRequest, _user=Depends(require_auth)):
+    """Place a Bybit USDT perpetual market order."""
+    _enforce_live_kill_switch()
+
+    side = order.side.capitalize()
+    if side not in ("Buy", "Sell"):
+        raise HTTPException(status_code=400, detail="Side must be 'Buy' or 'Sell'")
+
+    if order.leverage not in ALLOWED_BYBIT_LEVERAGE:
+        raise HTTPException(status_code=400, detail=f"Leverage must be one of: {sorted(ALLOWED_BYBIT_LEVERAGE)}")
+
+    if order.qty <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be positive")
+
+    broker = _get_bybit_broker()
+
+    # Set leverage
+    lev_result = broker.set_leverage(order.symbol, order.leverage)
+    if isinstance(lev_result, dict) and "error" in lev_result:
+        # Bybit returns error if leverage is already set — ignore "leverage not modified"
+        if lev_result.get("code") != 110043:
+            raise HTTPException(status_code=400, detail=f"Failed to set leverage: {lev_result['error']}")
+
+    client_order_id = _generate_client_order_id()
+    result = broker.place_order(
+        symbol=order.symbol,
+        side=side,
+        quantity=order.qty,
+        client_order_id=client_order_id,
+    )
+
+    _log_live_order_audit(
+        source="bybit_manual", symbol=order.symbol, side=side,
+        quantity=order.qty, client_order_id=client_order_id,
+        broker="bybit",
+        status="submitted" if "error" not in result else "failed",
+        broker_order_id=result.get("order_id"),
+        error_message=result.get("error"),
+    )
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return sanitize_floats({
+        "order_id": result.get("order_id"),
+        "symbol": order.symbol.upper(),
+        "side": side,
+        "quantity": order.qty,
+        "leverage": order.leverage,
+        "status": result.get("status", "submitted"),
+        "client_order_id": client_order_id,
+        "broker": "bybit",
+    })
 
 
 # ── Auto Trading Endpoints ───────────────────────────────────────────

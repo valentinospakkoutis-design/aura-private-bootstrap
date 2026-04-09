@@ -12,6 +12,7 @@ const MORE_ITEMS = [
   { icon: '📝', title: 'Paper Trading', href: '/paper-trading' },
   { icon: '💰', title: 'Live Trading', href: '/live-trading' },
   { icon: '📉', title: 'Futures', href: '/futures-trading' },
+  { icon: '🟡', title: 'Bybit Futures', href: '/bybit-trading' },
   { icon: '⚙️', title: 'Settings', href: '/settings' },
 ];
 

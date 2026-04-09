@@ -555,6 +555,22 @@ class ApiClient {
     return response.data;
   }
 
+  // ── Bybit ──────────────────────────────────────────────────
+  async getBybitBalance() {
+    const response = await this.client.get('/api/bybit/balance');
+    return response.data;
+  }
+
+  async getBybitPositions() {
+    const response = await this.client.get('/api/bybit/positions');
+    return response.data;
+  }
+
+  async placeBybitOrder(symbol: string, side: 'Buy' | 'Sell', qty: number, leverage: number = 1) {
+    const response = await this.client.post('/api/bybit/order', { symbol, side, qty, leverage });
+    return response.data;
+  }
+
   async registerPushToken(token: string) {
     const response = await this.client.post('/api/notifications/register-token', {
       token,

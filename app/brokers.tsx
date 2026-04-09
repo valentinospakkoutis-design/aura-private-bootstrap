@@ -35,6 +35,14 @@ const AVAILABLE_BROKERS: Broker[] = [
     supported: true,
   },
   {
+    id: 'bybit',
+    name: 'Bybit',
+    logo: '🟠',
+    connected: false,
+    description: 'Crypto & USDT Perpetual Futures',
+    supported: true,
+  },
+  {
     id: 'etoro',
     name: 'eToro',
     logo: '💚',
