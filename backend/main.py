@@ -1604,10 +1604,12 @@ def get_ai_decision(symbol: str):
         sizing = {
             "recommended_notional": sizing_result.recommended_notional,
             "quantity": sizing_result.quantity,
+            "decision": sizing_result.decision,
             "confidence_multiplier": sizing_result.confidence_multiplier,
             "volatility_multiplier": sizing_result.volatility_multiplier,
             "drawdown_multiplier": sizing_result.drawdown_multiplier,
             "final_risk_pct": sizing_result.final_risk_pct,
+            "cap_adjustments": sizing_result.cap_adjustments,
             "reasoning": sizing_result.reasoning,
         }
     except Exception as e:
