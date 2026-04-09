@@ -167,6 +167,26 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS feed_events (
+                    id SERIAL PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    symbol TEXT,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    severity TEXT DEFAULT 'info',
+                    reason_codes TEXT[],
+                    metadata JSONB DEFAULT '{}',
+                    dedup_key TEXT UNIQUE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_feed_events_created ON feed_events (created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_feed_events_type ON feed_events (event_type)"
+            ))
             conn.commit()
         except Exception as e:
             print(f"[!] Could not add columns (may already exist): {e}")

@@ -1641,6 +1641,21 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
     except Exception:
         pass
 
+    # Emit to AI feed
+    try:
+        from services.feed_engine import emit_trade_signal, emit_no_trade, emit_risk_alert
+        if explanation.action in ("BUY", "SELL"):
+            emit_trade_signal(sym, explanation.action, explanation.confidence_score, explanation.reason_codes)
+        elif explanation.action in ("NO-TRADE", "HOLD"):
+            emit_no_trade(sym, explanation.primary_reasons, explanation.reason_codes)
+        if explanation.action == "BLOCKED":
+            emit_risk_alert(sym, f"Trade blocked: {', '.join(explanation.blocked_by)}", severity="critical")
+        if portfolio_assessment and portfolio_assessment.concentration_warnings:
+            for w in portfolio_assessment.concentration_warnings[:2]:
+                emit_risk_alert(sym, w, severity="warning")
+    except Exception:
+        pass
+
     signal = asset_predictor.get_trading_signal(sym)
 
     # Position sizing with user's risk profile
@@ -1750,6 +1765,19 @@ def get_portfolio_risk(payload=Depends(require_auth)):
         "adjustment_details": assessment.adjustment_details,
         "size_factor": assessment.size_factor,
     })
+
+
+@app.get("/api/feed")
+def get_ai_feed(
+    limit: int = 50,
+    event_type: Optional[str] = None,
+    symbol: Optional[str] = None,
+    severity: Optional[str] = None,
+):
+    """Get the AI feed — sorted, deduplicated events from all AURA systems."""
+    from services.feed_engine import get_feed
+    events = get_feed(limit=limit, event_type=event_type, symbol=symbol, severity=severity)
+    return sanitize_floats({"events": events, "count": len(events)})
 
 
 @app.get("/api/ai/signal/{symbol}")

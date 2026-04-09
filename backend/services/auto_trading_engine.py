@@ -301,6 +301,14 @@ class AutoTradingEngine:
                 notify_auto_trade(symbol, side, entry_price, confidence)
             except Exception:
                 pass
+
+            # AI feed event
+            try:
+                from services.feed_engine import emit_auto_trade
+                emit_auto_trade(symbol, side, quantity, entry_price)
+            except Exception:
+                pass
+
             return position
 
         except Exception as e:
