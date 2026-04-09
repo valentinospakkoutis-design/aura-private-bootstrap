@@ -1544,6 +1544,50 @@ def get_prediction_by_id(prediction_id: str):
     return sanitize_floats(result)
 
 
+@app.get("/api/ai/decision/{symbol}")
+def get_ai_decision(symbol: str):
+    """Returns a full explainable AI trading decision with structured reasoning."""
+    from ai.decision_explanation import build_explanation
+    from services.smart_score import smart_score_calculator
+
+    sym = symbol.upper()
+    prediction = asset_predictor.predict_price(sym, days=7)
+    if "error" in prediction:
+        raise HTTPException(status_code=400, detail=prediction["error"])
+
+    # Get smart score for signal context
+    try:
+        ss = smart_score_calculator.calculate_smart_score(sym)
+    except Exception:
+        ss = None
+
+    explanation = build_explanation(prediction, ss)
+
+    # Audit log the decision
+    try:
+        from services.auth_audit import log_auth_event
+        log_auth_event(
+            "AI_DECISION", "GENERATED",
+            metadata={
+                "symbol": sym,
+                "action": explanation.action,
+                "confidence": explanation.confidence_score,
+                "band": explanation.confidence_band,
+            },
+        )
+    except Exception:
+        pass
+
+    # Build trading signal alongside explanation
+    signal = asset_predictor.get_trading_signal(sym)
+
+    result = {
+        "signal": sanitize_floats(signal),
+        "explanation": explanation.dict(),
+    }
+    return sanitize_floats(result)
+
+
 @app.get("/api/ai/signal/{symbol}")
 def get_trading_signal(symbol: str):
     """Επιστρέφει trading signal για οποιοδήποτε asset"""
