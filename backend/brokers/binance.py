@@ -47,18 +47,21 @@ class BinanceAPI:
 
         payload = dict(params or {})
         payload["timestamp"] = int(time.time() * 1000)
-        payload.setdefault("recvWindow", 5000)
+        payload["recvWindow"] = 10000
 
         query_string = urlencode(payload)
-        payload["signature"] = self._generate_signature(query_string)
+        signature = self._generate_signature(query_string)
+        signed_qs = f"{query_string}&signature={signature}"
+
+        url = f"{self.base_url}{path}?{signed_qs}"
+        print(f"[BINANCE] {method.upper()} {path} | key={self.api_key[:8]}... | ts={payload['timestamp']} | testnet={self.testnet}")
 
         try:
-            with httpx.Client(base_url=self.base_url, timeout=timeout) as client:
+            with httpx.Client(timeout=timeout) as client:
                 response = client.request(
                     method=method.upper(),
-                    url=path,
-                    params=payload,
-                    headers=self._get_headers()
+                    url=url,
+                    headers={"X-MBX-APIKEY": self.api_key},
                 )
                 response.raise_for_status()
                 return response.json()
@@ -68,6 +71,7 @@ class BinanceAPI:
                 detail = exc.response.json()
             except ValueError:
                 detail = {"message": exc.response.text}
+            print(f"[BINANCE] ERROR {exc.response.status_code}: {detail}")
             return {
                 "error": detail.get("msg", "Binance request failed"),
                 "status": "failed",
@@ -75,6 +79,7 @@ class BinanceAPI:
                 "details": detail
             }
         except Exception as exc:
+            print(f"[BINANCE] EXCEPTION: {exc}")
             return {
                 "error": str(exc),
                 "status": "failed"
@@ -117,11 +122,9 @@ class BinanceAPI:
     
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers"""
-        headers = {
-            'Content-Type': 'application/json',
-            'X-MBX-APIKEY': self.api_key or ''
+        return {
+            'X-MBX-APIKEY': self.api_key or '',
         }
-        return headers
 
     def get_status(self) -> Dict:
         """Get broker connection status."""
@@ -425,12 +428,15 @@ class BinanceAPI:
         base = "https://testnet.binancefuture.com" if self.testnet else "https://fapi.binance.com"
         payload = dict(params or {})
         payload["timestamp"] = int(time.time() * 1000)
-        payload.setdefault("recvWindow", 5000)
+        payload["recvWindow"] = 10000
         query_string = urlencode(payload)
-        payload["signature"] = self._generate_signature(query_string)
+        signature = self._generate_signature(query_string)
+        signed_qs = f"{query_string}&signature={signature}"
+        url = f"{base}{path}?{signed_qs}"
+        print(f"[BINANCE_FUTURES] {method.upper()} {path} | key={self.api_key[:8]}... | testnet={self.testnet}")
         try:
-            with httpx.Client(base_url=base, timeout=timeout) as client:
-                response = client.request(method.upper(), path, params=payload, headers=self._get_headers())
+            with httpx.Client(timeout=timeout) as client:
+                response = client.request(method.upper(), url, headers={"X-MBX-APIKEY": self.api_key})
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as exc:
@@ -439,6 +445,7 @@ class BinanceAPI:
                 detail = exc.response.json()
             except ValueError:
                 detail = {"message": exc.response.text}
+            print(f"[BINANCE_FUTURES] ERROR {exc.response.status_code}: {detail}")
             return {"error": detail.get("msg", "Futures request failed"), "status": "failed", "code": detail.get("code"), "details": detail}
         except Exception as exc:
             return {"error": str(exc), "status": "failed"}
