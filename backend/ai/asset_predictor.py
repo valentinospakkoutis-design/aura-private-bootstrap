@@ -351,10 +351,13 @@ class AssetPredictor:
         Run prediction using XGBoost model with full feature engineering.
         Returns (predicted_price, trend_score, confidence).
         """
-        from ml.auto_trainer import fetch_binance_ohlcv, engineer_features
+        from ml.auto_trainer import fetch_binance_ohlcv, fetch_yfinance_ohlcv, engineer_features, YFINANCE_SYMBOL_MAP
 
-        # Fetch recent data for feature engineering
-        df = fetch_binance_ohlcv(symbol, interval="1d", days=250)
+        # Fetch recent data — yfinance for non-crypto, Binance for crypto
+        if symbol in YFINANCE_SYMBOL_MAP:
+            df = fetch_yfinance_ohlcv(symbol, days=250)
+        else:
+            df = fetch_binance_ohlcv(symbol, interval="1d", days=250)
         if df is None or len(df) < 50:
             raise ValueError(f"Insufficient data for XGBoost prediction: {symbol}")
 

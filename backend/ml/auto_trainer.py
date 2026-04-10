@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 BINANCE_BASE = "https://api.binance.com"
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 
-# All 27 tradeable USDC pairs
-TRAINING_SYMBOLS = [
+# All 27 tradeable USDC crypto pairs (fetched from Binance)
+CRYPTO_SYMBOLS = [
     "BTCUSDC", "ETHUSDC", "BNBUSDC", "ADAUSDC", "SOLUSDC",
     "XRPUSDC", "DOTUSDC", "POLUSDC", "LINKUSDC", "AVAXUSDC",
     "SHIBUSDC", "DOGEUSDC", "TRXUSDC", "LTCUSDC", "BCHUSDC",
@@ -34,6 +34,43 @@ TRAINING_SYMBOLS = [
     "ICPUSDC", "FILUSDC", "AAVEUSDC",
     "UNIUSDC", "SANDUSDC", "AXSUSDC", "THETAUSDC",
 ]
+
+# Non-crypto assets (fetched from yfinance)
+# Maps AURA symbol → yfinance ticker
+YFINANCE_SYMBOL_MAP = {
+    # Metals
+    "XAUUSDC": "GC=F",
+    "XAGUSDC": "SI=F",
+    "XPDUSDC": "PA=F",
+    "XPTUSDC": "PL=F",
+    # US Stocks
+    "AAPL": "AAPL",
+    "MSFT": "MSFT",
+    "GOOGL": "GOOGL",
+    "AMZN": "AMZN",
+    "NVDA": "NVDA",
+    "TSLA": "TSLA",
+    "META": "META",
+    "JPM": "JPM",
+    "BAC": "BAC",
+    # EU Stocks
+    "SAP": "SAP",
+    "ASML": "ASML",
+    "LVMH": "MC.PA",
+    # Forex
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+    "AUDUSD": "AUDUSD=X",
+    # Bonds / Indices
+    "TNX": "^TNX",
+    "VIX": "^VIX",
+}
+
+YFINANCE_SYMBOLS = list(YFINANCE_SYMBOL_MAP.keys())
+
+# Combined list — crypto first, then yfinance assets
+TRAINING_SYMBOLS = CRYPTO_SYMBOLS + YFINANCE_SYMBOLS
 
 
 def fetch_binance_ohlcv(symbol: str, interval: str = "1d", days: int = 730) -> Optional[pd.DataFrame]:
@@ -101,6 +138,50 @@ def fetch_binance_ohlcv(symbol: str, interval: str = "1d", days: int = 730) -> O
 
     except Exception as e:
         logger.error(f"Failed to fetch OHLCV for {symbol} {interval}: {e}")
+        return None
+
+
+def fetch_yfinance_ohlcv(symbol: str, days: int = 1095) -> Optional[pd.DataFrame]:
+    """
+    Fetch historical OHLCV from yfinance for non-crypto assets.
+    Returns DataFrame in the same format as fetch_binance_ohlcv().
+    """
+    yf_ticker = YFINANCE_SYMBOL_MAP.get(symbol)
+    if not yf_ticker:
+        logger.warning(f"[trainer] No yfinance mapping for {symbol}")
+        return None
+
+    try:
+        import yfinance as yf
+
+        period = "3y" if days >= 730 else ("2y" if days >= 365 else "1y")
+        ticker = yf.Ticker(yf_ticker)
+        hist = ticker.history(period=period, interval="1d")
+
+        if hist is None or hist.empty:
+            logger.warning(f"[trainer] No data available for {symbol} (yf: {yf_ticker})")
+            return None
+
+        df = pd.DataFrame({
+            "open": hist["Open"].astype(float),
+            "high": hist["High"].astype(float),
+            "low": hist["Low"].astype(float),
+            "close": hist["Close"].astype(float),
+            "volume": hist["Volume"].astype(float) if "Volume" in hist.columns else 0.0,
+        })
+        df.index = pd.to_datetime(hist.index)
+        df.index = df.index.tz_localize(None)  # remove timezone for consistency
+        df["quote_volume"] = df["volume"] * df["close"]
+        df["trades"] = 0
+
+        df = df[~df.index.duplicated(keep="last")]
+        df = df.sort_index()
+
+        logger.info(f"[trainer] Fetched {len(df)} rows for {symbol} via yfinance ({yf_ticker})")
+        return df
+
+    except Exception as e:
+        logger.error(f"[trainer] yfinance fetch failed for {symbol} ({yf_ticker}): {e}")
         return None
 
 
@@ -237,14 +318,21 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
 
     logger.info(f"[trainer] Training {symbol}...")
 
-    # Fetch daily OHLCV
-    df = fetch_binance_ohlcv(symbol, interval="1d", days=days)
-    if df is None or len(df) < 200:
-        logger.warning(f"[trainer] Insufficient data for {symbol}: {len(df) if df is not None else 0} rows")
-        return None
+    # Fetch daily OHLCV — Binance for crypto, yfinance for everything else
+    df = None
+    df_4h = None
+    if symbol in YFINANCE_SYMBOL_MAP:
+        df = fetch_yfinance_ohlcv(symbol, days=days)
+        # No 4h data from yfinance (daily only)
+    else:
+        df = fetch_binance_ohlcv(symbol, interval="1d", days=days)
+        # Also fetch 4h data for multi-timeframe features
+        df_4h = fetch_binance_ohlcv(symbol, interval="4h", days=min(days, 180))
 
-    # Also fetch 4h data for multi-timeframe features
-    df_4h = fetch_binance_ohlcv(symbol, interval="4h", days=min(days, 180))
+    if df is None or len(df) < 200:
+        row_count = len(df) if df is not None else 0
+        logger.warning(f"[trainer] Not enough data for {symbol}: {row_count} rows")
+        return None
 
     # Engineer features on daily
     feat = engineer_features(df)
@@ -391,7 +479,7 @@ def _add_multi_timeframe_features(daily_feat: pd.DataFrame, df_4h: pd.DataFrame)
 
 
 def train_all_symbols(days: int = 730) -> List[Dict]:
-    """Train models for all USDC crypto pairs. Returns list of results."""
+    """Train models for all symbols (crypto + stocks + metals + forex). Returns list of results."""
     results = []
     for symbol in TRAINING_SYMBOLS:
         try:
