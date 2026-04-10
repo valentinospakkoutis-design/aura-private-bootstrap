@@ -608,6 +608,23 @@ class ApiClient {
     return response.data;
   }
 
+  async getFeedEvents(limit: number = 50) {
+    const response = await this.client.get('/api/feed', {
+      params: { limit },
+    });
+    const data = response.data;
+
+    if (Array.isArray(data)) {
+      return data;
+    }
+
+    if (Array.isArray(data?.events)) {
+      return data.events;
+    }
+
+    return [];
+  }
+
   // Cache Management
   async clearCache() {
     await cacheService.clear();

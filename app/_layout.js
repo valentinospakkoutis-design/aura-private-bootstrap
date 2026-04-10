@@ -211,6 +211,14 @@ function AppContent() {
           }} 
         />
         
+        <Stack.Screen
+          name="ai-feed"
+          options={{
+            title: 'AI Feed',
+            headerShown: true,
+          }}
+        />
+
         <Stack.Screen 
           name="settings" 
           options={{ 

@@ -64,8 +64,15 @@ const QUICK_ACTIONS: QuickAction[] = [
     route: '/auto-trading',
     color: theme.colors.semantic.error,
   },
-  {
+    {
     id: '7',
+    title: 'AI Feed',
+    icon: '🧠',
+    route: '/ai-feed',
+    color: theme.colors.accent.blue,
+  },
+  {
+    id: '8',
     title: 'Settings',
     icon: '⚙️',
     route: '/settings',
