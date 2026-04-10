@@ -11,6 +11,7 @@ import { NoData } from '../mobile/src/components/NoData';
 import { Button } from '../mobile/src/components/Button';
 import { theme } from '../mobile/src/constants/theme';
 import { useAppStore } from '../mobile/src/stores/appStore';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { useRouter } from 'expo-router';
 
 interface PaperTrade {
@@ -38,6 +39,7 @@ interface PortfolioStats {
 export default function PaperTradingScreen() {
   const router = useRouter();
   const { showToast, showModal } = useAppStore();
+  const { t } = useLanguage();
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const [stats, setStats] = useState<PortfolioStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,22 +84,22 @@ export default function PaperTradingScreen() {
   const handlePlaceOrder = useCallback(async () => {
     const qty = parseFloat(quantity);
     if (!symbol.trim()) {
-      showToast('Εισήγαγε symbol (π.χ. BTCUSDC)', 'error');
+      showToast(t('enterSymbol'), 'error');
       return;
     }
     if (isNaN(qty) || qty <= 0) {
-      showToast('Εισήγαγε έγκυρη ποσότητα', 'error');
+      showToast(t('enterValidQty'), 'error');
       return;
     }
 
     try {
       setSubmitting(true);
       await api.placePaperOrder(symbol.toUpperCase().trim(), side, qty);
-      showToast(`${side} ${qty} ${symbol} εκτελέστηκε!`, 'success');
+      showToast(`${side} ${qty} ${symbol} ${t('orderExecuted')}`, 'success');
       setQuantity('0.001');
       await loadData();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Αποτυχία order';
+      const msg = err?.response?.data?.detail || err?.message || t('orderFailed');
       showToast(msg, 'error');
     } finally {
       setSubmitting(false);
@@ -112,8 +114,8 @@ export default function PaperTradingScreen() {
 
   const handleCloseTrade = useCallback((tradeId: string) => {
     showModal(
-      'Κλείσιμο Trade',
-      'Είσαι σίγουρος ότι θέλεις να κλείσεις αυτό το trade;',
+      t('closePosition'),
+      t('confirmClose', { quantity: '', symbol: '', value: '' }),
       async () => {
         try {
           // await api.closeTrade(tradeId);
@@ -151,11 +153,11 @@ export default function PaperTradingScreen() {
   // Trade form rendered inline (not as component function to avoid remounts)
   const tradeForm = (
     <View style={styles.tradeFormCard}>
-      <Text style={styles.statsTitle}>📝 Νέο Trade</Text>
+      <Text style={styles.statsTitle}>📝 {t('newTrade')}</Text>
 
       {/* Symbol */}
       <View style={styles.formRow}>
-        <Text style={styles.formLabel}>Symbol</Text>
+        <Text style={styles.formLabel}>{t('symbol')}</Text>
         <TextInput
           style={styles.formInput}
           value={symbol}
@@ -173,26 +175,26 @@ export default function PaperTradingScreen() {
 
       {/* Side Toggle */}
       <View style={styles.formRow}>
-        <Text style={styles.formLabel}>Side</Text>
+        <Text style={styles.formLabel}>{t('side')}</Text>
         <View style={styles.sideToggle}>
           <TouchableOpacity
             style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
             onPress={() => setSide('BUY')}
           >
-            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 BUY</Text>
+            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 {t('buy')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
             onPress={() => setSide('SELL')}
           >
-            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 SELL</Text>
+            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 {t('sell')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Quantity */}
       <View style={styles.formRow}>
-        <Text style={styles.formLabel}>Ποσότητα</Text>
+        <Text style={styles.formLabel}>{t('quantity')}</Text>
         <TextInput
           style={styles.formInput}
           value={quantity}
@@ -210,7 +212,7 @@ export default function PaperTradingScreen() {
 
       {/* Submit */}
       <Button
-        title={submitting ? 'Εκτέλεση...' : `${side} ${symbol}`}
+        title={submitting ? t('executing') : `${side} ${symbol}`}
         onPress={handlePlaceOrder}
         variant={side === 'BUY' ? 'primary' : 'secondary'}
         size="large"
@@ -254,11 +256,11 @@ export default function PaperTradingScreen() {
       {/* Stats Card - ANIMATED */}
       {stats && (
         <AnimatedCard delay={0} animationType="slideUp">
-          <Text style={styles.statsTitle}>📊 Το Portfolio σου</Text>
+          <Text style={styles.statsTitle}>📊 {t('livePortfolio')}</Text>
           
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Συνολική Αξία</Text>
+              <Text style={styles.statLabel}>{t('totalValue')}</Text>
               <AnimatedCounter
                 value={stats.totalValue || 0}
                 decimals={2}
@@ -268,7 +270,7 @@ export default function PaperTradingScreen() {
               />
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Κέρδος/Ζημιά</Text>
+              <Text style={styles.statLabel}>{t('pnl')}</Text>
               <AnimatedCounter
                 value={Math.abs(stats.totalProfit || 0)}
                 decimals={2}
@@ -284,7 +286,7 @@ export default function PaperTradingScreen() {
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Ανοιχτά Trades</Text>
+              <Text style={styles.statLabel}>{t('openTrades')}</Text>
               <Text style={styles.statValue}>{stats.openTrades || 0}</Text>
             </View>
             <View style={styles.statItem}>
@@ -294,7 +296,7 @@ export default function PaperTradingScreen() {
           </View>
 
           <Button
-            title="Ξεκίνα Live Trading"
+            title={t('liveTradingMode')}
             onPress={() => router.push({ pathname: '/live-trading' } as any)}
             variant="primary"
             size="medium"
@@ -308,7 +310,7 @@ export default function PaperTradingScreen() {
       {tradeForm}
 
       {/* Trades List - SWIPEABLE */}
-      <Text style={styles.sectionTitle}>Πρόσφατα Trades ({trades.length})</Text>
+      <Text style={styles.sectionTitle}>{t('recentTrades')} ({trades.length})</Text>
       {trades.map((trade) => {
         // Safe calculations with fallbacks
         const tradeProfit = trade.profit || 0;

@@ -82,11 +82,38 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+def _alembic_manages_schema() -> bool:
+    """Check if Alembic is managing the schema (alembic_version table exists with a revision)."""
+    if not sync_engine:
+        return False
+    try:
+        with sync_engine.connect() as conn:
+            result = conn.execute(text(
+                "SELECT version_num FROM alembic_version LIMIT 1"
+            ))
+            row = result.fetchone()
+            if row:
+                print(f"[+] Alembic is managing schema (revision: {row[0]})")
+                return True
+    except Exception:
+        pass  # Table doesn't exist — Alembic not yet bootstrapped
+    return False
+
+
 def init_db():
-    """Initialize database - create all tables"""
+    """Initialize database - create all tables.
+
+    If Alembic is managing the schema (alembic_version table exists),
+    skip raw SQL table creation for Alembic-managed tables and only
+    run legacy ALTER TABLE statements for pre-Alembic tables.
+    Use 'alembic upgrade head' for schema changes going forward.
+    """
     if not sync_engine:
         print("[!] Skipping DB init — no DATABASE_URL")
         return
+
+    alembic_active = _alembic_manages_schema()
+
     from .models import Base
     Base.metadata.create_all(bind=sync_engine)
     # Add columns if missing (for existing rl_models tables)
@@ -170,6 +197,16 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            # ── Alembic-managed tables ──
+            # When Alembic is active (alembic_version table has a revision),
+            # skip raw SQL table creation — Alembic owns these tables.
+            # Use 'alembic upgrade head' for schema changes going forward.
+            if alembic_active:
+                conn.commit()
+                print("[+] Alembic manages schema — skipped raw SQL for 19 managed tables")
+                print("[+] Database tables created (legacy only)")
+                return
+
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     id SERIAL PRIMARY KEY,
@@ -183,6 +220,35 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_autopilot_settings (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    current_mode TEXT NOT NULL DEFAULT 'balanced',
+                    is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    config_overrides_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS autopilot_mode_change_log (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    previous_mode TEXT,
+                    new_mode TEXT NOT NULL,
+                    reason TEXT,
+                    changed_by TEXT NOT NULL DEFAULT 'user',
+                    metadata_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_autopilot_settings_user ON user_autopilot_settings (user_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_autopilot_change_user_ts ON autopilot_mode_change_log (user_id, created_at DESC)"
+            ))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS feed_events (
                     id SERIAL PRIMARY KEY,
@@ -202,6 +268,334 @@ def init_db():
             ))
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS idx_feed_events_type ON feed_events (event_type)"
+            ))
+            # AI decision explainability tables
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ai_decision_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    symbol TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    confidence_score NUMERIC,
+                    confidence_band TEXT,
+                    market_regime TEXT,
+                    narrative_summary TEXT,
+                    machine_summary TEXT,
+                    stop_loss_logic TEXT,
+                    take_profit_logic TEXT,
+                    expected_holding_profile TEXT,
+                    raw_signal_payload_json JSONB DEFAULT '{}',
+                    audit_metadata_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ai_decision_reason_codes (
+                    id SERIAL PRIMARY KEY,
+                    decision_event_id INTEGER NOT NULL REFERENCES ai_decision_events(id),
+                    code TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    detail_text TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS ai_decision_counterfactuals (
+                    id SERIAL PRIMARY KEY,
+                    decision_event_id INTEGER NOT NULL REFERENCES ai_decision_events(id),
+                    counterfactual_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_ai_decision_user_ts ON ai_decision_events (user_id, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_ai_decision_symbol_ts ON ai_decision_events (symbol, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_ai_reason_code ON ai_decision_reason_codes (code)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_ai_reason_event ON ai_decision_reason_codes (decision_event_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_ai_cf_event ON ai_decision_counterfactuals (decision_event_id)"
+            ))
+            # Persistent risk events table
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS persistent_risk_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    symbol TEXT,
+                    related_decision_event_id INTEGER REFERENCES ai_decision_events(id),
+                    event_type TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'warning',
+                    reason_code TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    details_json JSONB DEFAULT '{}',
+                    original_requested_notional NUMERIC,
+                    adjusted_notional NUMERIC,
+                    original_requested_quantity NUMERIC,
+                    adjusted_quantity NUMERIC,
+                    portfolio_risk_score NUMERIC,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_prisk_user_ts ON persistent_risk_events (user_id, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_prisk_symbol_ts ON persistent_risk_events (symbol, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_prisk_event_type ON persistent_risk_events (event_type)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_prisk_decision_event ON persistent_risk_events (related_decision_event_id)"
+            ))
+            # Persistent feed events (user-facing AI feed / timeline)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS persistent_feed_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    source_type TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    priority TEXT NOT NULL DEFAULT 'medium',
+                    title TEXT NOT NULL,
+                    short_summary TEXT NOT NULL,
+                    full_explanation TEXT,
+                    related_symbol TEXT,
+                    confidence_score NUMERIC,
+                    risk_level TEXT,
+                    action_suggestion TEXT,
+                    source_reference_type TEXT,
+                    source_reference_id INTEGER,
+                    dedupe_key TEXT UNIQUE,
+                    expires_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS feed_event_reads (
+                    id SERIAL PRIMARY KEY,
+                    feed_event_id INTEGER NOT NULL REFERENCES persistent_feed_events(id),
+                    user_id INTEGER NOT NULL,
+                    read_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (feed_event_id, user_id)
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_pfeed_user_ts ON persistent_feed_events (user_id, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_pfeed_user_type_ts ON persistent_feed_events (user_id, event_type, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_pfeed_dedupe ON persistent_feed_events (dedupe_key)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_feed_read_user_ts ON feed_event_reads (user_id, read_at DESC)"
+            ))
+            # Portfolio state & exposure history tables
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS portfolio_state_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    snapshot_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+                    total_equity NUMERIC NOT NULL,
+                    available_cash NUMERIC NOT NULL,
+                    total_exposure NUMERIC NOT NULL,
+                    net_exposure NUMERIC NOT NULL,
+                    gross_exposure NUMERIC NOT NULL,
+                    drawdown_pct NUMERIC,
+                    concentration_score NUMERIC,
+                    diversification_score NUMERIC,
+                    risk_score NUMERIC,
+                    metadata_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS portfolio_symbol_exposures (
+                    id SERIAL PRIMARY KEY,
+                    portfolio_snapshot_id INTEGER NOT NULL REFERENCES portfolio_state_snapshots(id),
+                    symbol TEXT NOT NULL,
+                    asset_class TEXT,
+                    direction TEXT NOT NULL DEFAULT 'long',
+                    quantity NUMERIC NOT NULL,
+                    market_value NUMERIC NOT NULL,
+                    exposure_pct NUMERIC NOT NULL,
+                    unrealized_pnl NUMERIC,
+                    metadata_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS portfolio_cluster_exposures (
+                    id SERIAL PRIMARY KEY,
+                    portfolio_snapshot_id INTEGER NOT NULL REFERENCES portfolio_state_snapshots(id),
+                    cluster_name TEXT NOT NULL,
+                    gross_exposure NUMERIC NOT NULL,
+                    net_exposure NUMERIC NOT NULL,
+                    exposure_pct NUMERIC NOT NULL,
+                    risk_weight NUMERIC,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_pstate_user_ts ON portfolio_state_snapshots (user_id, snapshot_timestamp DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_psymexp_snapshot ON portfolio_symbol_exposures (portfolio_snapshot_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_psymexp_symbol ON portfolio_symbol_exposures (symbol)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_pclusexp_snapshot ON portfolio_cluster_exposures (portfolio_snapshot_id)"
+            ))
+            # Simulation & backtesting persistence tables
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS persistent_simulation_runs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    strategy_id TEXT,
+                    run_type TEXT NOT NULL DEFAULT 'backtest',
+                    symbol_universe_json JSONB NOT NULL,
+                    timeframe_start TIMESTAMP,
+                    timeframe_end TIMESTAMP,
+                    initial_capital NUMERIC NOT NULL,
+                    config_json JSONB NOT NULL,
+                    assumptions_json JSONB DEFAULT '{}',
+                    disclaimer_text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS simulation_results (
+                    id SERIAL PRIMARY KEY,
+                    simulation_run_id INTEGER NOT NULL REFERENCES persistent_simulation_runs(id),
+                    total_return_pct NUMERIC,
+                    annualized_return_pct NUMERIC,
+                    max_drawdown_pct NUMERIC,
+                    sharpe_ratio NUMERIC,
+                    win_rate_pct NUMERIC,
+                    total_trades INTEGER,
+                    avg_trade_return_pct NUMERIC,
+                    pnl_value NUMERIC,
+                    risk_metrics_json JSONB DEFAULT '{}',
+                    summary_text TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS simulation_result_timeseries (
+                    id SERIAL PRIMARY KEY,
+                    simulation_run_id INTEGER NOT NULL REFERENCES persistent_simulation_runs(id),
+                    point_timestamp TIMESTAMP NOT NULL,
+                    equity_value NUMERIC NOT NULL,
+                    drawdown_pct NUMERIC,
+                    exposure_pct NUMERIC,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_psim_user_ts ON persistent_simulation_runs (user_id, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_psim_status ON persistent_simulation_runs (status)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_simresult_run ON simulation_results (simulation_run_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_simts_run_ts ON simulation_result_timeseries (simulation_run_id, point_timestamp)"
+            ))
+            # Strategy platform tables
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS persistent_strategy_registry (
+                    id SERIAL PRIMARY KEY,
+                    strategy_key TEXT UNIQUE NOT NULL,
+                    display_name TEXT NOT NULL,
+                    description TEXT,
+                    asset_scope TEXT,
+                    holding_style TEXT,
+                    risk_class TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    version TEXT DEFAULT '1.0',
+                    config_schema_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS strategy_health_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    strategy_id INTEGER NOT NULL REFERENCES persistent_strategy_registry(id),
+                    snapshot_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+                    health_score NUMERIC NOT NULL,
+                    recent_return_pct NUMERIC,
+                    recent_drawdown_pct NUMERIC,
+                    win_rate_pct NUMERIC,
+                    volatility_score NUMERIC,
+                    stability_score NUMERIC,
+                    metadata_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS strategy_allocations (
+                    id SERIAL PRIMARY KEY,
+                    strategy_id INTEGER NOT NULL REFERENCES persistent_strategy_registry(id),
+                    user_id INTEGER,
+                    allocation_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+                    target_allocation_pct NUMERIC NOT NULL,
+                    actual_allocation_pct NUMERIC,
+                    reason_summary TEXT,
+                    metadata_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_strathsnap_strat_ts ON strategy_health_snapshots (strategy_id, snapshot_timestamp DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_stratalloc_strat_ts ON strategy_allocations (strategy_id, allocation_timestamp DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_stratalloc_user_ts ON strategy_allocations (user_id, allocation_timestamp DESC)"
+            ))
+            # Unified audit trail
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
+                    event_domain TEXT NOT NULL,
+                    event_name TEXT NOT NULL,
+                    entity_type TEXT,
+                    entity_id INTEGER,
+                    severity TEXT NOT NULL DEFAULT 'info',
+                    summary TEXT NOT NULL,
+                    payload_json JSONB DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_audit_user_ts ON audit_events (user_id, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_audit_domain_ts ON audit_events (event_domain, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_events (entity_type, entity_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_audit_severity_ts ON audit_events (severity, created_at DESC)"
             ))
             conn.commit()
         except Exception as e:

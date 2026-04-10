@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Query, BackgroundTasks, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -1606,6 +1606,7 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
             account_balance=balance,
             proposed_symbol=sym,
             proposed_value=balance * 0.02,  # estimate 2% trade
+            user_id=user_id,
         )
 
         # Build risk context for explanation layer
@@ -1623,6 +1624,57 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
         print(f"[!] Portfolio assessment failed (non-fatal): {e}")
 
     explanation = build_explanation(prediction, ss, risk_context=risk_context)
+
+    # Persist decision to explainability schema
+    decision_event_id = None
+    try:
+        from services.decision_persistence import save_decision_event
+        decision_event_id = save_decision_event(
+            explanation=explanation,
+            user_id=user_id,
+            symbol=sym,
+            raw_signal=sanitize_floats(asset_predictor.get_trading_signal(sym)),
+        )
+    except Exception:
+        pass
+
+    # Persist risk event if decision was blocked or reduced
+    if explanation.action in ("BLOCKED", "NO-TRADE") or explanation.sizing_adjustments:
+        try:
+            from services.risk_event_persistence import emit_risk_event
+            if explanation.action == "BLOCKED":
+                emit_risk_event(
+                    event_type="blocked_trade",
+                    reason_code=explanation.reason_codes[0] if explanation.reason_codes else "RISK_BLOCK",
+                    summary=f"Trade blocked for {sym}: {', '.join(explanation.blocked_by[:2])}",
+                    user_id=user_id,
+                    symbol=sym,
+                    related_decision_event_id=decision_event_id,
+                    severity="critical",
+                    details={
+                        "blocked_by": explanation.blocked_by,
+                        "reason_codes": explanation.reason_codes,
+                        "confidence": explanation.confidence_score,
+                        "risk_profile": risk_profile_name,
+                    },
+                    portfolio_risk_score=portfolio_assessment.portfolio_risk_score if portfolio_assessment else None,
+                )
+            elif explanation.sizing_adjustments:
+                emit_risk_event(
+                    event_type="size_reduced",
+                    reason_code=explanation.reason_codes[0] if explanation.reason_codes else "SIZE_REDUCED_BY_RISK",
+                    summary=f"Size reduced for {sym}: {explanation.sizing_adjustments[0]}",
+                    user_id=user_id,
+                    symbol=sym,
+                    related_decision_event_id=decision_event_id,
+                    severity="warning",
+                    details={
+                        "sizing_adjustments": explanation.sizing_adjustments,
+                        "reason_codes": explanation.reason_codes,
+                    },
+                )
+        except Exception:
+            pass
 
     # Audit log
     try:
@@ -1721,6 +1773,54 @@ def get_ai_decision(symbol: str, payload=Depends(require_auth)):
     return sanitize_floats(result)
 
 
+@app.get("/api/ai/decision-history")
+def get_decision_history(
+    symbol: str = None,
+    limit: int = 20,
+    payload=Depends(require_auth),
+):
+    """Get AI decision history with reason codes and counterfactuals."""
+    from services.decision_persistence import get_decision_history as _get_history
+    user_id = int(payload.get("sub", 0))
+    history = _get_history(user_id=user_id, symbol=symbol, limit=min(limit, 100))
+    return {"decisions": history, "count": len(history)}
+
+
+@app.get("/api/ai/reason-code-stats")
+def get_reason_code_stats(symbol: str = None, _user=Depends(require_auth)):
+    """Get aggregated reason code frequency for analytics."""
+    from services.decision_persistence import get_reason_code_stats as _get_stats
+    stats = _get_stats(symbol=symbol)
+    return {"stats": stats}
+
+
+@app.get("/api/risk-events")
+def get_risk_events(
+    symbol: str = None,
+    event_type: str = None,
+    severity: str = None,
+    limit: int = 50,
+    payload=Depends(require_auth),
+):
+    """Get risk event history with optional filters."""
+    from services.risk_event_persistence import get_risk_event_history
+    user_id = int(payload.get("sub", 0))
+    events = get_risk_event_history(
+        user_id=user_id, symbol=symbol,
+        event_type=event_type, severity=severity,
+        limit=min(limit, 200),
+    )
+    return {"events": events, "count": len(events)}
+
+
+@app.get("/api/risk-events/summary")
+def get_risk_events_summary(symbol: str = None, payload=Depends(require_auth)):
+    """Get aggregated risk event counts by type and severity."""
+    from services.risk_event_persistence import get_risk_event_summary
+    user_id = int(payload.get("sub", 0))
+    return get_risk_event_summary(user_id=user_id, symbol=symbol)
+
+
 @app.get("/api/portfolio/risk")
 def get_portfolio_risk(payload=Depends(require_auth)):
     """Get portfolio risk assessment — exposure, concentration, recommendations."""
@@ -1767,6 +1867,34 @@ def get_portfolio_risk(payload=Depends(require_auth)):
     })
 
 
+@app.get("/api/portfolio/history")
+def get_portfolio_history(limit: int = 30, payload=Depends(require_auth)):
+    """Get portfolio snapshot history for the current user."""
+    from services.portfolio_persistence import get_snapshot_history
+    user_id = int(payload.get("sub", 0))
+    snapshots = get_snapshot_history(user_id=user_id, limit=min(limit, 200))
+    return sanitize_floats({"snapshots": snapshots, "count": len(snapshots)})
+
+
+@app.get("/api/portfolio/snapshot/{snapshot_id}")
+def get_portfolio_snapshot_detail(snapshot_id: int, _user=Depends(require_auth)):
+    """Get a single portfolio snapshot with full symbol and cluster breakdown."""
+    from services.portfolio_persistence import get_snapshot_detail
+    detail = get_snapshot_detail(snapshot_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return sanitize_floats(detail)
+
+
+@app.get("/api/portfolio/equity-chart")
+def get_equity_chart(limit: int = 90, payload=Depends(require_auth)):
+    """Get equity timeseries for portfolio chart."""
+    from services.portfolio_persistence import get_equity_timeseries
+    user_id = int(payload.get("sub", 0))
+    series = get_equity_timeseries(user_id=user_id, limit=min(limit, 365))
+    return sanitize_floats({"series": series, "count": len(series)})
+
+
 @app.get("/api/feed")
 def get_ai_feed(
     limit: int = 50,
@@ -1774,10 +1902,59 @@ def get_ai_feed(
     symbol: Optional[str] = None,
     severity: Optional[str] = None,
 ):
-    """Get the AI feed — sorted, deduplicated events from all AURA systems."""
+    """Get the AI feed — sorted, deduplicated events from all AURA systems (legacy)."""
     from services.feed_engine import get_feed
     events = get_feed(limit=limit, event_type=event_type, symbol=symbol, severity=severity)
     return sanitize_floats({"events": events, "count": len(events)})
+
+
+@app.get("/api/feed/v2")
+def get_user_feed_v2(
+    event_type: Optional[str] = None,
+    priority: Optional[str] = None,
+    symbol: Optional[str] = None,
+    include_expired: bool = False,
+    limit: int = 50,
+    payload=Depends(require_auth),
+):
+    """Get personalized AI feed with read/unread state and expiry."""
+    from services.feed_persistence import get_user_feed
+    user_id = int(payload.get("sub", 0))
+    events = get_user_feed(
+        user_id=user_id, event_type=event_type,
+        priority=priority, symbol=symbol,
+        include_expired=include_expired, limit=min(limit, 200),
+    )
+    return {"events": sanitize_floats(events), "count": len(events)}
+
+
+@app.get("/api/feed/v2/unread")
+def get_feed_unread_count(payload=Depends(require_auth)):
+    """Get count of unread, non-expired feed events for the current user."""
+    from services.feed_persistence import get_unread_count
+    user_id = int(payload.get("sub", 0))
+    return {"unread_count": get_unread_count(user_id)}
+
+
+@app.post("/api/feed/v2/mark-read")
+def mark_feed_read(data: dict, payload=Depends(require_auth)):
+    """Mark specific feed events as read. Body: {"event_ids": [1, 2, 3]}"""
+    from services.feed_persistence import mark_read
+    user_id = int(payload.get("sub", 0))
+    event_ids = data.get("event_ids", [])
+    if not isinstance(event_ids, list):
+        raise HTTPException(status_code=400, detail="event_ids must be a list")
+    marked = mark_read(user_id, event_ids[:100])  # cap at 100 per call
+    return {"marked": marked}
+
+
+@app.post("/api/feed/v2/mark-all-read")
+def mark_feed_all_read(payload=Depends(require_auth)):
+    """Mark all unread feed events as read for the current user."""
+    from services.feed_persistence import mark_all_read
+    user_id = int(payload.get("sub", 0))
+    marked = mark_all_read(user_id)
+    return {"marked": marked}
 
 
 class SimulationRequest(BaseModel):
@@ -1793,9 +1970,9 @@ class SimulationRequest(BaseModel):
 
 
 @app.post("/api/simulation/run")
-def run_simulation_endpoint(req: SimulationRequest, _user=Depends(require_auth)):
+def run_simulation_endpoint(req: SimulationRequest, payload=Depends(require_auth)):
     """Run a strategy simulation. Results are hypothetical — not real trading."""
-    from services.simulation_engine import run_simulation, STRATEGIES
+    from services.simulation_engine import run_simulation, STRATEGIES, DISCLAIMER
     result = run_simulation(
         strategy=req.strategy,
         symbols=req.symbols,
@@ -1809,6 +1986,37 @@ def run_simulation_endpoint(req: SimulationRequest, _user=Depends(require_auth))
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+
+    # Persist the run
+    try:
+        from services.simulation_persistence import save_simulation_run
+        user_id = int(payload.get("sub", 0))
+        run_id = save_simulation_run(
+            user_id=user_id,
+            strategy_id=req.strategy,
+            run_type="backtest",
+            symbols=req.symbols,
+            initial_capital=req.capital,
+            config={
+                "strategy": req.strategy,
+                "symbols": req.symbols,
+                "timeframe_days": req.timeframe_days,
+                "capital": req.capital,
+                "confidence_threshold": req.confidence_threshold,
+                "stop_loss_pct": req.stop_loss_pct,
+                "take_profit_pct": req.take_profit_pct,
+                "max_positions": req.max_positions,
+                "position_size_pct": req.position_size_pct,
+            },
+            disclaimer=DISCLAIMER,
+            result=result,
+            timeframe_days=req.timeframe_days,
+        )
+        if run_id:
+            result["run_id"] = run_id
+    except Exception:
+        pass
+
     return sanitize_floats(result)
 
 
@@ -1817,6 +2025,29 @@ def get_simulation_strategies():
     """Get available simulation strategies."""
     from services.simulation_engine import STRATEGIES
     return {"strategies": {k: {"label": v["label"], "description": v["description"]} for k, v in STRATEGIES.items()}}
+
+
+@app.get("/api/simulation/history")
+def get_simulation_history_endpoint(
+    run_type: Optional[str] = None,
+    limit: int = 20,
+    payload=Depends(require_auth),
+):
+    """Get simulation run history for the current user."""
+    from services.simulation_persistence import get_simulation_history
+    user_id = int(payload.get("sub", 0))
+    history = get_simulation_history(user_id=user_id, run_type=run_type, limit=min(limit, 100))
+    return sanitize_floats({"runs": history, "count": len(history)})
+
+
+@app.get("/api/simulation/detail/{run_id}")
+def get_simulation_detail_endpoint(run_id: int, _user=Depends(require_auth)):
+    """Get full simulation detail including config, results, and equity curve."""
+    from services.simulation_persistence import get_simulation_detail
+    detail = get_simulation_detail(run_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Simulation run not found")
+    return sanitize_floats(detail)
 
 
 @app.get("/api/strategies")
@@ -1855,6 +2086,72 @@ def evaluate_strategies(symbol: str):
         "strategies": results,
         "consensus": consensus,
     })
+
+
+@app.get("/api/strategy-platform/registry")
+def get_strategy_registry(active_only: bool = False, _user=Depends(require_auth)):
+    """Get all registered strategies."""
+    from services.strategy_persistence import get_all_strategies
+    return {"strategies": get_all_strategies(active_only=active_only)}
+
+
+@app.get("/api/strategy-platform/registry/{strategy_key}")
+def get_strategy_detail(strategy_key: str, _user=Depends(require_auth)):
+    """Get a single strategy by key."""
+    from services.strategy_persistence import get_strategy_by_key
+    strat = get_strategy_by_key(strategy_key)
+    if not strat:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return strat
+
+
+@app.get("/api/strategy-platform/health/{strategy_id}")
+def get_strategy_health(strategy_id: int, limit: int = 30, _user=Depends(require_auth)):
+    """Get health snapshot history for a strategy."""
+    from services.strategy_persistence import get_health_history
+    history = get_health_history(strategy_id=strategy_id, limit=min(limit, 200))
+    return {"snapshots": history, "count": len(history)}
+
+
+@app.get("/api/strategy-platform/allocations")
+def get_strategy_allocations(
+    strategy_id: Optional[int] = None,
+    limit: int = 30,
+    payload=Depends(require_auth),
+):
+    """Get allocation history, optionally filtered by strategy."""
+    from services.strategy_persistence import get_allocation_history
+    user_id = int(payload.get("sub", 0))
+    history = get_allocation_history(strategy_id=strategy_id, user_id=user_id, limit=min(limit, 200))
+    return {"allocations": history, "count": len(history)}
+
+
+@app.get("/api/audit-trail")
+def get_audit_trail_endpoint(
+    domain: Optional[str] = None,
+    severity: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    limit: int = 50,
+    payload=Depends(require_auth),
+):
+    """Get unified audit trail with optional filters."""
+    from services.audit_trail import get_audit_trail
+    user_id = int(payload.get("sub", 0))
+    events = get_audit_trail(
+        user_id=user_id, domain=domain, severity=severity,
+        entity_type=entity_type, entity_id=entity_id,
+        limit=min(limit, 500),
+    )
+    return {"events": events, "count": len(events)}
+
+
+@app.get("/api/audit-trail/summary")
+def get_audit_summary_endpoint(payload=Depends(require_auth)):
+    """Get aggregated audit event counts by domain and severity."""
+    from services.audit_trail import get_audit_summary
+    user_id = int(payload.get("sub", 0))
+    return get_audit_summary(user_id=user_id)
 
 
 @app.get("/api/ai/signal/{symbol}")
@@ -2002,6 +2299,32 @@ def get_morning_briefing(
         include_portfolio=include_portfolio,
         max_duration_seconds=max_duration
     )
+
+@app.post("/api/voice/upload")
+async def upload_voice_sample(audio: UploadFile = File(...), _user=Depends(require_auth)):
+    """Upload a voice sample for voice cloning (30s recording)."""
+    import os
+    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    upload_dir = os.path.join(os.path.dirname(__file__), "uploads", "voice")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    filename = f"voice_{user_id}_{int(datetime.now().timestamp())}.m4a"
+    filepath = os.path.join(upload_dir, filename)
+
+    content = await audio.read()
+    if len(content) < 1000:
+        raise HTTPException(status_code=400, detail="Recording too short")
+
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    return {
+        "success": True,
+        "filename": filename,
+        "size_bytes": len(content),
+        "user_id": user_id,
+    }
+
 
 @app.get("/api/voice/briefing/history")
 def get_briefing_history(days: int = 7):
@@ -2248,9 +2571,37 @@ def get_symbol_performance():
 
 @app.get("/api/analytics/summary")
 def get_analytics_summary(period: str = "all"):
-    """Analytics summary aggregating paper + auto trades. period: 7d|30d|90d|all"""
+    """Analytics summary aggregating paper + live trades. period: 7d|30d|90d|all"""
     trades = paper_trading_service.get_trade_history(limit=10000)
     portfolio = paper_trading_service.get_portfolio()
+
+    # Include live trades from audit logs
+    try:
+        from database.connection import SessionLocal
+        if SessionLocal:
+            db = SessionLocal()
+            from sqlalchemy import text
+            live_rows = db.execute(text(
+                "SELECT symbol, side, quantity, price, status, created_at "
+                "FROM live_order_audit_logs "
+                "WHERE status = 'FILLED' OR status = 'NEW' "
+                "ORDER BY created_at DESC LIMIT 10000"
+            )).fetchall()
+            db.close()
+            for row in live_rows:
+                trades.append({
+                    "symbol": row[0],
+                    "side": row[1],
+                    "quantity": float(row[2]) if row[2] else 0,
+                    "price": float(row[3]) if row[3] else 0,
+                    "status": "closed" if row[1] == "SELL" else "open",
+                    "timestamp": row[5].isoformat() if row[5] else "",
+                    "profit": 0,
+                    "pnl": 0,
+                    "source": "live",
+                })
+    except Exception as e:
+        print(f"[!] Failed to load live trades for analytics (non-fatal): {e}")
 
     # Filter by period
     if period != "all":
@@ -3255,22 +3606,38 @@ def set_autopilot_mode(data: dict, _user=Depends(require_auth)):
     """Set autopilot mode: safe / balanced / aggressive."""
     from services.autopilot_config import apply_mode
     mode = data.get("mode", "balanced")
-    result = apply_mode(mode, auto_trader)
+    reason = data.get("reason")
+    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    result = apply_mode(mode, auto_trader, user_id=user_id, reason=reason, changed_by="user")
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 
 @app.get("/api/autopilot/mode")
-def get_autopilot_mode():
-    """Get current autopilot mode and available modes."""
-    from services.autopilot_config import get_current_mode, get_all_modes, get_mode_config
-    current = get_current_mode()
+def get_autopilot_mode(_user=Depends(require_auth)):
+    """Get current autopilot mode and available modes (per-user if persisted)."""
+    from services.autopilot_config import get_current_mode, get_all_modes, get_mode_config, get_user_autopilot
+    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    user_settings = get_user_autopilot(user_id) if user_id else None
+    current = user_settings["current_mode"] if user_settings else get_current_mode()
     return {
         "current_mode": current,
         "current_config": get_mode_config(current),
         "available_modes": get_all_modes(),
+        "user_settings": user_settings,
     }
+
+
+@app.get("/api/autopilot/history")
+def get_autopilot_history(_user=Depends(require_auth)):
+    """Get autopilot mode change history for the current user."""
+    from services.autopilot_config import get_autopilot_change_history
+    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User ID not found")
+    history = get_autopilot_change_history(user_id)
+    return {"history": history, "count": len(history)}
 
 
 @app.get("/api/auto-trading/log")

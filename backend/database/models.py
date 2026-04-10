@@ -357,6 +357,110 @@ class AutopilotConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class UserAutopilotSettings(Base):
+    """
+    Mutable per-user autopilot state — current mode, enabled flag, overrides.
+    One row per user (upsert pattern).
+    """
+    __tablename__ = "user_autopilot_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, unique=True, nullable=False, index=True)
+    current_mode = Column(String(20), nullable=False, default="balanced")  # safe/balanced/aggressive
+    is_enabled = Column(Boolean, nullable=False, default=False)
+    config_overrides_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AutopilotModeChangeLog(Base):
+    """
+    Append-only audit trail of every autopilot mode change.
+    Tracks who changed it, why, and what the previous mode was.
+    """
+    __tablename__ = "autopilot_mode_change_log"
+    __table_args__ = (
+        Index("ix_autopilot_change_user_ts", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    previous_mode = Column(String(20))
+    new_mode = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=True)
+    changed_by = Column(String(20), nullable=False, default="user")  # user/system/admin
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AIDecisionEvent(Base):
+    """
+    Append-only log of every AI trading decision with full context.
+    Central fact table — reason codes and counterfactuals link here via FK.
+    """
+    __tablename__ = "ai_decision_events"
+    __table_args__ = (
+        Index("ix_ai_decision_user_ts", "user_id", "created_at"),
+        Index("ix_ai_decision_symbol_ts", "symbol", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    action = Column(String(20), nullable=False)  # BUY/SELL/HOLD/NO-TRADE/BLOCKED/REDUCED
+    confidence_score = Column(Float)
+    confidence_band = Column(String(10))  # low/medium/high
+    market_regime = Column(String(20))  # bullish/bearish/sideways/volatile
+    narrative_summary = Column(Text)
+    machine_summary = Column(Text)
+    stop_loss_logic = Column(Text)
+    take_profit_logic = Column(Text)
+    expected_holding_profile = Column(Text)
+    raw_signal_payload_json = Column(JSON, default={})
+    audit_metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships to child tables
+    reason_codes_rel = relationship("AIDecisionReasonCode", back_populates="decision_event", cascade="all, delete-orphan")
+    counterfactuals_rel = relationship("AIDecisionCounterfactual", back_populates="decision_event", cascade="all, delete-orphan")
+
+
+class AIDecisionReasonCode(Base):
+    """
+    Append-only relational reason codes for each decision.
+    Queryable by code, category — not collapsed into a JSON blob.
+    """
+    __tablename__ = "ai_decision_reason_codes"
+    __table_args__ = (
+        Index("ix_ai_reason_code", "code"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    decision_event_id = Column(Integer, ForeignKey("ai_decision_events.id"), nullable=False, index=True)
+    code = Column(String(60), nullable=False)  # e.g. ML_POSITIVE_FORECAST, RISK_BLOCK
+    category = Column(String(20), nullable=False)  # positive/risk/rejection/sizing/context
+    detail_text = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    decision_event = relationship("AIDecisionEvent", back_populates="reason_codes_rel")
+
+
+class AIDecisionCounterfactual(Base):
+    """
+    Append-only counterfactuals explaining what would change the decision.
+    Types: why_not_opposite, why_not_wait, invalidation_condition, improvement_trigger.
+    """
+    __tablename__ = "ai_decision_counterfactuals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    decision_event_id = Column(Integer, ForeignKey("ai_decision_events.id"), nullable=False, index=True)
+    counterfactual_type = Column(String(30), nullable=False)  # why_not_opposite/why_not_wait/invalidation_condition/improvement_trigger
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    decision_event = relationship("AIDecisionEvent", back_populates="counterfactuals_rel")
+
+
 class PortfolioSnapshot(Base):
     """Append-only periodic snapshot of portfolio state for analytics."""
     __tablename__ = "portfolio_snapshots"
@@ -441,5 +545,384 @@ class RiskEvent(Base):
     sizing_before = Column(Numeric)
     sizing_after = Column(Numeric)
     metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PersistentRiskEvent(Base):
+    """
+    Append-only log of all meaningful risk interventions.
+    Tracks blocked trades, size reductions, exposure caps, volatility/drawdown throttles,
+    and portfolio concentration warnings with full numeric context.
+    Optionally links to the AI decision that triggered the intervention.
+    """
+    __tablename__ = "persistent_risk_events"
+    __table_args__ = (
+        Index("ix_prisk_user_ts", "user_id", "created_at"),
+        Index("ix_prisk_symbol_ts", "symbol", "created_at"),
+        Index("ix_prisk_event_type", "event_type"),
+        Index("ix_prisk_decision_event", "related_decision_event_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    symbol = Column(String(20), nullable=True, index=True)
+    related_decision_event_id = Column(
+        Integer,
+        ForeignKey("ai_decision_events.id"),
+        nullable=True,
+        index=True,
+    )
+    event_type = Column(String(30), nullable=False)
+    # blocked_trade / size_reduced / exposure_warning / drawdown_throttle / volatility_throttle / risk_pause
+    severity = Column(String(10), nullable=False, default="warning")  # info / warning / critical
+    reason_code = Column(String(60), nullable=False)
+    summary = Column(Text, nullable=False)
+    details_json = Column(JSON, default={})
+    original_requested_notional = Column(Numeric, nullable=True)
+    adjusted_notional = Column(Numeric, nullable=True)
+    original_requested_quantity = Column(Numeric, nullable=True)
+    adjusted_quantity = Column(Numeric, nullable=True)
+    portfolio_risk_score = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationship back to the decision that triggered this
+    decision_event = relationship("AIDecisionEvent", foreign_keys=[related_decision_event_id])
+
+
+class PersistentFeedEvent(Base):
+    """
+    Append-only user-facing AI feed / timeline.
+    Supports prioritization, deduplication, expiration, and per-user read state.
+    """
+    __tablename__ = "persistent_feed_events"
+    __table_args__ = (
+        Index("ix_pfeed_user_ts", "user_id", "created_at"),
+        Index("ix_pfeed_user_type_ts", "user_id", "event_type", "created_at"),
+        Index("ix_pfeed_dedupe", "dedupe_key"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    source_type = Column(String(30), nullable=False)
+    # decision_engine / risk_engine / portfolio_engine / simulation_engine / system
+    event_type = Column(String(30), nullable=False, index=True)
+    # market_insight / trade_opportunity / risk_alert / exposure_warning /
+    # no_trade_explanation / autopilot_update / portfolio_health / personalization_insight
+    priority = Column(String(10), nullable=False, default="medium")  # low / medium / high / critical
+    title = Column(Text, nullable=False)
+    short_summary = Column(Text, nullable=False)
+    full_explanation = Column(Text, nullable=True)
+    related_symbol = Column(String(20), nullable=True, index=True)
+    confidence_score = Column(Float, nullable=True)
+    risk_level = Column(String(10), nullable=True)  # low / medium / high
+    action_suggestion = Column(Text, nullable=True)
+    source_reference_type = Column(String(30), nullable=True)
+    # ai_decision_event / persistent_risk_event / simulation_run / etc.
+    source_reference_id = Column(Integer, nullable=True)
+    dedupe_key = Column(String(64), nullable=True, unique=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    reads = relationship("FeedEventRead", back_populates="feed_event", cascade="all, delete-orphan")
+
+
+class FeedEventRead(Base):
+    """
+    Append-only read receipts for feed events.
+    One row per user per event — unique constraint prevents duplicate reads.
+    """
+    __tablename__ = "feed_event_reads"
+    __table_args__ = (
+        UniqueConstraint("feed_event_id", "user_id", name="uq_feed_read_event_user"),
+        Index("ix_feed_read_user_ts", "user_id", "read_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    feed_event_id = Column(Integer, ForeignKey("persistent_feed_events.id"), nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    read_at = Column(DateTime, default=datetime.utcnow)
+
+    feed_event = relationship("PersistentFeedEvent", back_populates="reads")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Portfolio State & Exposure History
+# ═══════════════════════════════════════════════════════════════
+
+class PortfolioStateSnapshot(Base):
+    """
+    Append-only periodic snapshot of portfolio state.
+    Parent table — symbol and cluster exposures link here via FK.
+    """
+    __tablename__ = "portfolio_state_snapshots"
+    __table_args__ = (
+        Index("ix_pstate_user_ts", "user_id", "snapshot_timestamp"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    snapshot_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    total_equity = Column(Numeric, nullable=False)
+    available_cash = Column(Numeric, nullable=False)
+    total_exposure = Column(Numeric, nullable=False)
+    net_exposure = Column(Numeric, nullable=False)
+    gross_exposure = Column(Numeric, nullable=False)
+    drawdown_pct = Column(Float, nullable=True)
+    concentration_score = Column(Float, nullable=True)
+    diversification_score = Column(Float, nullable=True)
+    risk_score = Column(Float, nullable=True)
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships to child tables
+    symbol_exposures = relationship("PortfolioSymbolExposure", back_populates="snapshot", cascade="all, delete-orphan")
+    cluster_exposures = relationship("PortfolioClusterExposure", back_populates="snapshot", cascade="all, delete-orphan")
+
+
+class PortfolioSymbolExposure(Base):
+    """
+    Append-only per-symbol exposure within a portfolio snapshot.
+    One row per symbol per snapshot — relational, not JSON.
+    """
+    __tablename__ = "portfolio_symbol_exposures"
+    __table_args__ = (
+        Index("ix_psymexp_snapshot", "portfolio_snapshot_id"),
+        Index("ix_psymexp_symbol", "symbol"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    portfolio_snapshot_id = Column(Integer, ForeignKey("portfolio_state_snapshots.id"), nullable=False, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    asset_class = Column(String(30), nullable=True)
+    direction = Column(String(10), nullable=False, default="long")  # long / short / flat
+    quantity = Column(Numeric, nullable=False)
+    market_value = Column(Numeric, nullable=False)
+    exposure_pct = Column(Float, nullable=False)
+    unrealized_pnl = Column(Numeric, nullable=True)
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    snapshot = relationship("PortfolioStateSnapshot", back_populates="symbol_exposures")
+
+
+class PortfolioClusterExposure(Base):
+    """
+    Append-only per-cluster/group exposure within a portfolio snapshot.
+    Tracks correlated asset groups (large_cap_crypto, tech_stocks, etc.).
+    """
+    __tablename__ = "portfolio_cluster_exposures"
+    __table_args__ = (
+        Index("ix_pclusexp_snapshot", "portfolio_snapshot_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    portfolio_snapshot_id = Column(Integer, ForeignKey("portfolio_state_snapshots.id"), nullable=False, index=True)
+    cluster_name = Column(String(40), nullable=False)
+    gross_exposure = Column(Numeric, nullable=False)
+    net_exposure = Column(Numeric, nullable=False)
+    exposure_pct = Column(Float, nullable=False)
+    risk_weight = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    snapshot = relationship("PortfolioStateSnapshot", back_populates="cluster_exposures")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Simulation & Backtesting Persistence
+# ═══════════════════════════════════════════════════════════════
+
+class PersistentSimulationRun(Base):
+    """
+    Append-only record of each simulation/backtest execution.
+    Stores full config for reproducibility — results and timeseries link via FK.
+    """
+    __tablename__ = "persistent_simulation_runs"
+    __table_args__ = (
+        Index("ix_psim_user_ts", "user_id", "created_at"),
+        Index("ix_psim_status", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    strategy_id = Column(String(30), nullable=True)  # ai_follow / conservative_ai / buy_and_hold / custom
+    run_type = Column(String(20), nullable=False, default="backtest")  # backtest / paper_simulation / what_if
+    symbol_universe_json = Column(JSON, nullable=False)  # ["BTCUSDC", "ETHUSDC", ...]
+    timeframe_start = Column(DateTime, nullable=True)
+    timeframe_end = Column(DateTime, nullable=True)
+    initial_capital = Column(Numeric, nullable=False)
+    config_json = Column(JSON, nullable=False)  # Full input params for exact reproducibility
+    assumptions_json = Column(JSON, default={})  # Slippage model, fee model, fill assumptions
+    disclaimer_text = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="queued")  # queued / running / completed / failed
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    results = relationship("SimulationResult", back_populates="simulation_run", cascade="all, delete-orphan")
+    timeseries = relationship("SimulationResultTimeseries", back_populates="simulation_run", cascade="all, delete-orphan")
+
+
+class SimulationResult(Base):
+    """
+    Append-only summary metrics for a completed simulation run.
+    One row per run — the distilled output.
+    """
+    __tablename__ = "simulation_results"
+    __table_args__ = (
+        Index("ix_simresult_run", "simulation_run_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    simulation_run_id = Column(Integer, ForeignKey("persistent_simulation_runs.id"), nullable=False, index=True)
+    total_return_pct = Column(Float, nullable=True)
+    annualized_return_pct = Column(Float, nullable=True)
+    max_drawdown_pct = Column(Float, nullable=True)
+    sharpe_ratio = Column(Float, nullable=True)
+    win_rate_pct = Column(Float, nullable=True)
+    total_trades = Column(Integer, nullable=True)
+    avg_trade_return_pct = Column(Float, nullable=True)
+    pnl_value = Column(Numeric, nullable=True)
+    risk_metrics_json = Column(JSON, default={})
+    summary_text = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    simulation_run = relationship("PersistentSimulationRun", back_populates="results")
+
+
+class SimulationResultTimeseries(Base):
+    """
+    Append-only equity curve points for a simulation run.
+    Enables charting equity over the simulation timeframe.
+    """
+    __tablename__ = "simulation_result_timeseries"
+    __table_args__ = (
+        Index("ix_simts_run_ts", "simulation_run_id", "point_timestamp"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    simulation_run_id = Column(Integer, ForeignKey("persistent_simulation_runs.id"), nullable=False, index=True)
+    point_timestamp = Column(DateTime, nullable=False)
+    equity_value = Column(Numeric, nullable=False)
+    drawdown_pct = Column(Float, nullable=True)
+    exposure_pct = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    simulation_run = relationship("PersistentSimulationRun", back_populates="timeseries")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Strategy Platform
+# ═══════════════════════════════════════════════════════════════
+
+class PersistentStrategyRegistry(Base):
+    """
+    Mutable registry of all trading strategies.
+    Each row defines a strategy's identity, scope, and config schema.
+    Updated when strategies are versioned, enabled/disabled, or reconfigured.
+    """
+    __tablename__ = "persistent_strategy_registry"
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_key = Column(String(40), unique=True, nullable=False, index=True)
+    display_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    asset_scope = Column(String(30), nullable=True)  # crypto / stock / multi / all
+    holding_style = Column(String(30), nullable=True)  # intraday / swing / position / mixed
+    risk_class = Column(String(20), nullable=True)  # conservative / moderate / aggressive
+    is_active = Column(Boolean, nullable=False, default=True)
+    version = Column(String(20), nullable=True, default="1.0")
+    config_schema_json = Column(JSON, default={})  # JSON Schema for strategy params
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    health_snapshots = relationship("StrategyHealthSnapshot", back_populates="strategy", cascade="all, delete-orphan")
+    allocations = relationship("StrategyAllocation", back_populates="strategy", cascade="all, delete-orphan")
+
+
+class StrategyHealthSnapshot(Base):
+    """
+    Append-only periodic health/performance snapshot per strategy.
+    Tracks how well each strategy is performing over time.
+    """
+    __tablename__ = "strategy_health_snapshots"
+    __table_args__ = (
+        Index("ix_strathsnap_strat_ts", "strategy_id", "snapshot_timestamp"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_id = Column(Integer, ForeignKey("persistent_strategy_registry.id"), nullable=False, index=True)
+    snapshot_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    health_score = Column(Float, nullable=False)  # 0-100
+    recent_return_pct = Column(Float, nullable=True)
+    recent_drawdown_pct = Column(Float, nullable=True)
+    win_rate_pct = Column(Float, nullable=True)
+    volatility_score = Column(Float, nullable=True)
+    stability_score = Column(Float, nullable=True)
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    strategy = relationship("PersistentStrategyRegistry", back_populates="health_snapshots")
+
+
+class StrategyAllocation(Base):
+    """
+    Append-only record of strategy allocation decisions.
+    Tracks what percentage of capital is allocated to each strategy over time.
+    user_id is nullable for global/system-level allocation state.
+    """
+    __tablename__ = "strategy_allocations"
+    __table_args__ = (
+        Index("ix_stratalloc_strat_ts", "strategy_id", "allocation_timestamp"),
+        Index("ix_stratalloc_user_ts", "user_id", "allocation_timestamp"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_id = Column(Integer, ForeignKey("persistent_strategy_registry.id"), nullable=False, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    allocation_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    target_allocation_pct = Column(Float, nullable=False)
+    actual_allocation_pct = Column(Float, nullable=True)
+    reason_summary = Column(Text, nullable=True)
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    strategy = relationship("PersistentStrategyRegistry", back_populates="allocations")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Unified Audit Trail
+# ═══════════════════════════════════════════════════════════════
+
+class AuditEvent(Base):
+    """
+    Append-only unified audit trail across all AURA domains.
+    Provides a single cross-domain view of operational events.
+
+    Does NOT replace domain-specific tables (auth_audit_logs, live_order_audit_logs,
+    ai_decision_events, persistent_risk_events, etc.) — those retain full
+    domain-specific detail. This table captures a normalized summary of
+    every significant event for operational visibility and compliance.
+    """
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_user_ts", "user_id", "created_at"),
+        Index("ix_audit_domain_ts", "event_domain", "created_at"),
+        Index("ix_audit_entity", "entity_type", "entity_id"),
+        Index("ix_audit_severity_ts", "severity", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    event_domain = Column(String(20), nullable=False, index=True)
+    # decision / risk / autopilot / simulation / strategy / profile / execution / system
+    event_name = Column(String(60), nullable=False)
+    entity_type = Column(String(40), nullable=True)
+    # ai_decision_event / persistent_risk_event / simulation_run / strategy / user_profile / order / etc.
+    entity_id = Column(Integer, nullable=True)
+    severity = Column(String(10), nullable=False, default="info")  # info / warning / critical
+    summary = Column(Text, nullable=False)
+    payload_json = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 

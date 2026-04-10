@@ -128,6 +128,21 @@ def save_user_profile(
         db.commit()
         db.close()
 
+        try:
+            from services.audit_trail import emit_audit
+            emit_audit(
+                domain="profile",
+                event_name="USER_PROFILE_UPDATED",
+                summary=f"Risk profile set to {risk_profile}, objective={objective}, mode={preferred_mode}",
+                user_id=user_id,
+                entity_type="user_profile",
+                severity="info",
+                payload={"risk_profile": risk_profile, "objective": objective,
+                         "preferred_mode": preferred_mode},
+            )
+        except Exception:
+            pass
+
         return get_user_profile(user_id)
     except Exception as e:
         logger.error(f"[personalization] Failed to save profile: {e}")

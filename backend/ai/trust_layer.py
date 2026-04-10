@@ -69,8 +69,8 @@ class TrustVerdict:
             "timestamp": self.timestamp,
         }
 
-    def log(self):
-        """Log the verdict for audit trail."""
+    def log(self, risk_event_kwargs: dict = None):
+        """Log the verdict for audit trail and persist risk events."""
         logger.info(
             f"[TRUST] {self.source} | {self.symbol} | {self.action} | "
             f"codes={','.join(self.reason_codes[:5])} | {self.explanation[:100]}"
@@ -101,6 +101,41 @@ class TrustVerdict:
             )
         except Exception:
             pass
+
+        # Persist risk event if this is a meaningful intervention
+        if self.action in ("BLOCKED", "BLOCK", "REDUCE", "SKIP") and self.reason_codes:
+            try:
+                from services.risk_event_persistence import emit_risk_event
+
+                if self.action in ("BLOCKED", "BLOCK"):
+                    r_event_type = "blocked_trade"
+                    r_severity = "critical"
+                elif self.action == "REDUCE":
+                    r_event_type = "size_reduced"
+                    r_severity = "warning"
+                else:
+                    r_event_type = "exposure_warning"
+                    r_severity = "info"
+
+                kwargs = {
+                    "event_type": r_event_type,
+                    "reason_code": self.reason_codes[0] if self.reason_codes else "UNKNOWN",
+                    "summary": self.explanation[:200],
+                    "symbol": self.symbol or None,
+                    "severity": r_severity,
+                    "details": {
+                        "source": self.source,
+                        "all_reason_codes": self.reason_codes,
+                        "blocked_by": self.blocked_by,
+                        "sizing_adjustments": self.sizing_adjustments,
+                    },
+                }
+                if risk_event_kwargs:
+                    kwargs.update(risk_event_kwargs)
+
+                emit_risk_event(**kwargs)
+            except Exception:
+                pass
 
 
 # ── Verdict builders for each system ────────────────────────────
@@ -192,7 +227,9 @@ def verdict_from_sizing(
         sizing_adjustments=sizing_adj,
     )
     if codes:
-        v.log()
+        v.log(risk_event_kwargs={
+            "adjusted_notional": recommended_notional,
+        })
     return v
 
 
@@ -236,5 +273,7 @@ def verdict_from_portfolio(
         improvement_triggers=triggers,
     )
     if codes:
-        v.log()
+        v.log(risk_event_kwargs={
+            "portfolio_risk_score": risk_score,
+        })
     return v

@@ -98,6 +98,7 @@ def assess_portfolio(
     account_balance: float,
     proposed_symbol: Optional[str] = None,
     proposed_value: float = 0.0,
+    user_id: Optional[int] = None,
 ) -> PortfolioRiskAssessment:
     """
     Analyze current portfolio state and return risk assessment.
@@ -262,7 +263,7 @@ def assess_portfolio(
         except Exception:
             pass
 
-    return PortfolioRiskAssessment(
+    result = PortfolioRiskAssessment(
         portfolio_risk_score=round(risk_score, 1),
         total_exposure_usd=round(total_exposure, 2),
         position_count=len(parsed),
@@ -275,3 +276,34 @@ def assess_portfolio(
         adjustment_details=adjustment_details,
         size_factor=round(size_factor, 3),
     )
+
+    # Persist snapshot if user_id provided
+    if user_id is not None and parsed:
+        try:
+            from services.portfolio_persistence import save_portfolio_snapshot
+            symbol_rows = []
+            for pos in parsed:
+                base = _extract_base_symbol(pos.symbol)
+                val = pos.current_value_usd
+                pct = (val / account_balance * 100) if account_balance > 0 else 0
+                symbol_rows.append({
+                    "symbol": base,
+                    "asset_class": pos.asset_class,
+                    "direction": "long" if pos.side == "BUY" else "short",
+                    "quantity": pos.quantity,
+                    "market_value": val,
+                    "exposure_pct": round(pct, 2),
+                })
+            save_portfolio_snapshot(
+                user_id=user_id,
+                total_equity=account_balance,
+                available_cash=max(0, account_balance - total_exposure),
+                positions=symbol_rows,
+                correlated_exposure=correlated_exposure,
+                risk_score=round(risk_score, 1),
+                concentration_score=round(risk_score, 1),
+            )
+        except Exception as e:
+            logger.warning(f"[portfolio_state] Snapshot persistence failed (non-fatal): {e}")
+
+    return result

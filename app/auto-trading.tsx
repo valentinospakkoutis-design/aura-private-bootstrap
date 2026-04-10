@@ -4,6 +4,7 @@ import { api } from '../mobile/src/services/apiClient';
 import { Button } from '../mobile/src/components/Button';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { useAppStore } from '../mobile/src/stores/appStore';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { theme } from '../mobile/src/constants/theme';
 
 interface AutoTradingStatus {
@@ -28,6 +29,7 @@ interface AutoTradingStatus {
 
 export default function AutoTradingScreen() {
   const { showToast } = useAppStore();
+  const { t } = useLanguage();
   const [status, setStatus] = useState<AutoTradingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
@@ -76,11 +78,11 @@ export default function AutoTradingScreen() {
   const handleToggle = useCallback((value: boolean) => {
     if (value) {
       Alert.alert(
-        'Enable Auto Trading',
-        'The engine will automatically place orders based on AI predictions.\n\nAre you sure?',
+        t('enableAutoTrading'),
+        t('enableAutoTradingMsg'),
         [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Enable', style: 'destructive', onPress: () => doToggle(true) },
+          { text: t('cancel'), style: 'cancel' },
+          { text: t('enable'), style: 'destructive', onPress: () => doToggle(true) },
         ]
       );
     } else {
@@ -115,8 +117,7 @@ export default function AutoTradingScreen() {
         <View style={styles.warningBanner}>
           <Text style={styles.warningIcon}>&#9888;&#65039;</Text>
           <Text style={styles.warningText}>
-            Auto Trading uses REAL money.{'\n'}
-            Enable only if you understand the risks.
+            {t('autoTradingWarning')}
           </Text>
         </View>
 
@@ -124,9 +125,9 @@ export default function AutoTradingScreen() {
         <View style={styles.card}>
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Auto Trading</Text>
+              <Text style={styles.cardTitle}>{t('autoTrading')}</Text>
               <Text style={styles.cardSubtitle}>
-                {isEnabled ? 'Active — monitoring predictions' : 'Disabled — no orders will be placed'}
+                {isEnabled ? `${t('active')} — ${t('monitoringPredictions')}` : `${t('disabled')} — ${t('noOrdersPlaced')}`}
               </Text>
             </View>
             <Switch
@@ -139,7 +140,7 @@ export default function AutoTradingScreen() {
           </View>
           <View style={[styles.modeBadge, { backgroundColor: mode === 'live' ? theme.colors.semantic.error + '20' : theme.colors.semantic.success + '20' }]}>
             <Text style={[styles.modeBadgeText, { color: mode === 'live' ? theme.colors.semantic.error : theme.colors.semantic.success }]}>
-              {mode === 'live' ? '🔴 LIVE MODE' : '🟢 PAPER MODE'}
+              {mode === 'live' ? `🔴 ${t('liveMode')}` : `🟢 ${t('paperMode')}`}
             </Text>
           </View>
           {status?.last_run && (
@@ -152,29 +153,29 @@ export default function AutoTradingScreen() {
         {/* Config Card */}
         {config && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Configuration</Text>
+            <Text style={styles.cardTitle}>{t('configuration')}</Text>
             <View style={styles.configRow}>
-              <Text style={styles.configLabel}>Min Confidence</Text>
+              <Text style={styles.configLabel}>{t('minConfidence')}</Text>
               <Text style={styles.configValue}>{(config.confidence_threshold * 100).toFixed(0)}%</Text>
             </View>
             <View style={styles.configRow}>
-              <Text style={styles.configLabel}>Position Size</Text>
+              <Text style={styles.configLabel}>{t('positionSize')}</Text>
               <Text style={styles.configValue}>Fixed ${config.fixed_order_value_usd ?? 10} per trade</Text>
             </View>
             <View style={styles.configRow}>
-              <Text style={styles.configLabel}>Stop Loss</Text>
+              <Text style={styles.configLabel}>{t('stopLoss')}</Text>
               <Text style={styles.configValue}>{(config.stop_loss_pct * 100).toFixed(0)}%</Text>
             </View>
             <View style={styles.configRow}>
-              <Text style={styles.configLabel}>Take Profit</Text>
+              <Text style={styles.configLabel}>{t('takeProfit')}</Text>
               <Text style={styles.configValue}>{((config.take_profit_pct || 0.05) * 100).toFixed(0)}%</Text>
             </View>
             <View style={styles.configRow}>
-              <Text style={styles.configLabel}>Max Positions</Text>
+              <Text style={styles.configLabel}>{t('maxPositions')}</Text>
               <Text style={styles.configValue}>{config.max_positions}</Text>
             </View>
             <View style={styles.configRow}>
-              <Text style={styles.configLabel}>Max Order Value</Text>
+              <Text style={styles.configLabel}>{t('maxOrderValue')}</Text>
               <Text style={styles.configValue}>${config.max_order_value_usd}</Text>
             </View>
           </View>
@@ -209,7 +210,7 @@ export default function AutoTradingScreen() {
 
         {/* Activity Log */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Activity Log</Text>
+          <Text style={styles.cardTitle}>{t('activityLog')}</Text>
           {logs.length === 0 ? (
             <Text style={styles.emptyText}>No activity yet</Text>
           ) : (

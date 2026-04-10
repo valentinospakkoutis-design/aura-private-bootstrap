@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TextInput, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../mobile/src/stores/appStore';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
@@ -44,6 +45,7 @@ interface LiveStats {
 export default function LiveTradingScreen() {
   const router = useRouter();
   const { user, brokers, setBrokers, showToast, showModal } = useAppStore();
+  const { t } = useLanguage();
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -125,17 +127,17 @@ export default function LiveTradingScreen() {
 
   const handlePlaceOrder = useCallback(async () => {
     const qty = parseFloat(quantity);
-    if (!symbol.trim()) { showToast('Εισήγαγε symbol', 'error'); return; }
-    if (isNaN(qty) || qty <= 0) { showToast('Εισήγαγε έγκυρη ποσότητα', 'error'); return; }
+    if (!symbol.trim()) { showToast(t('enterSymbol'), 'error'); return; }
+    if (isNaN(qty) || qty <= 0) { showToast(t('enterValidQty'), 'error'); return; }
 
     try {
       setSubmitting(true);
       await api.placeLiveOrder(symbol.toUpperCase().trim(), side, qty);
-      showToast(`${side} ${qty} ${symbol} εκτελέστηκε!`, 'success');
+      showToast(`${side} ${qty} ${symbol} ${t('orderExecuted')}`, 'success');
       setQuantity('0.0001');
       await loadData();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Αποτυχία order';
+      const msg = err?.response?.data?.detail || err?.message || t('orderFailed');
       showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), 'error');
     } finally {
       setSubmitting(false);
@@ -145,12 +147,12 @@ export default function LiveTradingScreen() {
   const handleClosePosition = useCallback((assetSymbol: string, amount: number, valueUsdc: number) => {
     const tradingSymbol = `${assetSymbol}USDC`;
     Alert.alert(
-      `Κλείσιμο θέσης ${assetSymbol}`,
-      `Θα πουλήσεις ${amount < 1 ? amount.toFixed(6) : amount.toFixed(4)} ${assetSymbol} (~$${valueUsdc.toFixed(2)}) στην τρέχουσα τιμή.`,
+      `${t('closePosition')} ${assetSymbol}`,
+      t('confirmClose', { quantity: amount < 1 ? amount.toFixed(6) : amount.toFixed(4), symbol: assetSymbol, value: valueUsdc.toFixed(2) }),
       [
-        { text: 'Ακύρωση', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Πούλα',
+          text: t('sell'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -169,8 +171,8 @@ export default function LiveTradingScreen() {
 
   const handleCloseTrade = useCallback((tradeId: string) => {
     showModal(
-      '⚠️ Κλείσιμο Live Trade',
-      'Είσαι σίγουρος ότι θέλεις να κλείσεις αυτό το πραγματικό trade; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+      `⚠️ ${t('closePosition')}`,
+      t('liveWarning'),
       async () => {
         try {
           await closeTrade(tradeId);
@@ -185,12 +187,12 @@ export default function LiveTradingScreen() {
 
   const handleSwitchToPaper = useCallback(() => {
     Alert.alert(
-      'Επιστροφή σε Paper Trading',
-      'Θέλεις να επιστρέψεις σε Paper Trading mode;',
+      t('returnToPaper'),
+      t('returnToPaper'),
       [
-        { text: 'Ακύρωση', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Επιστροφή',
+          text: t('confirm'),
           onPress: () => {
             router.push({ pathname: '/paper-trading' } as any);
           },
@@ -218,12 +220,12 @@ export default function LiveTradingScreen() {
       <View style={styles.container}>
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyIcon}>🔌</Text>
-          <Text style={styles.emptyTitle}>Δεν Έχεις Συνδεδεμένο Broker</Text>
+          <Text style={styles.emptyTitle}>{t('noBrokerConnected')}</Text>
           <Text style={styles.emptyDescription}>
-            Για να κάνεις live trading, πρέπει πρώτα να συνδέσεις ένα broker.
+            {t('connectBrokerDesc')}
           </Text>
           <Button
-            title="Σύνδεση Broker"
+            title={t('connectBroker')}
             onPress={() => router.push({ pathname: '/brokers' } as any)}
             variant="primary"
             size="large"
@@ -256,13 +258,13 @@ export default function LiveTradingScreen() {
         <AnimatedCard delay={0} animationType="slideUp" style={styles.warningBanner}>
           <View style={styles.warningHeader}>
             <Text style={styles.warningIcon}>⚠️</Text>
-            <Text style={styles.warningTitle}>Live Trading Mode</Text>
+            <Text style={styles.warningTitle}>{t('liveTradingMode')}</Text>
           </View>
           <Text style={styles.warningText}>
-            Βρίσκεσαι σε LIVE mode. Όλα τα trades γίνονται με πραγματικά χρήματα.
+            {t('liveWarning')}
           </Text>
           <Button
-            title="Επιστροφή σε Paper Trading"
+            title={t('returnToPaper')}
             onPress={handleSwitchToPaper}
             variant="secondary"
             size="small"
@@ -273,11 +275,11 @@ export default function LiveTradingScreen() {
         {/* Stats Card */}
         {stats && (
           <AnimatedCard delay={100} animationType="slideUp">
-            <Text style={styles.statsTitle}>💰 Live Portfolio</Text>
+            <Text style={styles.statsTitle}>💰 {t('livePortfolio')}</Text>
             
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Συνολική Αξία</Text>
+                <Text style={styles.statLabel}>{t('totalValue')}</Text>
                 <AnimatedCounter
                   value={stats.totalValue || 0}
                   decimals={2}
@@ -287,7 +289,7 @@ export default function LiveTradingScreen() {
                 />
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Κέρδος/Ζημιά</Text>
+                <Text style={styles.statLabel}>{t('pnl')}</Text>
                 <AnimatedCounter
                   value={Math.abs(stats.totalProfit || 0)}
                   decimals={2}
@@ -304,11 +306,11 @@ export default function LiveTradingScreen() {
             <View style={styles.statsGrid}>
               <View style={styles.gridItem}>
                 <Text style={styles.gridValue}>{stats.openTrades || 0}</Text>
-                <Text style={styles.gridLabel}>Ανοιχτά</Text>
+                <Text style={styles.gridLabel}>{t('openTrades')}</Text>
               </View>
               <View style={styles.gridItem}>
                 <Text style={styles.gridValue}>{stats.closedTrades || 0}</Text>
-                <Text style={styles.gridLabel}>Κλειστά</Text>
+                <Text style={styles.gridLabel}>{t('closedTrades')}</Text>
               </View>
               <View style={styles.gridItem}>
                 <Text style={styles.gridValue}>{(stats.winRate || 0).toFixed(0)}%</Text>
@@ -318,7 +320,7 @@ export default function LiveTradingScreen() {
                 <Text style={styles.gridValue}>
                   {NumberFormatter.toCompact(stats.totalInvested || 0)}
                 </Text>
-                <Text style={styles.gridLabel}>Επένδυση</Text>
+                <Text style={styles.gridLabel}>{t('totalValue')}</Text>
               </View>
             </View>
 
@@ -338,7 +340,7 @@ export default function LiveTradingScreen() {
 
           return (
             <View style={styles.orderCard}>
-              <Text style={styles.statsTitle}>💼 Assets ({livePortfolio.positions.length})</Text>
+              <Text style={styles.statsTitle}>💼 {t('assets')} ({livePortfolio.positions.length})</Text>
               {livePortfolio.positions.map((pos: any, i: number) => {
                 const isStable = ['USDC', 'USDT', 'BUSD', 'USD'].includes(pos.symbol);
                 const avgBuy = avgPrices[pos.symbol] || 0;
@@ -368,7 +370,7 @@ export default function LiveTradingScreen() {
                           style={styles.closeBtn}
                           onPress={() => handleClosePosition(pos.symbol, pos.amount, pos.value_usdc)}
                         >
-                          <Text style={styles.closeBtnText}>CLOSE</Text>
+                          <Text style={styles.closeBtnText}>{t('close')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -381,10 +383,10 @@ export default function LiveTradingScreen() {
 
         {/* Order Form */}
         <View style={styles.orderCard}>
-          <Text style={styles.statsTitle}>📝 Νέο Live Order</Text>
+          <Text style={styles.statsTitle}>📝 {t('newLiveOrder')}</Text>
 
           <View style={styles.formRow}>
-            <Text style={styles.formLabel}>Symbol</Text>
+            <Text style={styles.formLabel}>{t('symbol')}</Text>
             <TextInput
               style={styles.formInput}
               value={symbol}
@@ -399,25 +401,25 @@ export default function LiveTradingScreen() {
           </View>
 
           <View style={styles.formRow}>
-            <Text style={styles.formLabel}>Side</Text>
+            <Text style={styles.formLabel}>{t('side')}</Text>
             <View style={styles.sideToggle}>
               <TouchableOpacity
                 style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
                 onPress={() => setSide('BUY')}
               >
-                <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 BUY</Text>
+                <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 {t('buy')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
                 onPress={() => setSide('SELL')}
               >
-                <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 SELL</Text>
+                <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 {t('sell')}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={styles.formRow}>
-            <Text style={styles.formLabel}>Ποσότητα</Text>
+            <Text style={styles.formLabel}>{t('quantity')}</Text>
             <TextInput
               style={styles.formInput}
               value={quantity}
@@ -433,7 +435,7 @@ export default function LiveTradingScreen() {
           </View>
 
           <Button
-            title={submitting ? 'Εκτέλεση...' : `${side} ${symbol}`}
+            title={submitting ? t('executing') : `${side} ${symbol}`}
             onPress={handlePlaceOrder}
             variant={side === 'BUY' ? 'primary' : 'secondary'}
             size="large"
@@ -446,7 +448,7 @@ export default function LiveTradingScreen() {
         {/* Live Trade History */}
         {liveHistory.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Trade History ({liveHistory.length})</Text>
+            <Text style={styles.sectionTitle}>{t('tradeHistory')} ({liveHistory.length})</Text>
             {liveHistory.map((trade: any, index: number) => {
               const isBuy = trade.side === 'BUY';
               const sideColor = isBuy ? theme.colors.market.bullish : theme.colors.market.bearish;

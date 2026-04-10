@@ -5,7 +5,6 @@ import * as FileSystem from 'expo-file-system';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { LoadingSpinner } from '../mobile/src/components/LoadingSpinner';
-import { NoVoiceBriefing } from '../mobile/src/components/NoVoiceBriefing';
 import { Button } from '../mobile/src/components/Button';
 import { theme } from '../mobile/src/constants/theme';
 import { useAppStore } from '../mobile/src/stores/appStore';
@@ -259,10 +258,6 @@ export default function VoiceBriefingScreen() {
 
   if (loadingBriefing) {
     return <LoadingSpinner fullScreen message="Φόρτωση..." />;
-  }
-
-  if (!user?.voiceCloned && !briefingUrl) {
-    return <NoVoiceBriefing />;
   }
 
   const isRecording = recordingStatus === 'recording';
