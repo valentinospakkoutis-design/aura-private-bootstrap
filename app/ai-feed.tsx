@@ -35,12 +35,12 @@ type FilterKey = 'all' | 'signals' | 'risk' | 'auto' | 'insights';
 // ── Config ─────────────────────────────────────────────────────
 
 const SEVERITY_ICONS: Record<string, string> = {
-  critical: '\uD83D\uDD34',
-  warning: '\uD83D\uDFE1',
-  info: '\uD83D\uDD35',
-  high: '\uD83D\uDD34',
-  medium: '\uD83D\uDFE1',
-  low: '\uD83D\uDD35',
+  critical: '🔴',
+  warning: '🟡',
+  info: '🔵',
+  high: '🔴',
+  medium: '🟡',
+  low: '🔵',
 };
 
 const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -148,7 +148,7 @@ export default function AIFeedScreen() {
 
   const renderCard = ({ item }: { item: FeedEvent }) => {
     const typeConfig = EVENT_TYPE_CONFIG[item.event_type] || DEFAULT_EVENT_CONFIG;
-    const severityIcon = SEVERITY_ICONS[item.severity || item.priority || 'info'] || '\uD83D\uDD35';
+    const severityIcon = SEVERITY_ICONS[item.severity || item.priority || 'info'] || '🔵';
     const sym = item.symbol || item.related_symbol;
     const bodyText = item.body || item.summary || item.short_summary || '';
     const ts = item.timestamp || item.created_at;
@@ -217,7 +217,7 @@ export default function AIFeedScreen() {
       <View style={styles.container}>
         {renderFilterBar()}
         <EmptyState
-          icon="\uD83E\uDD16"
+          icon="🤖"
           title={t('aiFeedEmpty')}
           description={t('aiFeedEmptyDesc')}
           actionLabel={t('retry')}
