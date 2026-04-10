@@ -59,29 +59,33 @@ def emit(
     meta_json = json.dumps(metadata or {})
 
     try:
-        from database.connection import SessionLocal
-        from sqlalchemy import text
+        from database.connection import sync_engine
+        if not sync_engine:
+            return False
 
-        db = SessionLocal()
-        # Upsert: skip if dedup_key already exists (today's duplicate)
-        db.execute(text("""
-            INSERT INTO feed_events (event_type, symbol, title, body, severity,
-                                     reason_codes, metadata, dedup_key)
-            VALUES (:etype, :sym, :title, :body, :sev,
-                    :codes::text[], :meta::jsonb, :dedup)
-            ON CONFLICT (dedup_key) DO NOTHING
-        """), {
-            "etype": event_type,
-            "sym": symbol,
-            "title": title,
-            "body": body,
-            "sev": severity,
-            "codes": "{" + ",".join(codes_list) + "}" if codes_list else "{}",
-            "meta": meta_json,
-            "dedup": dedup,
-        })
-        db.commit()
-        db.close()
+        import json as _json
+        codes_str = "{" + ",".join(codes_list) + "}" if codes_list else "{}"
+
+        with sync_engine.raw_connection() as raw_conn:
+            cursor = raw_conn.cursor()
+            cursor.execute("""
+                INSERT INTO feed_events (event_type, symbol, title, body, severity,
+                                         reason_codes, metadata, dedup_key)
+                VALUES (%(etype)s, %(sym)s, %(title)s, %(body)s, %(sev)s,
+                        %(codes)s::text[], %(meta)s::jsonb, %(dedup)s)
+                ON CONFLICT (dedup_key) DO NOTHING
+            """, {
+                "etype": event_type,
+                "sym": symbol,
+                "title": title,
+                "body": body,
+                "sev": severity,
+                "codes": codes_str,
+                "meta": meta_json,
+                "dedup": dedup,
+            })
+            raw_conn.commit()
+            cursor.close()
         logger.debug(f"[feed] Emitted: {event_type} | {symbol} | {title}")
         return True
     except Exception as e:
