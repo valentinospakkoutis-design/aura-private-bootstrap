@@ -698,7 +698,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
   },
   gridItem: {
     alignItems: 'center',
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
   tradeBadge: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
   },
   tradeAction: {
     fontSize: theme.typography.sizes.sm,
@@ -771,7 +771,7 @@ const styles = StyleSheet.create({
   profitContainer: {
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     gap: theme.spacing.sm,
   },
   profitRow: {
@@ -806,7 +806,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.sm,
-    borderRadius: theme.borderRadius.small,
+    borderRadius: theme.borderRadius.sm,
   },
   limitLabel: {
     fontSize: theme.typography.sizes.xs,
@@ -848,7 +848,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.background,
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.primary,
@@ -861,7 +861,7 @@ const styles = StyleSheet.create({
   sideButton: {
     flex: 1,
     paddingVertical: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 2,
     borderColor: theme.colors.ui.border,
     alignItems: 'center' as const,
@@ -936,7 +936,7 @@ const styles = StyleSheet.create({
   historyBadge: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
   },
   historyBadgeText: {
     fontSize: theme.typography.sizes.sm,
@@ -972,4 +972,5 @@ const styles = StyleSheet.create({
     color: theme.colors.semantic.error,
   },
 });
+
 

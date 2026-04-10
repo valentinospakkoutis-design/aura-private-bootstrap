@@ -70,7 +70,7 @@ export default function SettingsScreen() {
   const handleToggleNotifications = useCallback(async (value: boolean) => {
     try {
       setNotificationsEnabled(value);
-      // await api.updateSettings({ notifications: value });
+      // Placeholder for future notification settings persistence.
       showToast(value ? 'Ειδοποιήσεις ενεργοποιήθηκαν' : 'Ειδοποιήσεις απενεργοποιήθηκαν', 'success');
     } catch (err) {
       showToast('Αποτυχία ενημέρωσης', 'error');
@@ -102,7 +102,7 @@ export default function SettingsScreen() {
             onPress: async () => {
               try {
                 setPaperTradingMode(value);
-                // await api.updateSettings({ paperTrading: value });
+                // Placeholder for future paper-trading settings persistence.
                 showToast('Paper Trading απενεργοποιήθηκε', 'warning');
               } catch (err) {
                 showToast('Αποτυχία ενημέρωσης', 'error');
@@ -155,7 +155,7 @@ export default function SettingsScreen() {
                   style: 'destructive',
                   onPress: async () => {
                     try {
-                      // await api.deleteAccount();
+                      // Placeholder for future account deletion endpoint wiring.
                       showToast('Ο λογαριασμός διαγράφηκε', 'success');
                       setUser(null); // AuthGuard handles redirect
                     } catch (err) {
@@ -576,7 +576,7 @@ const createStyles = (theme: typeof lightTheme) => StyleSheet.create({
     alignItems: 'center',
     backgroundColor: theme.colors.ui.cardBackground,
     padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing.sm,
   },
   settingLeft: {
@@ -629,7 +629,7 @@ const createStyles = (theme: typeof lightTheme) => StyleSheet.create({
   riskOption: {
     padding: theme.spacing.lg,
     backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     borderWidth: 2,
     borderColor: theme.colors.ui.border,
   },
@@ -658,7 +658,7 @@ const createStyles = (theme: typeof lightTheme) => StyleSheet.create({
     alignItems: 'center',
     padding: theme.spacing.md,
     backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 2,
     borderColor: theme.colors.ui.border,
   },
@@ -687,4 +687,5 @@ const createStyles = (theme: typeof lightTheme) => StyleSheet.create({
     marginTop: theme.spacing.md,
   },
 });
+
 

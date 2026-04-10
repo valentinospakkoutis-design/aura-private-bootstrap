@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
   results: {
     marginTop: theme.spacing.md,
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.md,
   },
   testResult: {
@@ -201,3 +201,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+

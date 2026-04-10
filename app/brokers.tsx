@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.semantic.error + '20',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
   },
   disconnectText: {
     fontSize: theme.typography.sizes.sm,
@@ -505,7 +505,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.border,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.small,
+    borderRadius: theme.borderRadius.sm,
   },
   comingSoonText: {
     fontSize: theme.typography.sizes.xs,
@@ -552,7 +552,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.background,
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.primary,
@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.semantic.warning + '20',
     borderWidth: 1,
     borderColor: theme.colors.semantic.warning,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.lg,
   },
@@ -572,4 +572,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
 

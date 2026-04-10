@@ -47,12 +47,14 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>('el');
 
   useEffect(() => {
-    loadLanguage().then(setLanguageState);
+    void loadLanguage()
+      .then(setLanguageState)
+      .catch(() => setLanguageState('el'));
   }, []);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    saveLanguage(lang);
+    void saveLanguage(lang);
   };
 
   const t = (key: string, params?: Record<string, string>): string => {

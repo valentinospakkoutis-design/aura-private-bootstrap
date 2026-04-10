@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     gap: theme.spacing.xs,
   },
   button_small: {
@@ -150,4 +150,5 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 });
+
 

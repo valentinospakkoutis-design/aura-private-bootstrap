@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -151,4 +151,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
 

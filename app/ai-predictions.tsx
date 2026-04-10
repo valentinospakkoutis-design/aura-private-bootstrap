@@ -364,7 +364,7 @@ const s = StyleSheet.create({
   moversRow: { gap: theme.spacing.sm, paddingRight: theme.spacing.md },
   moverCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.md,
     width: 130,
     alignItems: 'center',
@@ -375,7 +375,7 @@ const s = StyleSheet.create({
   moverSymbol: { fontSize: theme.typography.sizes.sm, fontWeight: '700', color: theme.colors.text.primary },
   moverName: { fontSize: 10, color: theme.colors.text.secondary, textAlign: 'center' },
   moverPrice: { fontSize: theme.typography.sizes.md, fontWeight: '600', color: theme.colors.text.primary, marginTop: 2 },
-  moverBadge: { paddingHorizontal: theme.spacing.sm, paddingVertical: 2, borderRadius: theme.borderRadius.medium, marginTop: 2 },
+  moverBadge: { paddingHorizontal: theme.spacing.sm, paddingVertical: 2, borderRadius: theme.borderRadius.md, marginTop: 2 },
   moverChange: { fontSize: theme.typography.sizes.xs, fontWeight: '700' },
 
   // ── Category Tabs ─────────────────────────────────────────
@@ -410,7 +410,7 @@ const s = StyleSheet.create({
   assetContainer: { flex: 1 },
   assetName: { fontSize: theme.typography.sizes.lg, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 2 },
   symbolBadge: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, fontFamily: theme.typography.fontFamily.mono },
-  actionBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderRadius: theme.borderRadius.large, gap: theme.spacing.xs },
+  actionBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderRadius: theme.borderRadius.lg, gap: theme.spacing.xs },
   actionIcon: { fontSize: 16 },
   actionText: { fontSize: theme.typography.sizes.sm, fontWeight: '600' },
   priceContainer: { marginBottom: theme.spacing.md, gap: theme.spacing.xs },
@@ -424,3 +424,4 @@ const s = StyleSheet.create({
   reasoning: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, lineHeight: 20, marginBottom: theme.spacing.md },
   viewDetails: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600', textAlign: 'right' },
 });
+

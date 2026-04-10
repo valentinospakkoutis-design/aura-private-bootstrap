@@ -229,7 +229,7 @@ const s = StyleSheet.create({
   loadingText: { fontSize: 16, color: theme.colors.text.secondary },
   errorText: { fontSize: 16, color: theme.colors.text.secondary, textAlign: 'center' },
   card: {
-    backgroundColor: theme.colors.ui.cardBackground, borderRadius: theme.borderRadius.xl,
+    backgroundColor: theme.colors.ui.cardBackground, borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg, marginBottom: theme.spacing.md,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3,
   },
@@ -239,18 +239,18 @@ const s = StyleSheet.create({
   statLabel: { fontSize: 12, color: theme.colors.text.secondary, marginBottom: 4 },
   statValue: { fontSize: 16, fontWeight: '700', color: theme.colors.text.primary, fontFamily: theme.typography.fontFamily.mono },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.text.primary, marginBottom: theme.spacing.md, marginTop: theme.spacing.sm },
-  emptyCard: { alignItems: 'center', padding: theme.spacing.xl, backgroundColor: theme.colors.ui.cardBackground, borderRadius: theme.borderRadius.xl },
+  emptyCard: { alignItems: 'center', padding: theme.spacing.xl, backgroundColor: theme.colors.ui.cardBackground, borderRadius: theme.borderRadius.xlarge },
   emptyText: { fontSize: 14, color: theme.colors.text.secondary },
   formRow: { marginBottom: theme.spacing.md },
   formLabel: { fontSize: 13, fontWeight: '600', color: theme.colors.text.primary, marginBottom: 6 },
   input: {
     backgroundColor: theme.colors.ui.background, borderWidth: 1, borderColor: theme.colors.ui.border,
-    borderRadius: theme.borderRadius.medium, padding: theme.spacing.md, fontSize: 16,
+    borderRadius: theme.borderRadius.md, padding: theme.spacing.md, fontSize: 16,
     color: theme.colors.text.primary, fontFamily: theme.typography.fontFamily.mono,
   },
   toggleRow: { flexDirection: 'row', gap: theme.spacing.sm },
   toggleBtn: {
-    flex: 1, paddingVertical: theme.spacing.md, borderRadius: theme.borderRadius.medium,
+    flex: 1, paddingVertical: theme.spacing.md, borderRadius: theme.borderRadius.md,
     borderWidth: 2, borderColor: theme.colors.ui.border, alignItems: 'center',
   },
   toggleText: { fontSize: 15, fontWeight: '700', color: theme.colors.text.secondary },
@@ -258,7 +258,7 @@ const s = StyleSheet.create({
   longActive: { borderColor: theme.colors.market.bullish, backgroundColor: theme.colors.market.bullish },
   shortActive: { borderColor: theme.colors.market.bearish, backgroundColor: theme.colors.market.bearish },
   levBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: theme.borderRadius.medium,
+    flex: 1, paddingVertical: 10, borderRadius: theme.borderRadius.md,
     borderWidth: 1, borderColor: theme.colors.ui.border, alignItems: 'center',
   },
   levActive: { borderColor: theme.colors.brand.primary, backgroundColor: theme.colors.brand.primary + '20' },
@@ -268,3 +268,4 @@ const s = StyleSheet.create({
   posSymbol: { fontSize: 18, fontWeight: '700', color: theme.colors.text.primary },
   posBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
 });
+

@@ -212,9 +212,10 @@ const s = StyleSheet.create({
   metricGridLabel: { fontSize: 10, color: theme.colors.text.secondary, marginTop: 2 },
 
   retrainButton: {
-    backgroundColor: theme.colors.brand.primary, borderRadius: theme.borderRadius.large,
+    backgroundColor: theme.colors.brand.primary, borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg, alignItems: 'center', marginTop: theme.spacing.xl,
   },
   retrainButtonDisabled: { backgroundColor: theme.colors.text.secondary, opacity: 0.6 },
   retrainText: { fontSize: theme.typography.sizes.md, fontWeight: '700', color: '#FFFFFF' },
 });
+

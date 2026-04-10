@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.semantic.error + '15',
     borderWidth: 1,
     borderColor: theme.colors.semantic.error,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.lg,
   },
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     shadowColor: '#000',
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start' as const,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     marginTop: theme.spacing.sm,
   },
   modeBadgeText: {
@@ -353,3 +353,4 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
   },
 });
+

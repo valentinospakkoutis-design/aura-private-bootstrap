@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   errorDetails: {
     width: '100%',
     backgroundColor: theme.colors.semantic.error + '10',
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.lg,
   },
@@ -127,4 +127,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+
 

@@ -394,7 +394,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.md,
     backgroundColor: theme.colors.semantic.error + '10',
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     marginBottom: theme.spacing.md,
   },
   recordingDot: {
@@ -412,14 +412,14 @@ const styles = StyleSheet.create({
   progressBar: {
     height: 8,
     backgroundColor: theme.colors.ui.border,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
     marginBottom: theme.spacing.lg,
   },
   progressFill: {
     height: '100%',
     backgroundColor: theme.colors.brand.primary,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
   },
   buttonContainer: {
     gap: theme.spacing.sm,
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
     padding: theme.spacing.md,
     backgroundColor: theme.colors.semantic.success + '20',
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     alignItems: 'center',
   },
   successText: {
@@ -459,4 +459,5 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
 });
+
 

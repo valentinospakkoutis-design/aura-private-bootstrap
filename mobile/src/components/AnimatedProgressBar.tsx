@@ -67,11 +67,11 @@ const styles = StyleSheet.create({
   },
   track: {
     width: '100%',
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   fill: {
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
   },
   label: {
     fontSize: theme.typography.sizes.sm,
@@ -81,4 +81,5 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
 });
+
 

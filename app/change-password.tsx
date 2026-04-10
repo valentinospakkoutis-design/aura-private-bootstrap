@@ -131,9 +131,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.cardBackground,
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.md,
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.primary,
   },
 });
+

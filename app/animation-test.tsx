@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: theme.spacing.xl,
     backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing.md,
   },
   counterValue: {
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: theme.colors.ui.cardBackground,
     padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
   },
   listItemText: {
     fontSize: theme.typography.sizes.md,
@@ -255,4 +255,5 @@ const styles = StyleSheet.create({
     height: theme.spacing.xl,
   },
 });
+
 

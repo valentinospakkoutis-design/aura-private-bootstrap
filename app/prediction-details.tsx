@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     gap: theme.spacing.sm,
     marginBottom: theme.spacing.lg,
   },
@@ -359,3 +359,4 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.lg,
   },
 });
+

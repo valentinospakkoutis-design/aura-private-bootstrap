@@ -20,7 +20,7 @@ interface SkeletonLoaderProps {
 export const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({
   width = '100%',
   height = 20,
-  borderRadius = theme.borderRadius.medium,
+  borderRadius = theme.borderRadius.md,
   style,
 }) => {
   const shimmer = useSharedValue(0);
@@ -97,4 +97,5 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
   },
 });
+
 

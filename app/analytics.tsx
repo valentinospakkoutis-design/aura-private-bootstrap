@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     alignItems: 'center',
   },
   metricValue: {
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
   },
   tradeHighlight: {
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing.md,
   },
   tradeHighlightHeader: {
@@ -462,4 +462,5 @@ const styles = StyleSheet.create({
     height: theme.spacing.xl,
   },
 });
+
 

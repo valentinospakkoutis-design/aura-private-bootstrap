@@ -41,14 +41,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     margin: theme.spacing.md,
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
     padding: 4,
   },
   toggleBtn: {
     flex: 1,
     paddingVertical: theme.spacing.sm,
     alignItems: 'center',
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
   },
   toggleActive: {
     backgroundColor: theme.colors.brand.primary,
@@ -62,3 +62,4 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 });
+

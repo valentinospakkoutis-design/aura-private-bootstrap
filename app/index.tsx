@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.brand.primary + '20',
   },
   portfolioEmptyButtonText: {
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: theme.spacing.md,
     backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     marginBottom: theme.spacing.sm,
   },
   activityIcon: {
@@ -529,4 +529,5 @@ const styles = StyleSheet.create({
     height: theme.spacing.xl,
   },
 });
+
 

@@ -118,7 +118,7 @@ export default function PaperTradingScreen() {
       t('confirmClose', { quantity: '', symbol: '', value: '' }),
       async () => {
         try {
-          // await api.closeTrade(tradeId);
+          // Placeholder for future close-trade API wiring.
           showToast('Το trade έκλεισε επιτυχώς!', 'success');
           await loadData();
         } catch (err) {
@@ -517,7 +517,7 @@ const styles = StyleSheet.create({
   tradeBadge: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
   },
   tradeAction: {
     fontSize: theme.typography.sizes.sm,
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
   profitContainer: {
     backgroundColor: theme.colors.ui.background,
     padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     marginBottom: theme.spacing.md,
   },
   profitRow: {
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.large,
+    borderRadius: theme.borderRadius.lg,
   },
   statusText: {
     fontSize: theme.typography.sizes.sm,
@@ -587,7 +587,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.semantic.error + '20',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
   },
   closeButtonText: {
     fontSize: theme.typography.sizes.sm,
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ui.background,
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.primary,
@@ -634,7 +634,7 @@ const styles = StyleSheet.create({
   sideButton: {
     flex: 1,
     paddingVertical: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 2,
     borderColor: theme.colors.ui.border,
     alignItems: 'center' as const,
@@ -656,3 +656,4 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
   },
 });
+

@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   filterButton: {
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.ui.cardBackground,
     borderWidth: 1,
     borderColor: theme.colors.ui.border,
@@ -416,4 +416,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.xl,
   },
 });
+
 
