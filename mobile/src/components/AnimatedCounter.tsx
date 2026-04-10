@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Text, TextStyle } from 'react-native';
+import { Text, TextStyle, StyleProp } from 'react-native';
 import Animated, {
   useSharedValue,
   withTiming,
@@ -15,7 +15,7 @@ interface AnimatedCounterProps {
   decimals?: number;
   prefix?: string;
   suffix?: string;
-  style?: TextStyle;
+  style?: StyleProp<TextStyle>;
 }
 
 export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({

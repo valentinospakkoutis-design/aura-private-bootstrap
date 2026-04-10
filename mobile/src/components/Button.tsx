@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
@@ -16,8 +16,8 @@ interface ButtonProps {
   loading?: boolean;
   icon?: React.ReactNode;
   fullWidth?: boolean;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   text: {
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     fontWeight: '600',
     color: '#FFFFFF',
   },

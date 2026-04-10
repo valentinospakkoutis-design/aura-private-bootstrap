@@ -64,8 +64,8 @@ export default function LiveTradingScreen() {
   const {
     loading: closingTrade,
     execute: closeTrade,
-  } = useApi((tradeId: string) => {
-    return Promise.resolve({ success: true });
+  } = useApi((data: { symbol: string; quantity: number }) => {
+    return api.closeLiveTrade(data);
   }, { showLoading: false, showToast: false });
 
   useEffect(() => {
@@ -169,13 +169,13 @@ export default function LiveTradingScreen() {
     );
   }, [showToast, loadData]);
 
-  const handleCloseTrade = useCallback((tradeId: string) => {
+  const handleCloseTrade = useCallback((trade: LiveTrade) => {
     showModal(
       `⚠️ ${t('closePosition')}`,
       t('liveWarning'),
       async () => {
         try {
-          await closeTrade(tradeId);
+          await closeTrade({ symbol: trade.asset, quantity: trade.amount });
           showToast('Το trade έκλεισε επιτυχώς!', 'success');
           await loadData();
         } catch (err) {
@@ -510,7 +510,7 @@ export default function LiveTradingScreen() {
             return (
               <SwipeableCard
                 key={trade.id}
-                onDelete={() => handleCloseTrade(trade.id)}
+                onDelete={() => handleCloseTrade(trade)}
                 deleteText="Κλείσιμο"
               >
                 <View style={styles.tradeCard}>
@@ -826,7 +826,7 @@ const styles = StyleSheet.create({
   },
   orderCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     shadowColor: '#000',
@@ -908,7 +908,7 @@ const styles = StyleSheet.create({
   },
   historyCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.sm,
     shadowColor: '#000',

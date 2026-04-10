@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: theme.typography.sizes['2xl'],
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.sm,
@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: theme.typography.sizes.md,
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     color: theme.colors.text.secondary,
     textAlign: 'center',
     lineHeight: 24,

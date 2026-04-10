@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   text: {
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     fontWeight: '600',
     color: '#FFFFFF',
   },

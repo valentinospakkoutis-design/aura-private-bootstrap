@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
+import { TouchableOpacity, StyleSheet, ViewStyle, StyleProp } from 'react-native';
 import { Platform } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -16,7 +16,7 @@ interface AnimatedListItemProps {
   children: React.ReactNode;
   index: number;
   onPress?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   skipEntrance?: boolean;
 }
 
@@ -88,7 +88,7 @@ export const AnimatedListItem: React.FC<AnimatedListItemProps> = ({
     transform: [
       { translateY: translateY.value },
       { scale: scale.value },
-    ],
+    ] as ViewStyle['transform'],
   }));
 
   return (

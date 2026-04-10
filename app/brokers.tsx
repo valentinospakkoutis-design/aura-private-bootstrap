@@ -79,12 +79,16 @@ export default function BrokersScreen() {
   const {
     loading: loadingBrokers,
     execute: fetchBrokers,
-  } = useApi((...args: any[]) => api.getBrokers(...args), { showLoading: false, showToast: false });
+  } = useApi((useCache?: boolean) => api.getBrokers(useCache), { showLoading: false, showToast: false });
 
   const {
     loading: connecting,
     execute: connectBrokerApi,
-  } = useApi((...args: any[]) => api.connectBroker(...args), { showLoading: false, showToast: false });
+  } = useApi(
+    (brokerName: string, apiKeyValue: string, apiSecretValue: string, testnet: boolean = false) =>
+      api.connectBroker(brokerName, apiKeyValue, apiSecretValue, testnet),
+    { showLoading: false, showToast: false }
+  );
 
   useEffect(() => {
     loadBrokers();
@@ -412,7 +416,7 @@ const styles = StyleSheet.create({
   },
   brokerCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     shadowColor: '#000',
@@ -510,7 +514,7 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     backgroundColor: theme.colors.brand.primary + '10',
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     borderWidth: 1,
     borderColor: theme.colors.brand.primary + '30',

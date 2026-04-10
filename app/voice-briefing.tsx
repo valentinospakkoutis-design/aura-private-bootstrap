@@ -24,12 +24,12 @@ export default function VoiceBriefingScreen() {
   const {
     loading: loadingBriefing,
     execute: fetchBriefing,
-  } = useApi((...args: any[]) => api.getVoiceBriefing(...args), { showLoading: false, showToast: false });
+  } = useApi(() => api.getVoiceBriefing(), { showLoading: false, showToast: false });
 
   const {
     loading: uploadingVoice,
     execute: uploadVoice,
-  } = useApi((...args: any[]) => api.uploadVoiceSample(...args), { showLoading: false, showToast: false });
+  } = useApi((audioUri: string) => api.uploadVoiceSample(audioUri), { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadBriefing();
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     shadowColor: '#000',
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
   },
   tipsCard: {
     backgroundColor: theme.colors.brand.primary + '10',
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     borderWidth: 1,
     borderColor: theme.colors.brand.primary + '30',

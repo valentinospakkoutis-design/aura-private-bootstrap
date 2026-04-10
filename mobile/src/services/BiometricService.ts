@@ -68,10 +68,11 @@ export class BiometricService {
         logger.info('Biometric authentication successful');
         return { success: true };
       } else {
-        logger.warn('Biometric authentication failed:', result.error);
+        const authError = 'error' in result ? result.error : undefined;
+        logger.warn('Biometric authentication failed:', authError);
         return {
           success: false,
-          error: result.error || 'Authentication failed',
+          error: authError || 'Authentication failed',
         };
       }
     } catch (error) {

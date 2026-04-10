@@ -298,8 +298,8 @@ class ApiClient {
     return response.data;
   }
 
-  async disconnectBroker(brokerId: string) {
-    const response = await this.client.delete(`/api/brokers/${brokerId}/disconnect`);
+  async disconnectBroker(brokerName: string) {
+    const response = await this.client.delete(`/api/brokers/${brokerName}/disconnect`);
     // Invalidate brokers cache after disconnecting
     await cacheService.remove(CACHE_KEYS.BROKERS);
     return response.data;
@@ -421,12 +421,30 @@ class ApiClient {
   }
 
   async getPerformance(period: 'day' | 'week' | 'month' | 'year') {
-    const response = await this.client.get(`/api/analytics/performance?period=${period}`);
+    const response = await this.client.get(`/api/analytics/performance/${period}`);
     return response.data;
   }
 
   async getAnalyticsSummary(period: '7d' | '30d' | '90d' | 'all' = 'all') {
     const response = await this.client.get(`/api/analytics/summary?period=${period}`);
+    return response.data;
+  }
+
+  async getAnalytics(timeRange: '7d' | '30d' | '90d' | 'all', useCache: boolean = true) {
+    const cacheKey = `${CACHE_KEYS.ANALYTICS}_${timeRange}`;
+
+    if (useCache) {
+      const cached = await cacheService.get(cacheKey);
+      if (cached) {
+        logger.info('Using cached analytics');
+        return cached;
+      }
+    }
+
+    const response = await this.client.get('/api/analytics/summary', {
+      params: { period: timeRange },
+    });
+    await cacheService.set(cacheKey, response.data, CACHE_TTL.LONG);
     return response.data;
   }
 
@@ -453,7 +471,11 @@ class ApiClient {
   }
 
   async updatePassword(data: { currentPassword: string; newPassword: string }) {
-    return this.changePassword(data.currentPassword, data.newPassword);
+    const response = await this.client.put('/api/user/password', {
+      current_password: data.currentPassword,
+      new_password: data.newPassword,
+    });
+    return response.data;
   }
 
   async updateRiskProfile(riskProfile: 'conservative' | 'moderate' | 'aggressive') {
@@ -484,8 +506,8 @@ class ApiClient {
     return response.data;
   }
 
-  async closeLiveTrade(tradeId: string) {
-    const response = await this.client.post(`/api/live-trades/${tradeId}/close`);
+  async closeLiveTrade(data: { symbol: string; quantity: number }) {
+    const response = await this.client.post('/api/live-trading/close', data);
     return response.data;
   }
 

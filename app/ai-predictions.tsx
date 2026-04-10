@@ -19,9 +19,9 @@ interface Prediction {
   action: 'buy' | 'sell' | 'hold';
   confidence: number;
   price: number;
-  targetPrice: number;
+  targetPrice?: number;
   timestamp: string;
-  reasoning: string;
+  reasoning?: string;
 }
 
 interface Mover {
@@ -219,7 +219,9 @@ export default function AIPredictionsScreen() {
         <View style={s.priceRow}>
           <Text style={s.priceLabel}>Στόχος:</Text>
           <Text style={[s.priceValue, { color: getActionColor(item.action) }]}>
-            ${item.targetPrice < 1 ? item.targetPrice?.toFixed(4) : item.targetPrice?.toFixed(2)}
+            ${((item.targetPrice ?? item.price) < 1
+              ? (item.targetPrice ?? item.price).toFixed(4)
+              : (item.targetPrice ?? item.price).toFixed(2))}
           </Text>
         </View>
       </View>
@@ -232,7 +234,9 @@ export default function AIPredictionsScreen() {
         <AnimatedProgressBar progress={item.confidence} color={getActionColor(item.action)} height={8} animated />
       </View>
 
-      <Text style={s.reasoning} numberOfLines={2}>{item.reasoning}</Text>
+      <Text style={s.reasoning} numberOfLines={2}>
+        {item.reasoning || 'Î”ÎµÎ½ Ï…Ï€Î¬ÏÏ‡Î¿Ï…Î½ Î´Î¹Î±Î¸Î­ÏƒÎ¹Î¼ÎµÏ‚ Î»ÎµÏ€Ï„Î¿Î¼Î­ÏÎµÎ¹ÎµÏ‚ Î±ÎºÏŒÎ¼Î·.'}
+      </Text>
 
       {/* RL Agent prediction */}
       {(() => {
@@ -398,7 +402,7 @@ const s = StyleSheet.create({
   // ── Prediction Cards ──────────────────────────────────────
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3,
   },

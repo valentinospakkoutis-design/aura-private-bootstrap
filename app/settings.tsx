@@ -48,12 +48,12 @@ export default function SettingsScreen() {
   const {
     loading: updatingProfile,
     execute: updateProfile,
-  } = useApi((...args: any[]) => api.updateProfile(...args), { showLoading: false, showToast: false });
+  } = useApi((data: { name: string; email: string; phone: string; avatar?: string }) => api.updateProfile(data), { showLoading: false, showToast: false });
 
   const {
     loading: updatingRisk,
     execute: updateRisk,
-  } = useApi((...args: any[]) => api.updateRiskProfile(...args), { showLoading: false, showToast: false });
+  } = useApi((riskProfile: RiskProfile) => api.updateRiskProfile(riskProfile), { showLoading: false, showToast: false });
 
   const handleUpdateRiskProfile = useCallback(async (profile: RiskProfile) => {
     try {
@@ -609,7 +609,7 @@ const createStyles = (theme: typeof lightTheme) => StyleSheet.create({
     marginTop: theme.spacing.xl,
     padding: theme.spacing.lg,
     backgroundColor: theme.colors.semantic.error + '10',
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     borderWidth: 1,
     borderColor: theme.colors.semantic.error + '30',
   },

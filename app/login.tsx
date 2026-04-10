@@ -24,7 +24,7 @@ export default function LoginScreen() {
       const user = await api.login(email.trim().toLowerCase(), password);
       console.log('[Login] Success, user:', user?.email);
       console.log('[Login] Token saved:', typeof localStorage !== 'undefined' ? (localStorage.getItem('auth_token') ? 'yes' : 'no') : 'N/A (mobile)');
-      setUser(user);
+      setUser(user as any);
       router.replace('/(tabs)');
     } catch (err: any) {
       const msg = err?.response?.data?.detail || 'Λάθος email ή κωδικός';

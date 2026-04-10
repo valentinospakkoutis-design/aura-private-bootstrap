@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: theme.typography.sizes.md,
     color: '#FFFFFF',
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     fontWeight: '600',
   },
 });

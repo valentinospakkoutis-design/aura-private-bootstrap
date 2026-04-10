@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     shadowColor: '#000',

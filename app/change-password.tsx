@@ -33,7 +33,7 @@ export default function ChangePasswordScreen() {
       await api.changePassword(currentPassword, newPassword);
       // Re-login with new password to get a fresh token
       const updatedUser = await api.login(user?.email || '', newPassword);
-      setUser(updatedUser);
+      setUser(updatedUser as any);
       showToast('Ο κωδικός άλλαξε επιτυχώς', 'success');
       router.back();
     } catch (err: any) {

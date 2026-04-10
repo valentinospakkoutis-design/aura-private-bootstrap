@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
     fontSize: theme.typography.sizes.md,
     color: theme.colors.text.secondary,
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
   },
 });
 

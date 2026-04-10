@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
   },
   statsCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.lg,
     shadowColor: '#000',
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
   },
   tradeCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.md,
     shadowColor: '#000',
@@ -596,7 +596,7 @@ const styles = StyleSheet.create({
   },
   tradeFormCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

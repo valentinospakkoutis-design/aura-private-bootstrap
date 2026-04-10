@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.xl,
     alignItems: 'center',
     shadowColor: '#000',
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: theme.typography.sizes.xl,
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.sm,
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: theme.typography.sizes.md,
-    fontFamily: theme.typography.fontFamily.primary,
+    fontFamily: theme.typography.fontFamily.regular,
     color: theme.colors.text.secondary,
     textAlign: 'center',
     marginBottom: theme.spacing.lg,

@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -104,8 +104,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.semantic.error,
     justifyContent: 'center',
     alignItems: 'center',
-    borderTopRightRadius: theme.borderRadius.xl,
-    borderBottomRightRadius: theme.borderRadius.xl,
+    borderTopRightRadius: theme.borderRadius.xlarge,
+    borderBottomRightRadius: theme.borderRadius.xlarge,
   },
   deleteText: {
     color: '#FFFFFF',

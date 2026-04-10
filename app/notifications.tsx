@@ -34,17 +34,17 @@ export default function NotificationsScreen() {
     loading,
     error,
     execute: fetchNotifications,
-  } = useApi((...args: any[]) => api.getNotifications(...args), { showLoading: false, showToast: false });
+  } = useApi((useCache?: boolean) => api.getNotifications(useCache), { showLoading: false, showToast: false });
 
   const {
     loading: markingRead,
     execute: markAsRead,
-  } = useApi((...args: any[]) => api.markNotificationAsRead(...args), { showLoading: false, showToast: false });
+  } = useApi((id: string) => api.markNotificationAsRead(id), { showLoading: false, showToast: false });
 
   const {
     loading: deleting,
     execute: deleteNotification,
-  } = useApi((...args: any[]) => api.deleteNotification(...args), { showLoading: false, showToast: false });
+  } = useApi((id: string) => api.deleteNotification(id), { showLoading: false, showToast: false });
 
   useEffect(() => {
     loadNotifications();
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.sm,
   },
