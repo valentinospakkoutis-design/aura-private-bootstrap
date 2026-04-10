@@ -228,8 +228,69 @@ class AutoTradingEngine:
             return None
 
         side = "BUY" if action == "buy" else "SELL"
+
+        # ── Claude AI validation (only for high-confidence signals) ──
+        claude_size_multiplier = 1.0
+        if confidence >= 0.90:
+            try:
+                from services.claude_validator import validate_trade_signal
+                ml_reasoning = (
+                    f"Smart Score {smart_score:.0f}, F&G {fear_greed:.0f}, "
+                    f"trend={prediction.get('trend_score', 0):+.2f}"
+                )
+                current_exposure = len(self.open_positions) / max(self.config["max_positions"], 1)
+                validation = validate_trade_signal(
+                    symbol=symbol,
+                    action=side,
+                    confidence=confidence,
+                    current_price=price,
+                    fear_greed=int(fear_greed),
+                    portfolio_exposure=current_exposure,
+                    reasoning=ml_reasoning,
+                )
+                logger.info(
+                    f"[CLAUDE] {symbol} {side} -> {validation['decision']} | "
+                    f"{validation.get('reasoning', '')[:80]}"
+                )
+
+                if validation["decision"] == "skip":
+                    self._log_event("SKIP", f"{symbol}: Claude rejected — {validation.get('reasoning', '')[:100]}")
+                    try:
+                        from services.feed_engine import emit
+                        emit(
+                            event_type="trade_signal",
+                            title=f"Claude: SKIP {symbol}",
+                            body=validation.get("reasoning", "Signal rejected by AI validator"),
+                            symbol=symbol,
+                            severity="warning",
+                            metadata={"source": "claude_validator", "decision": "skip"},
+                        )
+                    except Exception:
+                        pass
+                    return None
+
+                if validation["decision"] == "reduce":
+                    claude_size_multiplier = max(0.25, min(1.0, validation.get("size_multiplier", 0.5)))
+                    self._log_event("REDUCE", f"{symbol}: Claude reduced size to {claude_size_multiplier:.0%}")
+
+                try:
+                    from services.feed_engine import emit
+                    emit(
+                        event_type="trade_signal",
+                        title=f"Claude: {validation['decision'].upper()} {symbol}",
+                        body=validation.get("reasoning", ""),
+                        symbol=symbol,
+                        severity="warning" if validation.get("risk_level") == "high" else "info",
+                        metadata={"source": "claude_validator", "decision": validation["decision"]},
+                    )
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning(f"[Claude] Integration error (non-fatal): {e}")
+
         vol = abs(prediction.get("trend_score", 0.3)) if "trend_score" in prediction else 0.3
         quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol)
+        quantity *= claude_size_multiplier
 
         if quantity <= 0:
             self._log_event("SKIP", f"{symbol}: insufficient balance for position")
