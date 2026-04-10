@@ -1,28 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  FlatList,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
+  View, Text, StyleSheet, FlatList, RefreshControl,
   TouchableOpacity,
-  View,
 } from 'react-native';
-import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
-import { NoData } from '../mobile/src/components/NoData';
-import { PageTransition } from '../mobile/src/components/PageTransition';
-import { SkeletonList } from '../mobile/src/components/SkeletonLoader';
-import { useApi } from '../mobile/src/hooks/useApi';
-import { theme } from '../mobile/src/constants/theme';
 import { api } from '../mobile/src/services/apiClient';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
+import { SkeletonList } from '../mobile/src/components/SkeletonLoader';
+import { EmptyState } from '../mobile/src/components/EmptyState';
+import { NoData } from '../mobile/src/components/NoData';
+import { theme } from '../mobile/src/constants/theme';
 import { DateFormatter } from '../mobile/src/utils/DateFormatter';
 
-type FeedFilter = 'all' | 'signals' | 'risk' | 'auto' | 'insights';
+// ── Types ──────────────────────────────────────────────────────
 
 interface FeedEvent {
-  id?: string | number;
-  event_type?: string;
-  title?: string;
+  id: number | string;
+  event_type: string;
+  title: string;
   body?: string;
   summary?: string;
   short_summary?: string;
@@ -33,465 +27,330 @@ interface FeedEvent {
   timestamp?: string;
   created_at?: string;
   reason_codes?: string[];
+  metadata?: Record<string, any>;
 }
 
-const STRINGS = {
-  filters: {
-    all: 'Όλα',
-    signals: 'Signals',
-    risk: 'Risk',
-    auto: 'Auto',
-    insights: 'Insights',
-  },
-  emptyTitle: 'Δεν υπάρχουν events ακόμα',
-  emptyDescription: 'Το AI Feed θα εμφανίσει νέα events μόλις παραχθούν από το backend.',
-  errorTitle: 'Δεν ήταν δυνατή η φόρτωση του AI Feed',
-  errorDescription: 'Δοκίμασε ξανά για να φορτώσουμε τα τελευταία events.',
-  fallbackTitle: 'AI Event',
-  fallbackBody: 'Δεν υπάρχει διαθέσιμη περιγραφή για αυτό το event.',
-  fallbackBadge: 'Event',
+type FilterKey = 'all' | 'signals' | 'risk' | 'auto' | 'insights';
+
+// ── Config ─────────────────────────────────────────────────────
+
+const SEVERITY_ICONS: Record<string, string> = {
+  critical: '\uD83D\uDD34',
+  warning: '\uD83D\uDFE1',
+  info: '\uD83D\uDD35',
+  high: '\uD83D\uDD34',
+  medium: '\uD83D\uDFE1',
+  low: '\uD83D\uDD35',
 };
 
-const FILTER_TYPES: Record<FeedFilter, string[] | null> = {
-  all: null,
-  signals: ['trade_signal', 'no_trade_explanation', 'blocked_trade', 'reduced_position'],
-  risk: ['risk_alert', 'portfolio_alert', 'exposure_warning'],
+const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
+  trade_signal:           { label: 'Signal',    color: theme.colors.market.bullish },
+  trade_opportunity:      { label: 'Signal',    color: theme.colors.market.bullish },
+  no_trade_explanation:   { label: 'No Trade',  color: theme.colors.text.secondary },
+  risk_alert:             { label: 'Risk',      color: theme.colors.semantic.error },
+  exposure_warning:       { label: 'Exposure',  color: theme.colors.semantic.warning },
+  portfolio_alert:        { label: 'Portfolio', color: theme.colors.semantic.warning },
+  auto_trade:             { label: 'Auto',      color: theme.colors.brand.primary },
+  autopilot_update:       { label: 'Autopilot', color: theme.colors.brand.primary },
+  market_insight:         { label: 'Insight',   color: theme.colors.accent.purple },
+  portfolio_health:       { label: 'Health',    color: theme.colors.accent.blue },
+  personalization_insight:{ label: 'Personal',  color: theme.colors.brand.secondary },
+  blocked_trade:          { label: 'Blocked',   color: theme.colors.semantic.error },
+  reduced_position:       { label: 'Reduced',   color: theme.colors.semantic.warning },
+  decision_explanation:   { label: 'Decision',  color: theme.colors.brand.primary },
+  system:                 { label: 'System',    color: theme.colors.text.secondary },
+};
+
+const DEFAULT_EVENT_CONFIG = { label: 'Event', color: theme.colors.text.secondary };
+
+const FILTER_MAP: Record<FilterKey, string[]> = {
+  all: [],
+  signals: ['trade_signal', 'trade_opportunity', 'no_trade_explanation'],
+  risk: ['risk_alert', 'exposure_warning', 'portfolio_alert', 'blocked_trade', 'reduced_position'],
   auto: ['auto_trade', 'autopilot_update'],
-  insights: ['market_insight', 'decision_explanation', 'portfolio_health', 'personalization_insight'],
+  insights: ['market_insight', 'portfolio_health', 'personalization_insight', 'decision_explanation'],
 };
 
-const EVENT_TYPE_STYLES: Record<
-  string,
-  { label: string; backgroundColor: string; textColor: string }
-> = {
-  trade_signal: {
-    label: 'Signal',
-    backgroundColor: theme.colors.market.bullish + '20',
-    textColor: theme.colors.market.bullish,
-  },
-  no_trade_explanation: {
-    label: 'No Trade',
-    backgroundColor: theme.colors.ui.border,
-    textColor: theme.colors.text.secondary,
-  },
-  risk_alert: {
-    label: 'Risk',
-    backgroundColor: theme.colors.semantic.error + '20',
-    textColor: theme.colors.semantic.error,
-  },
-  auto_trade: {
-    label: 'Auto',
-    backgroundColor: theme.colors.accent.blue + '20',
-    textColor: theme.colors.accent.blue,
-  },
-  market_insight: {
-    label: 'Insight',
-    backgroundColor: theme.colors.accent.purple + '20',
-    textColor: theme.colors.accent.purple,
-  },
-  portfolio_alert: {
-    label: 'Portfolio',
-    backgroundColor: theme.colors.accent.orange + '20',
-    textColor: theme.colors.accent.orange,
-  },
-  blocked_trade: {
-    label: 'Blocked',
-    backgroundColor: theme.colors.semantic.error + '20',
-    textColor: theme.colors.semantic.error,
-  },
-  reduced_position: {
-    label: 'Reduced',
-    backgroundColor: theme.colors.semantic.warning + '20',
-    textColor: theme.colors.semantic.warning,
-  },
-  decision_explanation: {
-    label: 'Explain',
-    backgroundColor: theme.colors.brand.secondary + '20',
-    textColor: theme.colors.brand.secondary,
-  },
-  exposure_warning: {
-    label: 'Exposure',
-    backgroundColor: theme.colors.semantic.warning + '20',
-    textColor: theme.colors.semantic.warning,
-  },
-  autopilot_update: {
-    label: 'Autopilot',
-    backgroundColor: theme.colors.accent.blue + '20',
-    textColor: theme.colors.accent.blue,
-  },
-  portfolio_health: {
-    label: 'Health',
-    backgroundColor: theme.colors.accent.orange + '20',
-    textColor: theme.colors.accent.orange,
-  },
-  personalization_insight: {
-    label: 'Personal',
-    backgroundColor: theme.colors.brand.primary + '20',
-    textColor: theme.colors.brand.primary,
-  },
-};
+const AUTO_REFRESH_MS = 60_000;
 
-function getSeverityIcon(event: FeedEvent) {
-  const severity = (event.severity || event.priority || '').toString().toLowerCase();
+// ── Screen ─────────────────────────────────────────────────────
 
-  if (severity === 'critical' || severity === 'high') return '🔴';
-  if (severity === 'warning' || severity === 'medium') return '🟡';
-  return '🔵';
-}
-
-function getEventTypeStyle(eventType?: string) {
-  if (!eventType) {
-    return {
-      label: STRINGS.fallbackBadge,
-      backgroundColor: theme.colors.ui.border,
-      textColor: theme.colors.text.secondary,
-    };
-  }
-
-  return (
-    EVENT_TYPE_STYLES[eventType] || {
-      label: 'Event',
-      backgroundColor: theme.colors.ui.border,
-      textColor: theme.colors.text.secondary,
-    }
-  );
-}
-
-function getEventBody(event: FeedEvent) {
-  return event.body || event.summary || event.short_summary || STRINGS.fallbackBody;
-}
-
-function getEventSymbol(event: FeedEvent) {
-  return event.symbol || event.related_symbol || '';
-}
-
-function getEventTimestamp(event: FeedEvent) {
-  return event.timestamp || event.created_at || '';
-}
-
-function matchesFilter(event: FeedEvent, activeFilter: FeedFilter) {
-  const allowedTypes = FILTER_TYPES[activeFilter];
-  if (!allowedTypes) return true;
-  return allowedTypes.includes(event.event_type || '');
-}
-
-export default function AiFeedScreen() {
+export default function AIFeedScreen() {
+  const { t } = useLanguage();
   const [events, setEvents] = useState<FeedEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<FeedFilter>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
 
-  const {
-    loading,
-    error,
-    execute: fetchFeedEvents,
-  } = useApi(api.getFeedEvents, { showLoading: false, showToast: false });
-
-  const loadFeedEvents = useCallback(async () => {
+  const loadEvents = useCallback(async (showLoading = false) => {
     try {
-      const response = await fetchFeedEvents(50);
-      setEvents(Array.isArray(response) ? response : []);
-    } catch (err) {
-      console.error('Failed to load AI feed events:', err);
+      if (showLoading) setLoading(true);
+      setError(false);
+      const data = await api.getFeedEvents(50);
+      setEvents(Array.isArray(data) ? data : []);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
     }
-  }, [fetchFeedEvents]);
+  }, []);
 
   useEffect(() => {
-    loadFeedEvents();
-
-    const interval = setInterval(() => {
-      loadFeedEvents();
-    }, 60000);
-
+    loadEvents(true);
+    const interval = setInterval(() => loadEvents(false), AUTO_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [loadFeedEvents]);
+  }, [loadEvents]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadFeedEvents();
+    await loadEvents(false);
     setRefreshing(false);
-  }, [loadFeedEvents]);
+  }, [loadEvents]);
 
-  const filteredEvents = useMemo(
-    () => events.filter((event) => matchesFilter(event, activeFilter)),
-    [events, activeFilter]
+  const filteredEvents = useMemo(() => {
+    if (activeFilter === 'all') return events;
+    const types = FILTER_MAP[activeFilter];
+    return events.filter(e => types.includes(e.event_type));
+  }, [events, activeFilter]);
+
+  // ── Filters ──
+
+  const FILTERS: { key: FilterKey; labelKey: string }[] = [
+    { key: 'all', labelKey: 'filterAll' },
+    { key: 'signals', labelKey: 'filterSignals' },
+    { key: 'risk', labelKey: 'filterRisk' },
+    { key: 'auto', labelKey: 'filterAuto' },
+    { key: 'insights', labelKey: 'filterInsights' },
+  ];
+
+  const renderFilterBar = () => (
+    <View style={styles.filterBar}>
+      {FILTERS.map(f => {
+        const active = activeFilter === f.key;
+        return (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            onPress={() => setActiveFilter(f.key)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.filterText, active && styles.filterTextActive]}>
+              {t(f.labelKey)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 
-  const renderFilterButton = (filter: FeedFilter) => {
-    const isActive = activeFilter === filter;
+  // ── Card ──
+
+  const renderCard = ({ item }: { item: FeedEvent }) => {
+    const typeConfig = EVENT_TYPE_CONFIG[item.event_type] || DEFAULT_EVENT_CONFIG;
+    const severityIcon = SEVERITY_ICONS[item.severity || item.priority || 'info'] || '\uD83D\uDD35';
+    const sym = item.symbol || item.related_symbol;
+    const bodyText = item.body || item.summary || item.short_summary || '';
+    const ts = item.timestamp || item.created_at;
+    const relativeTime = ts ? DateFormatter.toRelativeTime(ts) : '';
 
     return (
-      <TouchableOpacity
-        key={filter}
-        style={[styles.filterButton, isActive && styles.filterButtonActive]}
-        onPress={() => setActiveFilter(filter)}
-        activeOpacity={0.8}
-      >
-        <Text style={[styles.filterButtonText, isActive && styles.filterButtonTextActive]}>
-          {STRINGS.filters[filter]}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderEvent = ({ item, index }: { item: FeedEvent; index: number }) => {
-    const typeStyle = getEventTypeStyle(item.event_type);
-    const symbol = getEventSymbol(item);
-    const timestamp = getEventTimestamp(item);
-
-    return (
-      <AnimatedListItem index={index}>
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardHeaderLeft}>
-              <Text style={styles.severityIcon}>{getSeverityIcon(item)}</Text>
-              <View style={styles.headerTextBlock}>
-                <View style={styles.badgesRow}>
-                  <View style={[styles.typeBadge, { backgroundColor: typeStyle.backgroundColor }]}>
-                    <Text style={[styles.typeBadgeText, { color: typeStyle.textColor }]}>
-                      {typeStyle.label}
-                    </Text>
-                  </View>
-                  {symbol ? (
-                    <View style={styles.symbolBadge}>
-                      <Text style={styles.symbolBadgeText}>{symbol}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.cardTitle} numberOfLines={2}>
-                  {item.title || STRINGS.fallbackTitle}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.timestampText}>
-              {timestamp ? DateFormatter.toRelativeTime(timestamp) : ''}
+      <View style={styles.card}>
+        {/* Header row */}
+        <View style={styles.cardHeader}>
+          <Text style={styles.severityIcon}>{severityIcon}</Text>
+          <View style={[styles.typeBadge, { backgroundColor: typeConfig.color + '18' }]}>
+            <Text style={[styles.typeBadgeText, { color: typeConfig.color }]}>
+              {typeConfig.label}
             </Text>
           </View>
-
-          <Text style={styles.cardBody}>{getEventBody(item)}</Text>
-
-          {Array.isArray(item.reason_codes) && item.reason_codes.length > 0 ? (
-            <View style={styles.reasonCodeRow}>
-              {item.reason_codes.slice(0, 3).map((code) => (
-                <View key={code} style={styles.reasonCodeChip}>
-                  <Text style={styles.reasonCodeText}>{code}</Text>
-                </View>
-              ))}
+          {sym ? (
+            <View style={styles.symbolBadge}>
+              <Text style={styles.symbolText}>{sym}</Text>
             </View>
           ) : null}
+          <View style={{ flex: 1 }} />
+          {relativeTime ? (
+            <Text style={styles.timestamp}>{relativeTime}</Text>
+          ) : null}
         </View>
-      </AnimatedListItem>
+
+        {/* Title */}
+        <Text style={styles.cardTitle} numberOfLines={2}>
+          {item.title || typeConfig.label}
+        </Text>
+
+        {/* Body */}
+        {bodyText ? (
+          <Text style={styles.cardBody} numberOfLines={4}>
+            {bodyText}
+          </Text>
+        ) : null}
+      </View>
     );
   };
 
-  if (loading && !refreshing && !events.length) {
+  // ── States ──
+
+  if (loading && events.length === 0) {
     return (
-      <PageTransition type="fade">
-        <View style={styles.container}>
-          <View style={styles.filterBar}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterBarContent}
-            >
-              {renderFilterButton('all')}
-              {renderFilterButton('signals')}
-              {renderFilterButton('risk')}
-              {renderFilterButton('auto')}
-              {renderFilterButton('insights')}
-            </ScrollView>
-          </View>
+      <View style={styles.container}>
+        {renderFilterBar()}
+        <View style={styles.content}>
           <SkeletonList count={5} />
         </View>
-      </PageTransition>
+      </View>
     );
   }
 
-  if (error && !events.length) {
+  if (error && events.length === 0) {
     return (
-      <PageTransition type="fade">
-        <NoData
-          title={STRINGS.errorTitle}
-          description={STRINGS.errorDescription}
-          onRetry={loadFeedEvents}
+      <View style={styles.container}>
+        {renderFilterBar()}
+        <NoData onRetry={() => loadEvents(true)} />
+      </View>
+    );
+  }
+
+  if (filteredEvents.length === 0) {
+    return (
+      <View style={styles.container}>
+        {renderFilterBar()}
+        <EmptyState
+          icon="\uD83E\uDD16"
+          title={t('aiFeedEmpty')}
+          description={t('aiFeedEmptyDesc')}
+          actionLabel={t('retry')}
+          onAction={() => loadEvents(true)}
         />
-      </PageTransition>
+      </View>
     );
   }
 
   return (
-    <PageTransition type="slideUp">
-      <View style={styles.container}>
-        <View style={styles.filterBar}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterBarContent}
-          >
-            {renderFilterButton('all')}
-            {renderFilterButton('signals')}
-            {renderFilterButton('risk')}
-            {renderFilterButton('auto')}
-            {renderFilterButton('insights')}
-          </ScrollView>
-        </View>
-
-        {filteredEvents.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <NoData
-              title={STRINGS.emptyTitle}
-              description={STRINGS.emptyDescription}
-              onRetry={loadFeedEvents}
-            />
-          </View>
-        ) : (
-          <FlatList
-            data={filteredEvents}
-            keyExtractor={(item, index) => `${item.id || item.title || 'event'}-${index}`}
-            renderItem={renderEvent}
-            contentContainerStyle={styles.listContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={theme.colors.brand.primary}
-              />
-            }
-            showsVerticalScrollIndicator={false}
+    <View style={styles.container}>
+      {renderFilterBar()}
+      <FlatList
+        data={filteredEvents}
+        keyExtractor={(item, i) => String(item.id ?? i)}
+        renderItem={renderCard}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.brand.primary}
           />
-        )}
-      </View>
-    </PageTransition>
+        }
+      />
+    </View>
   );
 }
+
+// ── Styles ──────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.ui.background,
   },
-  filterBar: {
-    paddingTop: theme.spacing.md,
-    paddingBottom: theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.ui.border,
-  },
-  filterBarContent: {
-    paddingHorizontal: theme.spacing.md,
-    gap: theme.spacing.sm,
-  },
-  filterButton: {
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.ui.cardBackground,
-    borderWidth: 1,
-    borderColor: theme.colors.ui.border,
-  },
-  filterButtonActive: {
-    backgroundColor: theme.colors.brand.primary,
-    borderColor: theme.colors.brand.primary,
-  },
-  filterButtonText: {
-    fontSize: theme.typography.sizes.sm,
-    fontWeight: '600',
-    color: theme.colors.text.secondary,
-  },
-  filterButtonTextActive: {
-    color: '#FFFFFF',
+  content: {
+    padding: theme.spacing.md,
   },
   listContent: {
     padding: theme.spacing.md,
     paddingBottom: theme.spacing.xl * 2,
   },
+
+  // Filter bar
+  filterBar: {
+    flexDirection: 'row',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.ui.background,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.ui.border,
+  },
+  filterChip: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs + 2,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+  },
+  filterChipActive: {
+    backgroundColor: theme.colors.brand.primary + '15',
+    borderColor: theme.colors.brand.primary,
+  },
+  filterText: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '500' as const,
+    color: theme.colors.text.secondary,
+  },
+  filterTextActive: {
+    color: theme.colors.brand.primary,
+    fontWeight: '700' as const,
+  },
+
+  // Card
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xlarge,
-    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.large,
+    padding: theme.spacing.lg,
     marginBottom: theme.spacing.sm,
-    ...theme.shadows.small,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: theme.spacing.sm,
-  },
-  cardHeaderLeft: {
-    flexDirection: 'row',
-    flex: 1,
-    marginRight: theme.spacing.sm,
-  },
-  severityIcon: {
-    fontSize: 20,
-    marginRight: theme.spacing.sm,
-    marginTop: 2,
-  },
-  headerTextBlock: {
-    flex: 1,
-  },
-  badgesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     gap: theme.spacing.xs,
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
+  },
+  severityIcon: {
+    fontSize: 14,
   },
   typeBadge: {
-    paddingVertical: 5,
     paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 2,
     borderRadius: theme.borderRadius.full,
   },
   typeBadgeText: {
     fontSize: theme.typography.sizes.xs,
-    fontWeight: '700',
+    fontWeight: '700' as const,
   },
   symbolBadge: {
-    paddingVertical: 5,
     paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 2,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.ui.background,
-    borderWidth: 1,
-    borderColor: theme.colors.ui.border,
+    backgroundColor: theme.colors.brand.primary + '12',
   },
-  symbolBadgeText: {
+  symbolText: {
     fontSize: theme.typography.sizes.xs,
-    fontWeight: '700',
-    color: theme.colors.text.primary,
+    fontWeight: '600' as const,
+    color: theme.colors.brand.primary,
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  timestamp: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.tertiary,
   },
   cardTitle: {
     fontSize: theme.typography.sizes.md,
-    fontWeight: '700',
+    fontWeight: '700' as const,
     color: theme.colors.text.primary,
     lineHeight: 22,
-  },
-  timestampText: {
-    fontSize: theme.typography.sizes.xs,
-    color: theme.colors.text.tertiary,
-    marginTop: 2,
+    marginBottom: theme.spacing.xs,
   },
   cardBody: {
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
     lineHeight: 20,
-  },
-  reasonCodeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.xs,
-    marginTop: theme.spacing.md,
-  },
-  reasonCodeChip: {
-    paddingVertical: 6,
-    paddingHorizontal: theme.spacing.sm,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.ui.background,
-  },
-  reasonCodeText: {
-    fontSize: theme.typography.sizes.xs,
-    fontWeight: '600',
-    color: theme.colors.text.secondary,
-  },
-  emptyContainer: {
-    flex: 1,
   },
 });

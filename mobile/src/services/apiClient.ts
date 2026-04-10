@@ -602,6 +602,15 @@ class ApiClient {
   }
 
   // Notifications
+  async getFeedEvents(limit: number = 50) {
+    const response = await this.client.get(`/api/feed?limit=${limit}`);
+    const data = response.data;
+    // Normalize: handle both { events: [...] } and raw array
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.events)) return data.events;
+    return [];
+  }
+
   async getNotifications(useCache: boolean = true) {
     if (useCache) {
       const cached = await cacheService.get(CACHE_KEYS.NOTIFICATIONS);

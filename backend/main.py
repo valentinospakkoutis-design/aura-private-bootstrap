@@ -3163,18 +3163,28 @@ def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth))
     if data.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
 
+    # Round quantity to valid LOT_SIZE step to avoid Binance -1013 error
+    sym = data.symbol.upper()
+    lot = broker.get_lot_size(sym)
+    qty = broker.round_to_step_size(data.quantity, lot["step_size"])
+    if qty < lot["min_qty"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Quantity {qty} below minimum {lot['min_qty']} for {sym}"
+        )
+
     client_order_id = _generate_client_order_id()
     result = broker.place_live_order(
-        symbol=data.symbol.upper(),
+        symbol=sym,
         side="SELL",
-        quantity=data.quantity,
+        quantity=qty,
         order_type="MARKET",
         client_order_id=client_order_id,
     )
 
     _log_live_order_audit(
-        source="close_position", symbol=data.symbol.upper(), side="SELL",
-        quantity=data.quantity, client_order_id=client_order_id,
+        source="close_position", symbol=sym, side="SELL",
+        quantity=qty, client_order_id=client_order_id,
         status="filled" if "error" not in result else "failed",
         broker_order_id=result.get("order_id"),
         price=result.get("price"),
@@ -3187,8 +3197,10 @@ def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth))
 
     return sanitize_floats({
         "success": True,
-        "symbol": data.symbol.upper(),
-        "quantity": data.quantity,
+        "symbol": sym,
+        "quantity": qty,
+        "original_quantity": data.quantity,
+        "lot_size": lot,
         "price": result.get("price"),
         "order_id": result.get("order_id"),
         "client_order_id": client_order_id,

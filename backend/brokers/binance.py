@@ -5,6 +5,7 @@ Handles connection, market data, and order execution.
 
 import hashlib
 import hmac
+import math
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -110,6 +111,33 @@ class BinanceAPI:
                 "status": "failed"
             }
         
+    def get_lot_size(self, symbol: str) -> Dict:
+        """Get LOT_SIZE filter for a symbol from exchangeInfo."""
+        try:
+            data = self._public_request("/api/v3/exchangeInfo", params={"symbol": symbol.upper()})
+            if "error" in data:
+                return {"min_qty": 0.00001, "max_qty": 9999999, "step_size": 0.00001}
+            for s in data.get("symbols", []):
+                if s.get("symbol") == symbol.upper():
+                    for f in s.get("filters", []):
+                        if f.get("filterType") == "LOT_SIZE":
+                            return {
+                                "min_qty": float(f.get("minQty", "0.00001")),
+                                "max_qty": float(f.get("maxQty", "9999999")),
+                                "step_size": float(f.get("stepSize", "0.00001")),
+                            }
+        except Exception:
+            pass
+        return {"min_qty": 0.00001, "max_qty": 9999999, "step_size": 0.00001}
+
+    @staticmethod
+    def round_to_step_size(quantity: float, step_size: float) -> float:
+        """Round quantity down to the nearest valid step size."""
+        if step_size <= 0:
+            return quantity
+        precision = int(round(-math.log10(step_size)))
+        return math.floor(quantity * (10 ** precision)) / (10 ** precision)
+
     def _generate_signature(self, query_string: str) -> str:
         """Generate HMAC SHA256 signature for authenticated requests"""
         if not self.api_secret:

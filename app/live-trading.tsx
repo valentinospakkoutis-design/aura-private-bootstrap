@@ -365,7 +365,7 @@ export default function LiveTradingScreen() {
                       <Text style={styles.positionValue}>
                         ${pos.value_usdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
-                      {!isStable && (
+                      {!isStable && pos.value_usdc > 1.0 && (
                         <TouchableOpacity
                           style={styles.closeBtn}
                           onPress={() => handleClosePosition(pos.symbol, pos.amount, pos.value_usdc)}

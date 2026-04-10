@@ -117,6 +117,14 @@ export const translations: Record<string, Record<string, string>> = {
     voiceBriefing: "Voice Briefing",
     futures: "Futures",
     bybitFutures: "Bybit Futures",
+    aiFeed: "AI Feed",
+    aiFeedEmpty: "Δεν υπαρχουν events ακομα",
+    aiFeedEmptyDesc: "Τα AI insights θα εμφανιστουν εδω οταν ξεκινησει η αναλυση.",
+    filterAll: "Ολα",
+    filterSignals: "Signals",
+    filterRisk: "Risk",
+    filterAuto: "Auto",
+    filterInsights: "Insights",
   },
 
   en: {
@@ -237,5 +245,13 @@ export const translations: Record<string, Record<string, string>> = {
     voiceBriefing: "Voice Briefing",
     futures: "Futures",
     bybitFutures: "Bybit Futures",
+    aiFeed: "AI Feed",
+    aiFeedEmpty: "No events yet",
+    aiFeedEmptyDesc: "AI insights will appear here once analysis begins.",
+    filterAll: "All",
+    filterSignals: "Signals",
+    filterRisk: "Risk",
+    filterAuto: "Auto",
+    filterInsights: "Insights",
   },
 };

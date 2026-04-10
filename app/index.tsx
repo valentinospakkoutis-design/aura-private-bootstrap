@@ -64,10 +64,10 @@ const QUICK_ACTIONS: QuickAction[] = [
     route: '/auto-trading',
     color: theme.colors.semantic.error,
   },
-    {
+  {
     id: '7',
     title: 'AI Feed',
-    icon: '🧠',
+    icon: '📡',
     route: '/ai-feed',
     color: theme.colors.accent.blue,
   },
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.medium,
     backgroundColor: theme.colors.brand.primary + '20',
   },
   portfolioEmptyButtonText: {
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: theme.spacing.md,
     backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.medium,
     marginBottom: theme.spacing.sm,
   },
   activityIcon: {
@@ -529,5 +529,4 @@ const styles = StyleSheet.create({
     height: theme.spacing.xl,
   },
 });
-
 
