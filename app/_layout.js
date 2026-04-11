@@ -22,10 +22,23 @@ function AuthGuard({ children }) {
   // On startup: restore session from stored token
   useEffect(() => {
     (async () => {
-      const { getToken, deleteToken } = require('../mobile/src/utils/tokenStorage');
+      const {
+        getToken,
+        getRefreshToken,
+        deleteToken,
+        deleteRefreshToken,
+      } = require('../mobile/src/utils/tokenStorage');
       try {
-        const token = await getToken();
+        const [token, refreshToken] = await Promise.all([getToken(), getRefreshToken()]);
         console.log('[AuthGuard] Token from storage:', token ? `found (${token.substring(0, 20)}...)` : 'not found');
+
+        if (token && !refreshToken) {
+          console.log('[AuthGuard] Missing refresh token, clearing incomplete session');
+          await deleteToken();
+          await deleteRefreshToken();
+          setUser(null);
+          return;
+        }
 
         if (token) {
           const axios = require('axios');
@@ -48,6 +61,8 @@ function AuthGuard({ children }) {
       } catch (err) {
         console.log('[AuthGuard] Token restore failed:', err?.response?.status || err?.message);
         await deleteToken();
+        await deleteRefreshToken();
+        setUser(null);
       } finally {
         setIsRestoring(false);
       }

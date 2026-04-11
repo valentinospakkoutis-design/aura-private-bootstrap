@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl, Alert, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { api } from '../mobile/src/services/apiClient';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { theme } from '../mobile/src/constants/theme';
+import { getToken } from '../mobile/src/utils/tokenStorage';
 
 interface AutoTradingStatus {
   enabled: boolean;
@@ -146,6 +148,7 @@ function serializeUiModeToBackend(mode: UiAuthorityMode): BackendAutopilotMode {
 }
 
 export default function AutoTradingScreen() {
+  const router = useRouter();
   const { showToast } = useAppStore();
   const { t, language } = useLanguage();
   const [status, setStatus] = useState<AutoTradingStatus | null>(null);
@@ -155,22 +158,38 @@ export default function AutoTradingScreen() {
   const [changingMode, setChangingMode] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  const handleAuthRequired = useCallback(async () => {
+    showToast(t('sessionExpired'), 'error');
+    router.replace('/login');
+  }, [router, showToast, t]);
+
   const loadStatus = useCallback(async () => {
     try {
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
+
       const [statusData, autopilotData] = await Promise.all([
         api.getAutoTradingStatus(),
         api.getAutopilotMode().catch(() => null),
       ]);
       setStatus(statusData);
-      if (autopilotData?.mode) {
-        setAutopilotMode(normalizeBackendMode(autopilotData.mode));
+      const backendMode = autopilotData?.current_mode || autopilotData?.mode;
+      if (backendMode) {
+        setAutopilotMode(normalizeBackendMode(backendMode));
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.response?.status === 401 || err?.statusCode === 401) {
+        await handleAuthRequired();
+        return;
+      }
       console.error('Failed to load auto trading status:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [handleAuthRequired]);
 
   useEffect(() => {
     loadStatus();
@@ -185,6 +204,12 @@ export default function AutoTradingScreen() {
   const doToggle = useCallback(async (value: boolean) => {
     setToggling(true);
     try {
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
+
       if (value) {
         await api.enableAutoTrading();
         showToast(t('autopilotEnableSuccess'), 'success');
@@ -194,12 +219,16 @@ export default function AutoTradingScreen() {
       }
       await loadStatus();
     } catch (err: any) {
+      if (err?.response?.status === 401 || err?.statusCode === 401) {
+        await handleAuthRequired();
+        return;
+      }
       const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
       showToast(msg, 'error');
     } finally {
       setToggling(false);
     }
-  }, [showToast, loadStatus, t]);
+  }, [handleAuthRequired, showToast, loadStatus, t]);
 
   const handleToggle = useCallback((value: boolean) => {
     if (value) {
@@ -246,6 +275,12 @@ export default function AutoTradingScreen() {
           style: isFullAutopilot ? 'destructive' : 'default',
           onPress: async () => {
             try {
+              const token = await getToken();
+              if (!token) {
+                await handleAuthRequired();
+                return;
+              }
+
               setChangingMode(true);
               const backendMode = serializeUiModeToBackend(nextMode);
               await api.setAutopilotMode(backendMode);
@@ -253,6 +288,10 @@ export default function AutoTradingScreen() {
               showToast(`${t('modeChanged')}: ${localizedMode}`, 'success');
               await loadStatus();
             } catch (err: any) {
+              if (err?.response?.status === 401 || err?.statusCode === 401) {
+                await handleAuthRequired();
+                return;
+              }
               const msg = err?.response?.data?.detail || err?.message || t('error');
               showToast(msg, 'error');
             } finally {
@@ -262,7 +301,7 @@ export default function AutoTradingScreen() {
         },
       ]
     );
-  }, [autopilotMode, changingMode, showToast, loadStatus, t]);
+  }, [autopilotMode, changingMode, handleAuthRequired, showToast, loadStatus, t]);
 
   if (loading) {
     return (

@@ -217,7 +217,7 @@ export default function AIFeedScreen() {
       <View style={styles.container}>
         {renderFilterBar()}
         <EmptyState
-          icon="🤖"
+          icon="AI"
           title={t('aiFeedEmpty')}
           description={t('aiFeedEmptyDesc')}
           actionLabel={t('retry')}

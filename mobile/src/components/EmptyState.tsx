@@ -26,7 +26,13 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     <View style={styles.container}>
       {/* Icon/Illustration */}
       <View style={styles.iconContainer}>
-        <Text style={styles.icon}>{icon}</Text>
+        <Text
+          style={styles.icon}
+          numberOfLines={1}
+          allowFontScaling={false}
+        >
+          {icon}
+        </Text>
       </View>
 
       {/* Title */}
@@ -83,6 +89,9 @@ const styles = StyleSheet.create({
   },
   icon: {
     fontSize: 64,
+    lineHeight: 64,
+    includeFontPadding: false,
+    textAlign: 'center',
   },
   title: {
     fontSize: theme.typography.sizes['2xl'],

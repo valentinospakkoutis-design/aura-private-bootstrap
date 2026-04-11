@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { useApi } from '../mobile/src/hooks/useApi';
@@ -8,13 +9,15 @@ import { LoadingSpinner } from '../mobile/src/components/LoadingSpinner';
 import { Button } from '../mobile/src/components/Button';
 import { theme } from '../mobile/src/constants/theme';
 import { useAppStore } from '../mobile/src/stores/appStore';
+import { getToken } from '../mobile/src/utils/tokenStorage';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
 
 type RecordingStatus = 'idle' | 'recording' | 'stopped' | 'uploading';
 
 export default function VoiceBriefingScreen() {
-  const { user, showToast } = useAppStore();
+  const router = useRouter();
   const { t } = useLanguage();
+  const { user, showToast } = useAppStore();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>('idle');
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -33,6 +36,11 @@ export default function VoiceBriefingScreen() {
     loading: uploadingVoice,
     execute: uploadVoice,
   } = useApi((audioUri: string) => api.uploadVoiceSample(audioUri), { showLoading: false, showToast: false });
+
+  const handleAuthRequired = useCallback(async () => {
+    showToast(t('sessionExpired'), 'error');
+    router.replace('/login');
+  }, [router, showToast, t]);
 
   useEffect(() => {
     loadBriefing();
@@ -194,6 +202,12 @@ export default function VoiceBriefingScreen() {
     try {
       setRecordingStatus('uploading');
 
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
+
       // Validate file exists
       const fileInfo = await FileSystem.getInfoAsync(uri);
       if (!fileInfo.exists) {
@@ -208,9 +222,13 @@ export default function VoiceBriefingScreen() {
       
       // Reload briefing
       await loadBriefing();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to upload voice:', err);
-      showToast('Αποτυχία ανεβάσματος φωνής', 'error');
+      if (err?.statusCode === 401 || err?.response?.status === 401) {
+        await handleAuthRequired();
+      } else {
+        showToast(err?.message || 'Αποτυχία ανεβάσματος φωνής', 'error');
+      }
       setRecordingStatus('stopped');
     }
   };
