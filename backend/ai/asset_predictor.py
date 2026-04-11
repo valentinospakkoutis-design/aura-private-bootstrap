@@ -464,6 +464,8 @@ class AssetPredictor:
         # Check if we have a trained model for this symbol
         use_ml_model = symbol in self.models and symbol in self.scalers
         
+        mtf: Dict[str, Any] = {}
+
         if use_ml_model:
             try:
                 is_xgboost = symbol in self.model_features and len(self.model_features[symbol]) > 10
@@ -471,6 +473,21 @@ class AssetPredictor:
                 if is_xgboost:
                     # XGBoost path: use auto_trainer's feature engineering
                     predicted_price, trend_score, confidence = self._predict_xgboost(symbol, current_price)
+
+                    # Multi-timeframe runtime layer (no model retraining, additive only)
+                    try:
+                        from ml.auto_trainer import fetch_mtf_features
+
+                        is_crypto = asset.get("type") == AssetType.CRYPTO
+                        mtf = fetch_mtf_features(symbol, is_crypto=is_crypto)
+
+                        if mtf:
+                            if mtf.get("mtf_confluence") and mtf.get("trend_1h", 0) > 0:
+                                confidence = min(confidence + 8.0, 100.0)
+                            elif not mtf.get("mtf_confluence"):
+                                confidence = max(confidence - 12.0, 0.0)
+                    except Exception as e:
+                        logger.debug(f"MTF layer failed for {symbol}: {e}")
                 else:
                     # Legacy RF path: 8-feature model
                     real_prices = self._get_real_prices(symbol, days=7)
@@ -545,6 +562,24 @@ class AssetPredictor:
         else:
             recommendation = "HOLD"
             recommendation_strength = "NEUTRAL"
+
+        # Overbought/oversold filter from 1h RSI (runtime override)
+        if mtf:
+            rsi_1h = float(mtf.get("rsi_1h", 50.0))
+            if rsi_1h > 75 or rsi_1h < 25:
+                recommendation = "HOLD"
+                recommendation_strength = "NEUTRAL"
+
+        def _trend_label(value: Any) -> str:
+            try:
+                v = float(value)
+            except Exception:
+                return "neutral"
+            if v > 0:
+                return "bullish"
+            if v < 0:
+                return "bearish"
+            return "neutral"
         
         prediction = {
             "symbol": symbol,
@@ -559,6 +594,10 @@ class AssetPredictor:
             "confidence": round(confidence, 1),
             "recommendation": recommendation,
             "recommendation_strength": recommendation_strength,
+            "mtf_confluence": bool(mtf.get("mtf_confluence")) if mtf else None,
+            "trend_1h": _trend_label(mtf.get("trend_1h")) if mtf else None,
+            "trend_4h": _trend_label(mtf.get("trend_4h")) if mtf else None,
+            "rsi_1h": round(float(mtf.get("rsi_1h", 50.0)), 1) if mtf else None,
             "prediction_horizon_days": days,
             "price_path": price_path,
             "timestamp": datetime.now().isoformat(),

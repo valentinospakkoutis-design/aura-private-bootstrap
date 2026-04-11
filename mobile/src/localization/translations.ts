@@ -225,6 +225,13 @@ export const translations: Record<string, Record<string, string>> = {
     bestAssets: "Best Assets",
     worstAssets: "Worst Assets",
     evaluatedPredictionsCount: "Αξιολογήθηκαν {value} προβλέψεις",
+    timeframeAnalysis: "Ανάλυση Timeframes",
+    rsi1h: "RSI 1h",
+    mtfStrongSignal: "Strong Signal (Confluence)",
+    mtfWeakSignal: "Weak Signal (Conflict)",
+    mtfBullish: "Bullish",
+    mtfBearish: "Bearish",
+    mtfNeutral: "Neutral",
   },
 
   en: {
@@ -453,5 +460,12 @@ export const translations: Record<string, Record<string, string>> = {
     bestAssets: "Best Assets",
     worstAssets: "Worst Assets",
     evaluatedPredictionsCount: "Evaluated {value} predictions",
+    timeframeAnalysis: "Timeframe Analysis",
+    rsi1h: "RSI 1h",
+    mtfStrongSignal: "Strong Signal (Confluence)",
+    mtfWeakSignal: "Weak Signal (Conflict)",
+    mtfBullish: "Bullish",
+    mtfBearish: "Bearish",
+    mtfNeutral: "Neutral",
   },
 };

@@ -23,6 +23,11 @@ interface Prediction {
   targetPrice?: number;
   timestamp: string;
   reasoning?: string;
+  mtf_confluence?: boolean | null;
+  trend_1h?: 'bullish' | 'bearish' | 'neutral' | null;
+  trend_4h?: 'bullish' | 'bearish' | 'neutral' | null;
+  trend_1d?: 'bullish' | 'bearish' | 'neutral' | null;
+  rsi_1h?: number | null;
 }
 
 interface Mover {
@@ -133,6 +138,12 @@ export default function AIPredictionsScreen() {
       case 'hold': return '⏸️';
       default: return '❓';
     }
+  };
+
+  const trendArrow = (trend?: string | null) => {
+    if (trend === 'bullish') return '↑';
+    if (trend === 'bearish') return '↓';
+    return '→';
   };
 
   const filteredPredictions = selectedCategory === 'all'
@@ -254,6 +265,17 @@ export default function AIPredictionsScreen() {
       <Text style={s.reasoning} numberOfLines={2}>
         {item.reasoning || (language === 'el' ? 'Ανάλυση βάσει τεχνικών δεικτών' : 'Analysis based on technical indicators')}
       </Text>
+
+      {(item.trend_1h || item.trend_4h || item.trend_1d) && (
+        <View style={[s.mtfRow, { backgroundColor: item.mtf_confluence ? '#16a34a18' : '#f59e0b1c' }]}>
+          <Text style={[s.mtfText, { color: item.mtf_confluence ? '#166534' : '#92400e' }]}>
+            {`1h ${trendArrow(item.trend_1h)}   4h ${trendArrow(item.trend_4h)}   1d ${trendArrow(item.trend_1d)}`}
+          </Text>
+          <Text style={[s.mtfStrength, { color: item.mtf_confluence ? '#15803d' : '#b45309' }]}>
+            {item.mtf_confluence ? t('mtfStrongSignal') : t('mtfWeakSignal')}
+          </Text>
+        </View>
+      )}
 
       {/* RL Agent prediction */}
       {(() => {
@@ -473,6 +495,24 @@ const s = StyleSheet.create({
   confidenceLabel: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary },
   confidenceValue: { fontSize: theme.typography.sizes.sm, fontWeight: '700', color: theme.colors.text.primary },
   reasoning: { fontSize: theme.typography.sizes.small, color: theme.colors.text.tertiary, lineHeight: 16, marginBottom: theme.spacing.sm },
+  mtfRow: {
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#00000010',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
+  },
+  mtfText: {
+    fontSize: theme.typography.sizes.xs,
+    fontWeight: '700',
+    fontFamily: theme.typography.fontFamily.mono,
+  },
+  mtfStrength: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+  },
   viewDetails: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600', textAlign: 'right' },
 });
 

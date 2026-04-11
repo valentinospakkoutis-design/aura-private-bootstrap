@@ -305,6 +305,67 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) ->
     return tr.rolling(period).mean()
 
 
+def calculate_trend(df: Optional[pd.DataFrame]) -> int:
+    """Return trend score as -1 (bearish), 0 (neutral), 1 (bullish)."""
+    if df is None or df.empty or "close" not in df.columns or len(df) < 30:
+        return 0
+
+    close = df["close"].astype(float)
+    sma_fast = close.rolling(12).mean().iloc[-1]
+    sma_slow = close.rolling(26).mean().iloc[-1]
+
+    if pd.isna(sma_fast) or pd.isna(sma_slow) or sma_slow == 0:
+        return 0
+
+    delta = (sma_fast - sma_slow) / sma_slow
+    if delta > 0.003:
+        return 1
+    if delta < -0.003:
+        return -1
+    return 0
+
+
+def calculate_rsi(df: Optional[pd.DataFrame], period: int = 14) -> float:
+    """Return latest RSI value from OHLCV close series."""
+    if df is None or df.empty or "close" not in df.columns or len(df) < period + 2:
+        return 50.0
+
+    rsi_series = _rsi(df["close"].astype(float), period)
+    last_val = rsi_series.iloc[-1]
+    if pd.isna(last_val):
+        return 50.0
+    return float(last_val)
+
+
+def fetch_mtf_features(symbol: str, is_crypto: bool = True) -> Dict:
+    """Fetch runtime multi-timeframe features used as an additive prediction layer."""
+    if not is_crypto:
+        # yfinance intraday history is limited/unreliable for long lookbacks
+        return {}
+
+    h1 = fetch_binance_ohlcv(symbol, "1h", days=90)
+    h4 = fetch_binance_ohlcv(symbol, "4h", days=180)
+    if h1 is None or h4 is None or h1.empty or h4.empty:
+        return {}
+
+    trend_1h = calculate_trend(h1)
+    trend_4h = calculate_trend(h4)
+    rsi_1h = calculate_rsi(h1)
+    rsi_4h = calculate_rsi(h4)
+    volume_surge_1h = False
+    if "volume" in h1.columns and len(h1) > 10:
+        volume_surge_1h = bool(h1["volume"].iloc[-1] > (h1["volume"].mean() * 1.5))
+
+    return {
+        "trend_1h": trend_1h,
+        "trend_4h": trend_4h,
+        "rsi_1h": rsi_1h,
+        "rsi_4h": rsi_4h,
+        "volume_surge_1h": volume_surge_1h,
+        "mtf_confluence": trend_1h == trend_4h,
+    }
+
+
 def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     """
     Train an XGBoost model for a single symbol using real Binance data.

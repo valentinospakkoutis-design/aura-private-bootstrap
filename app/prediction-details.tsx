@@ -7,6 +7,7 @@ import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { Button } from '../mobile/src/components/Button';
 import { theme } from '../mobile/src/constants/theme';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 
 interface PredictionDetail {
   id: string;
@@ -25,10 +26,16 @@ interface PredictionDetail {
   recommendationStrength: string;
   pricePath: Array<{ day: number; price: number; date: string }>;
   modelVersion: string;
+  mtf_confluence?: boolean | null;
+  trend_1h?: 'bullish' | 'bearish' | 'neutral' | null;
+  trend_4h?: 'bullish' | 'bearish' | 'neutral' | null;
+  trend_1d?: 'bullish' | 'bearish' | 'neutral' | null;
+  rsi_1h?: number | null;
 }
 
 export default function PredictionDetailsScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [prediction, setPrediction] = useState<PredictionDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,6 +86,12 @@ export default function PredictionDetailsScreen() {
       case 'hold': return '⏸️';
       default: return '❓';
     }
+  };
+
+  const trendLabel = (trend?: string | null) => {
+    if (trend === 'bullish') return t('mtfBullish');
+    if (trend === 'bearish') return t('mtfBearish');
+    return t('mtfNeutral');
   };
 
   if (loading && !refreshing) {
@@ -181,6 +194,35 @@ export default function PredictionDetailsScreen() {
             <Text style={styles.trendValue}>{prediction.trendScore?.toFixed(3) ?? 'N/A'}</Text>
           </View>
         </View>
+
+        {(prediction.trend_1h || prediction.trend_4h || prediction.trend_1d) && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t('timeframeAnalysis')}</Text>
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>1h</Text>
+              <Text style={styles.trendValue}>{trendLabel(prediction.trend_1h)}</Text>
+            </View>
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>4h</Text>
+              <Text style={styles.trendValue}>{trendLabel(prediction.trend_4h)}</Text>
+            </View>
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>1d</Text>
+              <Text style={styles.trendValue}>{trendLabel(prediction.trend_1d)}</Text>
+            </View>
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>{t('rsi1h')}</Text>
+              <Text style={styles.trendValue}>
+                {typeof prediction.rsi_1h === 'number' ? prediction.rsi_1h.toFixed(1) : 'N/A'}
+              </Text>
+            </View>
+            <View style={[styles.mtfBadge, { backgroundColor: prediction.mtf_confluence ? '#16a34a18' : '#f59e0b1c' }]}>
+              <Text style={[styles.mtfBadgeText, { color: prediction.mtf_confluence ? '#166534' : '#92400e' }]}>
+                {prediction.mtf_confluence ? t('mtfStrongSignal') : t('mtfWeakSignal')}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Reasoning Card */}
         <View style={styles.card}>
@@ -320,6 +362,17 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.md,
     fontWeight: '600',
     color: theme.colors.text.primary,
+  },
+  mtfBadge: {
+    marginTop: theme.spacing.sm,
+    alignSelf: 'flex-start',
+    borderRadius: theme.borderRadius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 4,
+  },
+  mtfBadgeText: {
+    fontSize: theme.typography.sizes.xs,
+    fontWeight: '700',
   },
   reasoning: {
     fontSize: theme.typography.sizes.md,
