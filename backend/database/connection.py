@@ -257,6 +257,29 @@ def init_db():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_eval_7d ON prediction_outcomes (was_correct_7d, created_at)"
             ))
+            conn.execute(text(
+                "ALTER TABLE model_registry ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1"
+            ))
+            conn.execute(text(
+                "ALTER TABLE model_registry ADD COLUMN IF NOT EXISTS improved_at TIMESTAMP"
+            ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS trade_feedback (
+                    id SERIAL PRIMARY KEY,
+                    symbol VARCHAR NOT NULL,
+                    action VARCHAR NOT NULL,
+                    confidence_at_entry FLOAT,
+                    entry_price FLOAT,
+                    exit_price FLOAT,
+                    pnl_pct FLOAT,
+                    outcome VARCHAR,
+                    features_snapshot JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_trade_feedback_symbol_created ON trade_feedback (symbol, created_at DESC)"
+            ))
             # ── Alembic-managed tables ──
             # When Alembic is active (alembic_version table has a revision),
             # skip raw SQL table creation — Alembic owns these tables.

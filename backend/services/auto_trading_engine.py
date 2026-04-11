@@ -25,6 +25,23 @@ ALLOWED_AUTO_TRADE_SYMBOLS = {
 }
 
 
+def save_trade_feedback(symbol, action, entry, exit_price, confidence, features):
+    """Persist closed-trade feedback for model self-improvement."""
+    try:
+        from services.model_improver import save_trade_feedback as _persist_feedback
+
+        _persist_feedback(
+            symbol=str(symbol or "").upper(),
+            action=str(action or "").upper(),
+            entry_price=float(entry or 0.0),
+            exit_price=float(exit_price or 0.0),
+            confidence=float(confidence or 0.0),
+            features_snapshot=features if isinstance(features, dict) else {},
+        )
+    except Exception:
+        pass
+
+
 class AutoTradingEngine:
     def __init__(self):
         self.is_running = False
@@ -280,6 +297,19 @@ class AutoTradingEngine:
             }
             self.closed_trades.append(closed_trade)
             self.open_positions.pop(symbol, None)
+
+            save_trade_feedback(
+                symbol=symbol,
+                action=position.get("side", "BUY"),
+                entry=entry_price,
+                exit_price=exit_price,
+                confidence=position.get("confidence", 0.0),
+                features={
+                    "smart_score": position.get("smart_score"),
+                    "smart_score_signals": position.get("smart_score_signals", {}),
+                    "reason": reason,
+                },
+            )
 
             self._log_event("POSITION_CLOSED", f"{symbol} closed ({reason}) PnL=${pnl:.2f}", closed_trade)
             self._notify_user(

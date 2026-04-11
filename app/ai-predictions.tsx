@@ -39,6 +39,15 @@ interface Mover {
   confidence: number;
 }
 
+interface ModelHealth {
+  symbol: string;
+  version: number;
+  accuracy: number;
+  trend: 'improving' | 'declining' | 'stable';
+  last_improved?: string | null;
+  feedback_trades?: number;
+}
+
 const CATEGORIES = [
   { key: 'all', label: 'Όλα' },
   { key: 'crypto', label: 'Crypto' },
@@ -58,6 +67,7 @@ export default function AIPredictionsScreen() {
   const [rlData, setRlData] = useState<any>(null);
   const [historicalAccuracy, setHistoricalAccuracy] = useState<number | null>(null);
   const [symbolHistoricalAccuracy, setSymbolHistoricalAccuracy] = useState<Record<string, number>>({});
+  const [modelHealthBySymbol, setModelHealthBySymbol] = useState<Record<string, ModelHealth>>({});
   const { isOfflineMode } = useOfflineMode();
 
   const {
@@ -109,6 +119,13 @@ export default function AIPredictionsScreen() {
           }
           setModelAccuracy(map);
         }).catch(() => {}),
+        api.getAIModelHealth().then((data: any) => {
+          const map: Record<string, ModelHealth> = {};
+          for (const m of data?.models || []) {
+            if (m.symbol) map[m.symbol] = m;
+          }
+          setModelHealthBySymbol(map);
+        }).catch(() => {}),
       ]);
       if (Array.isArray(result)) setPredictions(result);
     } catch (err) {
@@ -143,6 +160,12 @@ export default function AIPredictionsScreen() {
   const trendArrow = (trend?: string | null) => {
     if (trend === 'bullish') return '↑';
     if (trend === 'bearish') return '↓';
+    return '→';
+  };
+
+  const modelTrendArrow = (trend?: string) => {
+    if (trend === 'improving') return '↑';
+    if (trend === 'declining') return '↓';
     return '→';
   };
 
@@ -202,6 +225,7 @@ export default function AIPredictionsScreen() {
     const accHist = (item.symbol && symbolHistoricalAccuracy[item.symbol] != null)
       ? symbolHistoricalAccuracy[item.symbol]
       : null;
+    const health = item.symbol ? modelHealthBySymbol[item.symbol] : undefined;
     return (
     <TouchableOpacity
       activeOpacity={0.7}
@@ -226,6 +250,13 @@ export default function AIPredictionsScreen() {
               <View style={[s.accuracyBadge, { backgroundColor: getAccuracyColor(accModel) + '20' }]}>
                 <Text style={[s.accuracyText, { color: getAccuracyColor(accModel) }]}>
                   🎯 {(accModel * 100).toFixed(1)}%
+                </Text>
+              </View>
+            )}
+            {health && health.trend === 'improving' && (
+              <View style={s.modelBadge}>
+                <Text style={s.modelBadgeText}>
+                  {t('modelVersionBadge', { version: String(health.version), arrow: modelTrendArrow(health.trend) })}
                 </Text>
               </View>
             )}
@@ -454,6 +485,19 @@ const s = StyleSheet.create({
   perfLinkText: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600' },
   accuracyBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   accuracyText: { fontSize: 10, fontWeight: '700' },
+  modelBadge: {
+    backgroundColor: '#1d4ed820',
+    borderColor: '#1d4ed850',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  modelBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1d4ed8',
+  },
   histBadge: {
     backgroundColor: '#16a34a22',
     borderColor: '#16a34a55',

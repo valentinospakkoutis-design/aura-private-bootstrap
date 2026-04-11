@@ -294,6 +294,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getAIModelHealth() {
+    const response = await this.client.get('/api/ai/model-health');
+    return response.data;
+  }
+
   // Brokers
   async getBrokers(useCache: boolean = true) {
     if (useCache) {

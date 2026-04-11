@@ -636,6 +636,33 @@ def _daily_prediction_outcomes_eval():
         logger.error(f"[scheduler] Prediction outcomes eval failed: {e}")
 
 
+def _weekly_retraining_with_feedback():
+    """Weekly base retrain followed by feedback-layer refinement."""
+    logger.info("[scheduler] Starting weekly base retrain + feedback refinement...")
+    try:
+        base_results = train_all_symbols()
+        base_ok = len([r for r in base_results if "metrics" in r])
+        logger.info(f"[scheduler] Weekly base retrain done: {base_ok}/{len(base_results)} succeeded")
+    except Exception as e:
+        logger.error(f"[scheduler] Weekly base retrain failed: {e}")
+        return
+
+    try:
+        from services.model_improver import retrain_all_with_feedback
+
+        feedback_results = retrain_all_with_feedback(TRAINING_SYMBOLS)
+        improved = len([r for r in feedback_results if r.get("status") == "improved"])
+        no_improvement = len([r for r in feedback_results if r.get("status") == "no_improvement"])
+        logger.info(
+            "[scheduler] Weekly feedback refinement done: improved=%s no_improvement=%s total=%s",
+            improved,
+            no_improvement,
+            len(feedback_results),
+        )
+    except Exception as e:
+        logger.error(f"[scheduler] Weekly feedback refinement failed: {e}")
+
+
 def setup_weekly_retraining():
     """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
@@ -646,10 +673,10 @@ def setup_weekly_retraining():
 
         # Weekly full retraining — Sunday 00:00 UTC
         scheduler.add_job(
-            train_all_symbols,
+            _weekly_retraining_with_feedback,
             trigger=CronTrigger(day_of_week="sun", hour=0, minute=0),
             id="weekly_retrain",
-            name="Weekly model retraining",
+            name="Weekly model retraining + feedback refinement",
             replace_existing=True,
         )
 

@@ -203,13 +203,31 @@ class ModelRegistry(Base):
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String(20), nullable=False, index=True)
     model_version = Column(String(20), nullable=False)
+    version = Column(Integer, nullable=False, default=1)
     accuracy = Column(Float)
     precision_score = Column(Float)
     recall_score = Column(Float)
     training_samples = Column(Integer)
     features_used = Column(Text)  # comma-separated
     trained_at = Column(DateTime, default=datetime.utcnow)
+    improved_at = Column(DateTime)
     is_active = Column(Boolean, default=True)
+
+
+class TradeFeedback(Base):
+    """Feedback records from closed real trades for self-improvement."""
+    __tablename__ = "trade_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    action = Column(String(10), nullable=False)
+    confidence_at_entry = Column(Float)
+    entry_price = Column(Float)
+    exit_price = Column(Float)
+    pnl_pct = Column(Float)
+    outcome = Column(String(10))
+    features_snapshot = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class TrainingLog(Base):

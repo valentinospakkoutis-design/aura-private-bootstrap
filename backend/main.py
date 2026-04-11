@@ -1673,6 +1673,14 @@ def get_ai_accuracy_for_symbol(symbol: str):
 
     return sanitize_floats(prediction_outcomes_service.get_accuracy(symbol=symbol.upper()))
 
+
+@app.get("/api/ai/model-health")
+def get_ai_model_health():
+    """Return model version/accuracy trend and feedback activity per symbol."""
+    from services.model_improver import get_model_health
+
+    return sanitize_floats(get_model_health())
+
 @app.get("/api/v1/market/movers")
 def get_market_movers():
     """Top gainers, losers, and volume leaders across all assets."""
