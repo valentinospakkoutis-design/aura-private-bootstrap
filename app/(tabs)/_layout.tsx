@@ -18,12 +18,14 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.colors.ui.cardBackground,
           borderTopColor: theme.colors.ui.border,
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 60,
+          borderTopWidth: 1,
+          paddingBottom: 6,
+          paddingTop: 6,
+          height: 54,
         },
         tabBarActiveTintColor: theme.colors.brand.primary,
         tabBarInactiveTintColor: theme.colors.text.secondary,
+        tabBarShowLabel: false,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
@@ -34,35 +36,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>🏠</Text>,
+          tabBarIcon: ({ focused }) => <Text style={{ fontSize: 18 }}>{focused ? '● Dashboard' : '○'}</Text>,
         }}
       />
       <Tabs.Screen
         name="ai-predictions"
         options={{
           title: 'AI',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>🤖</Text>,
+          tabBarIcon: ({ focused }) => <Text style={{ fontSize: 18 }}>{focused ? '● AI' : '○'}</Text>,
         }}
       />
       <Tabs.Screen
         name="trading"
         options={{
           title: 'Trading',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📈</Text>,
+          tabBarIcon: ({ focused }) => <Text style={{ fontSize: 18 }}>{focused ? '● Trading' : '○'}</Text>,
         }}
       />
       <Tabs.Screen
         name="auto-trading"
         options={{
           title: 'Auto',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>⚡</Text>,
+          tabBarIcon: ({ focused }) => <Text style={{ fontSize: 18 }}>{focused ? '● Auto' : '○'}</Text>,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: 'More',
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>☰</Text>,
+          tabBarIcon: ({ focused }) => <Text style={{ fontSize: 18 }}>{focused ? '● More' : '○'}</Text>,
         }}
       />
     </Tabs>

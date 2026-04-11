@@ -107,13 +107,11 @@ export const AnimatedCard: React.FC<AnimatedCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xlarge,
-    padding: theme.spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
   },
 });
 

@@ -57,7 +57,7 @@ export const Button: React.FC<ButtonProps> = ({
       case 'primary':
         return { ...baseStyle, backgroundColor: theme.colors.brand.primary };
       case 'secondary':
-        return { ...baseStyle, backgroundColor: theme.colors.ui.cardBackground, borderWidth: 1, borderColor: theme.colors.brand.primary };
+        return { ...baseStyle, backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.colors.brand.primary };
       case 'ghost':
         return { ...baseStyle, backgroundColor: 'transparent' };
       case 'gradient':

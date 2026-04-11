@@ -18,65 +18,32 @@ interface QuickAction {
   title: string;
   icon: string;
   route: string;
-  color: string;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
     id: '1',
-    title: 'AI Predictions',
-    icon: '🤖',
-    route: '/ai-predictions',
-    color: theme.colors.brand.primary,
-  },
-  {
-    id: '2',
     title: 'Paper Trading',
     icon: '📊',
     route: '/paper-trading',
-    color: theme.colors.market.bullish,
   },
   {
-    id: '3',
+    id: '2',
     title: 'Live Trading',
     icon: '💰',
     route: '/live-trading',
-    color: theme.colors.semantic.warning,
+  },
+  {
+    id: '3',
+    title: 'Auto Trading',
+    icon: '⚡',
+    route: '/auto-trading',
   },
   {
     id: '4',
-    title: 'Voice Briefing',
-    icon: '🎙️',
-    route: '/voice-briefing',
-    color: theme.colors.brand.secondary,
-  },
-  {
-    id: '5',
-    title: 'Analytics',
-    icon: '📈',
-    route: '/analytics',
-    color: theme.colors.accent.purple,
-  },
-  {
-    id: '6',
-    title: 'Auto Trading',
-    icon: '🤖',
-    route: '/auto-trading',
-    color: theme.colors.semantic.error,
-  },
-  {
-    id: '7',
     title: 'AI Feed',
     icon: '📡',
     route: '/ai-feed',
-    color: theme.colors.accent.blue,
-  },
-  {
-    id: '8',
-    title: 'Settings',
-    icon: '⚙️',
-    route: '/settings',
-    color: theme.colors.text.secondary,
   },
 ];
 
@@ -138,12 +105,7 @@ export default function HomeScreen() {
     }
   };
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return t('goodMorning');
-    if (hour < 18) return t('goodAfternoon');
-    return t('goodEvening');
-  };
+  const initials = (user?.name || 'AU').split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
 
   const handleQuickAction = (route: string) => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -155,15 +117,12 @@ export default function HomeScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()},</Text>
-            <Text style={styles.userName}>{user?.name || 'Χρήστη'}! 👋</Text>
-          </View>
+          <Text style={styles.logo}>AURA</Text>
           <TouchableOpacity
             style={styles.notificationButton}
-            onPress={() => router.push({ pathname: '/notifications' } as any)}
+            onPress={() => router.push({ pathname: '/settings' } as any)}
           >
-            <Text style={styles.notificationIcon}>🔔</Text>
+            <Text style={styles.avatarText}>{initials}</Text>
             {unreadCount > 0 && (
               <View style={styles.notificationBadge}>
                 <Text style={styles.notificationBadgeText}>
@@ -181,22 +140,9 @@ export default function HomeScreen() {
               <Text style={styles.portfolioEmptyText}>Φόρτωση portfolio...</Text>
             </View>
           ) : portfolio && portfolio.totalValue > 0 ? (
-            <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/analytics')}>
+            <TouchableOpacity activeOpacity={0.8} onPress={() => router.push('/analytics')}>
               <View style={styles.portfolioCard}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={styles.portfolioLabel}>{t('totalPortfolioValue')}</Text>
-                  <View style={{
-                    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-                    backgroundColor: portfolio.mode === 'live' ? '#ef444420' : '#22c55e20',
-                  }}>
-                    <Text style={{
-                      fontSize: 11, fontWeight: '700',
-                      color: portfolio.mode === 'live' ? '#ef4444' : '#22c55e',
-                    }}>
-                      {portfolio.mode === 'live' ? '🔴 LIVE' : '🟢 PAPER'}
-                    </Text>
-                  </View>
-                </View>
+                <Text style={styles.portfolioLabel}>{t('totalPortfolioValue')}</Text>
                 <Text style={styles.portfolioValue}>
                   ${portfolio.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -205,9 +151,11 @@ export default function HomeScreen() {
                     styles.portfolioPnl,
                     { color: portfolio.profitPercentage >= 0 ? theme.colors.market.bullish : theme.colors.market.bearish }
                   ]}>
-                    {portfolio.profitPercentage >= 0 ? '+' : ''}{portfolio.profitPercentage.toFixed(2)}%
+                    {portfolio.profitPercentage >= 0 ? '+' : '-'}${Math.abs(portfolio.totalProfit || 0).toFixed(2)} ({portfolio.profitPercentage >= 0 ? '+' : ''}{portfolio.profitPercentage.toFixed(2)}%)
                   </Text>
-                  <Text style={styles.portfolioPnlLabel}> σήμερα</Text>
+                </View>
+                <View style={styles.chartPlaceholder}>
+                  <View style={styles.chartLine} />
                 </View>
               </View>
               <View style={styles.statsRow}>
@@ -244,7 +192,7 @@ export default function HomeScreen() {
         </AnimatedCard>
 
         {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>⚡ {t('quickActions')}</Text>
+        <Text style={styles.sectionTitle}>{t('quickActions')}</Text>
         <View style={styles.actionsGrid}>
           {QUICK_ACTIONS.map((action, index) => (
             <AnimatedCard
@@ -258,9 +206,7 @@ export default function HomeScreen() {
                 onPress={() => handleQuickAction(action.route)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.actionIconContainer, { backgroundColor: action.color + '20' }]}>
-                  <Text style={styles.actionIcon}>{action.icon}</Text>
-                </View>
+                <Text style={styles.actionIcon}>{action.icon}</Text>
                 <Text style={styles.actionTitle}>{action.title}</Text>
               </TouchableOpacity>
             </AnimatedCard>
@@ -270,14 +216,13 @@ export default function HomeScreen() {
         {/* Recent Activity */}
         <AnimatedCard delay={500} animationType="slideUp">
           <View style={styles.activityHeader}>
-            <Text style={styles.sectionTitle}>🕐 Πρόσφατη Δραστηριότητα</Text>
+            <Text style={styles.sectionTitle}>Πρόσφατη Δραστηριότητα</Text>
             <TouchableOpacity onPress={() => router.push({ pathname: '/notifications' } as any)}>
               <Text style={styles.viewAllButton}>Όλες →</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.activityItem}>
-            <Text style={styles.activityIcon}>💰</Text>
             <View style={styles.activityContent}>
               <Text style={styles.activityTitle}>Νέο Trade: BTC/USD</Text>
               <Text style={styles.activityDescription}>Αγορά στα $42,500</Text>
@@ -286,7 +231,6 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.activityItem}>
-            <Text style={styles.activityIcon}>🤖</Text>
             <View style={styles.activityContent}>
               <Text style={styles.activityTitle}>AI Prediction: ETH/USD</Text>
               <Text style={styles.activityDescription}>Bullish signal - 85% confidence</Text>
@@ -295,7 +239,6 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.activityItem}>
-            <Text style={styles.activityIcon}>🎙️</Text>
             <View style={styles.activityContent}>
               <Text style={styles.activityTitle}>Voice Briefing Ready</Text>
               <Text style={styles.activityDescription}>Το ημερήσιο briefing σου είναι έτοιμο</Text>
@@ -323,28 +266,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: theme.spacing.xl,
+    marginBottom: theme.spacing.lg,
   },
-  greeting: {
-    fontSize: theme.typography.sizes.lg,
-    color: theme.colors.text.secondary,
-  },
-  userName: {
-    fontSize: theme.typography.sizes['3xl'],
+  logo: {
+    fontSize: theme.typography.sizes.h3,
     fontWeight: '700',
     color: theme.colors.text.primary,
+    letterSpacing: 0.8,
   },
   notificationButton: {
     position: 'relative',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: theme.colors.ui.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  notificationIcon: {
-    fontSize: 24,
+  avatarText: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
   },
   notificationBadge: {
     position: 'absolute',
@@ -364,19 +308,20 @@ const styles = StyleSheet.create({
   },
   portfolioCard: {
     alignItems: 'center',
-    paddingVertical: theme.spacing.lg,
-    paddingBottom: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    paddingBottom: theme.spacing.sm,
   },
   portfolioLabel: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
+    fontSize: theme.typography.sizes.small,
+    color: theme.colors.text.tertiary,
     marginBottom: theme.spacing.xs,
   },
   portfolioValue: {
-    fontSize: 32,
+    fontSize: theme.typography.sizes.hero,
     fontWeight: '700',
     color: theme.colors.text.primary,
     fontFamily: theme.typography.fontFamily.mono,
+    textAlign: 'center',
   },
   portfolioPnlRow: {
     flexDirection: 'row',
@@ -384,13 +329,26 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.xs,
   },
   portfolioPnl: {
-    fontSize: theme.typography.sizes.lg,
+    fontSize: theme.typography.sizes.body,
     fontWeight: '600',
     fontFamily: theme.typography.fontFamily.mono,
   },
-  portfolioPnlLabel: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.text.secondary,
+  chartPlaceholder: {
+    marginTop: theme.spacing.md,
+    width: '100%',
+    height: 46,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.ui.background,
+  },
+  chartLine: {
+    height: 2,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.brand.primary,
+    opacity: 0.35,
   },
   portfolioEmpty: {
     alignItems: 'center',
@@ -418,8 +376,8 @@ const styles = StyleSheet.create({
     color: theme.colors.brand.primary,
   },
   sectionTitle: {
-    fontSize: theme.typography.sizes.xl,
-    fontWeight: '700',
+    fontSize: theme.typography.sizes.h3,
+    fontWeight: '600',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.md,
   },
@@ -433,21 +391,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statLabel: {
-    fontSize: theme.typography.sizes.xs,
+    fontSize: theme.typography.sizes.micro,
     color: theme.colors.text.secondary,
     marginBottom: theme.spacing.xs,
     textAlign: 'center',
   },
   statValue: {
-    fontSize: theme.typography.sizes.xl,
+    fontSize: theme.typography.sizes.h3,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '700',
     color: theme.colors.text.primary,
-    marginBottom: theme.spacing.xs,
-  },
-  statChange: {
-    fontSize: theme.typography.sizes.xs,
-    color: theme.colors.text.secondary,
+    marginBottom: 0,
   },
   statDivider: {
     width: 1,
@@ -457,30 +411,25 @@ const styles = StyleSheet.create({
   actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
     marginBottom: theme.spacing.lg,
   },
   actionCard: {
-    width: (width - theme.spacing.md * 2 - theme.spacing.sm) / 2,
+    width: (width - theme.spacing.md * 2 - theme.spacing.xs) / 2,
     padding: 0,
   },
   actionButton: {
-    padding: theme.spacing.lg,
+    padding: theme.spacing.md,
+    minHeight: 88,
     alignItems: 'center',
-  },
-  actionIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: theme.spacing.sm,
   },
   actionIcon: {
-    fontSize: 32,
+    fontSize: 24,
+    marginBottom: theme.spacing.xs,
   },
   actionTitle: {
-    fontSize: theme.typography.sizes.sm,
+    fontSize: theme.typography.sizes.small,
     fontWeight: '600',
     color: theme.colors.text.primary,
     textAlign: 'center',
@@ -498,14 +447,10 @@ const styles = StyleSheet.create({
   },
   activityItem: {
     flexDirection: 'row',
-    padding: theme.spacing.md,
-    backgroundColor: theme.colors.ui.background,
-    borderRadius: theme.borderRadius.medium,
-    marginBottom: theme.spacing.sm,
-  },
-  activityIcon: {
-    fontSize: 32,
-    marginRight: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.ui.border,
+    marginBottom: theme.spacing.xs,
   },
   activityContent: {
     flex: 1,

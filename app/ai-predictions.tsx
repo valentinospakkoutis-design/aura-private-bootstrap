@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity, ScrollView, TextInput } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
@@ -34,14 +34,11 @@ interface Mover {
 }
 
 const CATEGORIES = [
-  { key: 'all', label: 'Όλα', icon: '🌐' },
-  { key: 'crypto', label: 'Crypto', icon: '₿' },
-  { key: 'stocks', label: 'Μετοχές', icon: '📈' },
-  { key: 'metals', label: 'Μέταλλα', icon: '🥇' },
-  { key: 'bonds', label: 'Ομόλογα', icon: '📊' },
-  { key: 'derivatives', label: 'Παράγωγα', icon: '🔮' },
-  { key: 'fx', label: 'FX', icon: '💱' },
-  { key: 'sentiment', label: 'VIX', icon: '😨' },
+  { key: 'all', label: 'Όλα' },
+  { key: 'crypto', label: 'Crypto' },
+  { key: 'stocks', label: 'Stocks' },
+  { key: 'metals', label: 'Metals' },
+  { key: 'fx', label: 'Forex' },
 ] as const;
 
 export default function AIPredictionsScreen() {
@@ -49,6 +46,7 @@ export default function AIPredictionsScreen() {
   const { predictions, setPredictions } = useAppStore();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
   const [modelAccuracy, setModelAccuracy] = useState<Record<string, number>>({});
   const [rlData, setRlData] = useState<any>(null);
@@ -128,9 +126,13 @@ export default function AIPredictionsScreen() {
     }
   };
 
-  const filteredPredictions = selectedCategory === 'all'
-    ? predictions
-    : predictions?.filter((p: any) => p.category === selectedCategory);
+  const filteredPredictions = (predictions || []).filter((p: any) => {
+    const categoryOk = selectedCategory === 'all' || p.category === selectedCategory;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return categoryOk;
+    const text = `${p.asset || ''} ${p.symbol || ''}`.toLowerCase();
+    return categoryOk && text.includes(q);
+  });
 
   // ── Mover Card ────────────────────────────────────────────
   const renderMoverCard = (item: Mover) => {
@@ -234,9 +236,7 @@ export default function AIPredictionsScreen() {
         <AnimatedProgressBar progress={item.confidence} color={getActionColor(item.action)} height={8} animated />
       </View>
 
-      <Text style={s.reasoning} numberOfLines={2}>
-        {item.reasoning || 'Î”ÎµÎ½ Ï…Ï€Î¬ÏÏ‡Î¿Ï…Î½ Î´Î¹Î±Î¸Î­ÏƒÎ¹Î¼ÎµÏ‚ Î»ÎµÏ€Ï„Î¿Î¼Î­ÏÎµÎ¹ÎµÏ‚ Î±ÎºÏŒÎ¼Î·.'}
-      </Text>
+      <Text style={s.reasoning} numberOfLines={1}>{item.symbol || item.asset}</Text>
 
       {/* RL Agent prediction */}
       {(() => {
@@ -266,7 +266,7 @@ export default function AIPredictionsScreen() {
         );
       })()}
 
-      <Text style={s.viewDetails}>Δες Ανάλυση →</Text>
+      <Text style={s.viewDetails}>Details →</Text>
     </TouchableOpacity>
   );};
 
@@ -309,6 +309,17 @@ export default function AIPredictionsScreen() {
               {/* Top Movers */}
               {renderMoversSection()}
 
+              <View style={s.searchWrap}>
+                <TextInput
+                  style={s.searchInput}
+                  placeholder="Search asset..."
+                  placeholderTextColor={theme.colors.text.tertiary}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCorrect={false}
+                />
+              </View>
+
               {/* Model links */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: theme.spacing.sm }}>
                 <TouchableOpacity style={s.perfLink} onPress={() => router.push('/model-performance')}>
@@ -328,7 +339,6 @@ export default function AIPredictionsScreen() {
                     onPress={() => setSelectedCategory(cat.key)}
                     activeOpacity={0.7}
                   >
-                    <Text style={s.tabIcon}>{cat.icon}</Text>
                     <Text style={[s.tabLabel, selectedCategory === cat.key && s.tabLabelActive]}>{cat.label}</Text>
                   </TouchableOpacity>
                 ))}
@@ -384,15 +394,24 @@ const s = StyleSheet.create({
   tab: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm,
-    borderRadius: 20,
-    backgroundColor: theme.colors.ui.cardBackground,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: 'transparent',
     borderWidth: 1, borderColor: theme.colors.ui.border,
-    gap: 4,
   },
   tabActive: { backgroundColor: theme.colors.brand.primary, borderColor: theme.colors.brand.primary },
-  tabIcon: { fontSize: 14 },
   tabLabel: { fontSize: theme.typography.sizes.xs, fontWeight: '600', color: theme.colors.text.secondary },
   tabLabelActive: { color: '#FFFFFF' },
+  searchWrap: { marginBottom: theme.spacing.sm },
+  searchInput: {
+    backgroundColor: theme.colors.ui.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    borderRadius: theme.borderRadius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    color: theme.colors.text.primary,
+    fontSize: theme.typography.sizes.body,
+  },
   perfLink: { alignSelf: 'flex-end', marginBottom: theme.spacing.sm },
   perfLinkText: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600' },
   accuracyBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
@@ -402,26 +421,27 @@ const s = StyleSheet.create({
   // ── Prediction Cards ──────────────────────────────────────
   card: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xlarge,
-    padding: theme.spacing.lg,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.md },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.sm },
   assetContainer: { flex: 1 },
-  assetName: { fontSize: theme.typography.sizes.lg, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 2 },
+  assetName: { fontSize: theme.typography.sizes.h3, fontWeight: '700', color: theme.colors.text.primary, marginBottom: 2 },
   symbolBadge: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, fontFamily: theme.typography.fontFamily.mono },
   actionBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderRadius: theme.borderRadius.lg, gap: theme.spacing.xs },
   actionIcon: { fontSize: 16 },
   actionText: { fontSize: theme.typography.sizes.sm, fontWeight: '600' },
-  priceContainer: { marginBottom: theme.spacing.md, gap: theme.spacing.xs },
+  priceContainer: { marginBottom: theme.spacing.sm, gap: theme.spacing.xs },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   priceLabel: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary },
   priceValue: { fontSize: theme.typography.sizes.md, fontWeight: '600', color: theme.colors.text.primary },
-  confidenceContainer: { marginBottom: theme.spacing.md },
+  confidenceContainer: { marginBottom: theme.spacing.sm },
   confidenceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.xs },
   confidenceLabel: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary },
   confidenceValue: { fontSize: theme.typography.sizes.sm, fontWeight: '700', color: theme.colors.text.primary },
-  reasoning: { fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, lineHeight: 20, marginBottom: theme.spacing.md },
+  reasoning: { fontSize: theme.typography.sizes.small, color: theme.colors.text.tertiary, lineHeight: 16, marginBottom: theme.spacing.sm },
   viewDetails: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600', textAlign: 'right' },
 });
 

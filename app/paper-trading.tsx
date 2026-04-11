@@ -153,7 +153,7 @@ export default function PaperTradingScreen() {
   // Trade form rendered inline (not as component function to avoid remounts)
   const tradeForm = (
     <View style={styles.tradeFormCard}>
-      <Text style={styles.statsTitle}>📝 {t('newTrade')}</Text>
+      <Text style={styles.statsTitle}>{t('newTrade')}</Text>
 
       {/* Symbol */}
       <View style={styles.formRow}>
@@ -181,13 +181,13 @@ export default function PaperTradingScreen() {
             style={[styles.sideButton, side === 'BUY' && styles.sideBuy]}
             onPress={() => setSide('BUY')}
           >
-            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>📈 {t('buy')}</Text>
+            <Text style={[styles.sideText, side === 'BUY' && styles.sideTextActive]}>{t('buy')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.sideButton, side === 'SELL' && styles.sideSell]}
             onPress={() => setSide('SELL')}
           >
-            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>📉 {t('sell')}</Text>
+            <Text style={[styles.sideText, side === 'SELL' && styles.sideTextActive]}>{t('sell')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -439,14 +439,11 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.xlarge,
     padding: theme.spacing.lg,
     marginBottom: theme.spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
   },
   statsTitle: {
-    fontSize: theme.typography.sizes.xl,
+    fontSize: theme.typography.sizes.h3,
     fontWeight: '700',
     color: theme.colors.text.primary,
     marginBottom: theme.spacing.md,
@@ -465,7 +462,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   statValue: {
-    fontSize: theme.typography.sizes['2xl'],
+    fontSize: theme.typography.sizes.hero,
     fontFamily: theme.typography.fontFamily.mono,
     fontWeight: '700',
     color: theme.colors.text.primary,
@@ -486,14 +483,11 @@ const styles = StyleSheet.create({
   },
   tradeCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xlarge,
-    padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
     marginBottom: theme.spacing.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
   },
   tradeHeader: {
     flexDirection: 'row',
@@ -596,13 +590,10 @@ const styles = StyleSheet.create({
   },
   tradeFormCard: {
     backgroundColor: theme.colors.ui.cardBackground,
-    borderRadius: theme.borderRadius.xlarge,
-    padding: theme.spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
     marginBottom: theme.spacing.md,
   },
   bottomPadding: {
@@ -635,7 +626,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: theme.spacing.md,
     borderRadius: theme.borderRadius.md,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: theme.colors.ui.border,
     alignItems: 'center' as const,
   },
@@ -648,7 +639,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.market.bearish + '15',
   },
   sideText: {
-    fontSize: theme.typography.sizes.md,
+    fontSize: theme.typography.sizes.body,
     fontWeight: '700' as const,
     color: theme.colors.text.secondary,
   },
