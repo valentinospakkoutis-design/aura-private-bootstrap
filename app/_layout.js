@@ -217,6 +217,14 @@ function AppContent() {
             headerShown: true,
           }}
         />
+
+        <Stack.Screen
+          name="weekly-report"
+          options={{
+            title: '📊 Weekly Report',
+            headerShown: true,
+          }}
+        />
         
         <Stack.Screen 
           name="analytics" 

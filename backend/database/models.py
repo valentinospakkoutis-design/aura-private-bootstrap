@@ -255,6 +255,23 @@ class UserAchievement(Base):
     earned_at = Column(DateTime, default=datetime.utcnow)
 
 
+class WeeklyReport(Base):
+    """Weekly performance report snapshot per user/week."""
+    __tablename__ = "weekly_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    week_start = Column(Date, nullable=False, index=True)
+    pnl_pct = Column(Float)
+    total_trades = Column(Integer)
+    win_rate = Column(Float)
+    best_trade = Column(String(120))
+    worst_trade = Column(String(120))
+    ai_accuracy = Column(Float)
+    report_text = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class TrainingLog(Base):
     """Training pipeline execution logs"""
     __tablename__ = "training_logs"

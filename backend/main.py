@@ -3477,6 +3477,28 @@ def get_user_achievements(payload=Depends(require_auth)):
     return sanitize_floats(get_achievements_overview(user_id))
 
 
+@app.get("/api/reports/weekly")
+def get_weekly_reports_endpoint(payload=Depends(require_auth)):
+    """Return latest weekly reports (up to 4 weeks) for current user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.weekly_report import get_weekly_reports
+    return sanitize_floats(get_weekly_reports(user_id, limit=4))
+
+
+@app.get("/api/reports/weekly/latest")
+def get_latest_weekly_report_endpoint(payload=Depends(require_auth)):
+    """Return latest weekly report for current user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.weekly_report import get_latest_weekly_report
+    return sanitize_floats(get_latest_weekly_report(user_id))
+
+
 # ── Live Trading Endpoints ───────────────────────────────────────────
 LIVE_ORDER_MAX_VALUE_USD = 100.0  # Safety limit per order — protects against accidental large orders
 

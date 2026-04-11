@@ -57,6 +57,18 @@ interface PortfolioStats {
   mode?: string;
 }
 
+interface LatestWeeklyReport {
+  week_start: string | null;
+  created_at?: string | null;
+  stats?: {
+    pnl_pct?: number;
+    total_trades?: number;
+    win_rate?: number;
+    ai_accuracy?: number;
+  } | null;
+  report_text?: string;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAppStore();
@@ -64,13 +76,16 @@ export default function HomeScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [portfolio, setPortfolio] = useState<PortfolioStats | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
+  const [latestWeeklyReport, setLatestWeeklyReport] = useState<LatestWeeklyReport | null>(null);
 
   useEffect(() => {
     loadUnreadCount();
     loadPortfolio();
+    loadLatestWeeklyReport();
     const interval = setInterval(() => {
       loadUnreadCount();
       loadPortfolio();
+      loadLatestWeeklyReport();
     }, 30000); // Every 30 seconds
 
     return () => clearInterval(interval);
@@ -105,12 +120,36 @@ export default function HomeScreen() {
     }
   };
 
+  const loadLatestWeeklyReport = async () => {
+    try {
+      const report = await api.getLatestWeeklyReport();
+      if (report && report.week_start) {
+        setLatestWeeklyReport(report);
+      } else {
+        setLatestWeeklyReport(null);
+      }
+    } catch {
+      setLatestWeeklyReport(null);
+    }
+  };
+
   const initials = (user?.name || 'AU').split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
 
   const handleQuickAction = (route: string) => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({ pathname: route } as any);
   };
+
+  const hasNewWeeklyReport = (() => {
+    if (!latestWeeklyReport?.created_at) return false;
+    try {
+      const created = new Date(latestWeeklyReport.created_at).getTime();
+      const now = Date.now();
+      return now - created <= 8 * 24 * 60 * 60 * 1000;
+    } catch {
+      return false;
+    }
+  })();
 
   return (
     <PageTransition type="fade">
@@ -190,6 +229,16 @@ export default function HomeScreen() {
             </View>
           )}
         </AnimatedCard>
+
+        {hasNewWeeklyReport && (
+          <TouchableOpacity
+            style={styles.weeklyBanner}
+            activeOpacity={0.85}
+            onPress={() => router.push({ pathname: '/weekly-report' } as any)}
+          >
+            <Text style={styles.weeklyBannerText}>{t('weeklyReportReadyBanner')}</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>{t('quickActions')}</Text>
@@ -349,6 +398,19 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.full,
     backgroundColor: theme.colors.brand.primary,
     opacity: 0.35,
+  },
+  weeklyBanner: {
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    backgroundColor: theme.colors.brand.primary,
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+  },
+  weeklyBannerText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: theme.typography.sizes.sm,
   },
   portfolioEmpty: {
     alignItems: 'center',

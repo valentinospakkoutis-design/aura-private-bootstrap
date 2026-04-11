@@ -16,6 +16,7 @@ export default function MoreScreen() {
     { icon: '👤', title: t('profile'), href: '/profile' },
     { icon: '🔔', title: t('notifications'), href: '/notifications' },
     { icon: '🎙️', title: t('voiceBriefing'), href: '/voice-briefing' },
+    { icon: '📊', title: t('weeklyReportTitle'), href: '/weekly-report' },
     { icon: '🏆', title: t('achievements'), href: '/achievements' },
     { icon: '📝', title: t('paperTrading'), href: '/paper-trading' },
     { icon: '💰', title: 'Live Trading', href: '/live-trading' },

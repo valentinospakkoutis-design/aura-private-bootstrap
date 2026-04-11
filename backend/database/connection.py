@@ -310,6 +310,24 @@ def init_db():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_user_achievements_user_id ON user_achievements (user_id, earned_at DESC)"
             ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS weekly_reports (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    week_start DATE NOT NULL,
+                    pnl_pct FLOAT,
+                    total_trades INTEGER,
+                    win_rate FLOAT,
+                    best_trade VARCHAR,
+                    worst_trade VARCHAR,
+                    ai_accuracy FLOAT,
+                    report_text TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_weekly_reports_user_week ON weekly_reports (user_id, week_start DESC)"
+            ))
             # ── Alembic-managed tables ──
             # When Alembic is active (alembic_version table has a revision),
             # skip raw SQL table creation — Alembic owns these tables.

@@ -542,6 +542,16 @@ class ApiClient {
     return response.data;
   }
 
+  async getWeeklyReports() {
+    const response = await this.client.get('/api/reports/weekly');
+    return response.data;
+  }
+
+  async getLatestWeeklyReport() {
+    const response = await this.client.get('/api/reports/weekly/latest');
+    return response.data;
+  }
+
   // Live Trading
   async getLiveTrades(useCache: boolean = false) {
     // Live trades should not be cached by default (real-time data)
