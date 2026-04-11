@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
@@ -36,9 +36,9 @@ interface Mover {
 const CATEGORIES = [
   { key: 'all', label: 'Όλα' },
   { key: 'crypto', label: 'Crypto' },
-  { key: 'stocks', label: 'Stocks' },
-  { key: 'metals', label: 'Metals' },
-  { key: 'fx', label: 'Forex' },
+  { key: 'bonds', label: 'Bonds' },
+  { key: 'derivatives', label: 'Derivatives' },
+  { key: 'sentiment', label: 'Sentiment' },
 ] as const;
 
 export default function AIPredictionsScreen() {
@@ -46,7 +46,6 @@ export default function AIPredictionsScreen() {
   const { predictions, setPredictions } = useAppStore();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
   const [modelAccuracy, setModelAccuracy] = useState<Record<string, number>>({});
   const [rlData, setRlData] = useState<any>(null);
@@ -126,13 +125,9 @@ export default function AIPredictionsScreen() {
     }
   };
 
-  const filteredPredictions = (predictions || []).filter((p: any) => {
-    const categoryOk = selectedCategory === 'all' || p.category === selectedCategory;
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return categoryOk;
-    const text = `${p.asset || ''} ${p.symbol || ''}`.toLowerCase();
-    return categoryOk && text.includes(q);
-  });
+  const filteredPredictions = selectedCategory === 'all'
+    ? predictions
+    : predictions?.filter((prediction) => prediction.category === selectedCategory);
 
   // ── Mover Card ────────────────────────────────────────────
   const renderMoverCard = (item: Mover) => {
@@ -236,7 +231,9 @@ export default function AIPredictionsScreen() {
         <AnimatedProgressBar progress={item.confidence} color={getActionColor(item.action)} height={8} animated />
       </View>
 
-      <Text style={s.reasoning} numberOfLines={1}>{item.symbol || item.asset}</Text>
+      <Text style={s.reasoning} numberOfLines={2}>
+        {item.reasoning || 'AI analysis is processing market conditions and trend signals.'}
+      </Text>
 
       {/* RL Agent prediction */}
       {(() => {
@@ -308,18 +305,6 @@ export default function AIPredictionsScreen() {
 
               {/* Top Movers */}
               {renderMoversSection()}
-
-              <View style={s.searchWrap}>
-                <TextInput
-                  style={s.searchInput}
-                  placeholder="Search asset..."
-                  placeholderTextColor={theme.colors.text.tertiary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  autoCorrect={false}
-                />
-              </View>
-
               {/* Model links */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: theme.spacing.sm }}>
                 <TouchableOpacity style={s.perfLink} onPress={() => router.push('/model-performance')}>

@@ -25,7 +25,7 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: theme.colors.brand.primary,
         tabBarInactiveTintColor: theme.colors.text.secondary,
-        tabBarShowLabel: false,
+        tabBarShowLabel: true,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',

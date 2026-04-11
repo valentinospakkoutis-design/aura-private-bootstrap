@@ -23,27 +23,27 @@ interface QuickAction {
 const QUICK_ACTIONS: QuickAction[] = [
   {
     id: '1',
-    title: 'Paper Trading',
-    icon: '📊',
-    route: '/paper-trading',
+    title: 'AI Predictions',
+    icon: '🤖',
+    route: '/ai-predictions',
   },
   {
     id: '2',
-    title: 'Live Trading',
-    icon: '💰',
-    route: '/live-trading',
+    title: 'Voice Briefing',
+    icon: '🎤',
+    route: '/voice-briefing',
   },
   {
     id: '3',
-    title: 'Auto Trading',
-    icon: '⚡',
-    route: '/auto-trading',
+    title: 'Analytics',
+    icon: '📈',
+    route: '/analytics',
   },
   {
     id: '4',
-    title: 'AI Feed',
-    icon: '📡',
-    route: '/ai-feed',
+    title: 'Settings',
+    icon: '⚙️',
+    route: '/settings',
   },
 ];
 
@@ -120,7 +120,7 @@ export default function HomeScreen() {
           <Text style={styles.logo}>AURA</Text>
           <TouchableOpacity
             style={styles.notificationButton}
-            onPress={() => router.push({ pathname: '/settings' } as any)}
+            onPress={() => router.push({ pathname: '/notifications' } as any)}
           >
             <Text style={styles.avatarText}>{initials}</Text>
             {unreadCount > 0 && (
