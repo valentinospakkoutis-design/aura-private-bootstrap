@@ -3945,6 +3945,7 @@ class AutoTradingConfigUpdate(BaseModel):
     max_positions: Optional[int] = None
     max_order_value_usd: Optional[float] = None
     smart_score_threshold: Optional[int] = None
+    dca_enabled: Optional[bool] = None
 
 
 @app.get("/api/auto-trading/status")
@@ -4034,6 +4035,8 @@ def update_auto_trading_config(config: AutoTradingConfigUpdate, _user=Depends(re
         overrides["max_order_value_usd"] = max(10, min(500, config.max_order_value_usd))
     if config.smart_score_threshold is not None:
         overrides["smart_score_threshold"] = max(50, min(95, config.smart_score_threshold))
+    if config.dca_enabled is not None:
+        overrides["dca_enabled"] = bool(config.dca_enabled)
 
     save_user_autopilot(
         user_id=user_id,
@@ -4050,6 +4053,33 @@ def update_auto_trading_config(config: AutoTradingConfigUpdate, _user=Depends(re
     ctx["config"] = cfg
     auto_trader.user_runtime[user_id] = ctx
     return auto_trader.get_user_status(user_id)
+
+
+@app.get("/api/dca/orders")
+def get_dca_orders(payload=Depends(require_auth)):
+    """Return pending/executed/cancelled DCA orders for authenticated user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.dca_engine import get_user_dca_orders
+
+    return sanitize_floats(get_user_dca_orders(user_id))
+
+
+@app.post("/api/dca/cancel/{order_id}")
+def cancel_dca_order(order_id: int, payload=Depends(require_auth)):
+    """Cancel a pending DCA order for authenticated user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.dca_engine import cancel_dca_order
+
+    ok = cancel_dca_order(user_id=user_id, order_id=order_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Pending DCA order not found")
+    return {"success": True}
 
 
 @app.post("/api/auto-trading/toggle")

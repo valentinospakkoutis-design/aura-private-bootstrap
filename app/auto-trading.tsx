@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl, Alert, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { api } from '../mobile/src/services/apiClient';
@@ -20,6 +20,7 @@ interface AutoTradingStatus {
     trail_pct?: number;
     max_positions: number;
     max_order_value_usd: number;
+    dca_enabled?: boolean;
   };
   open_positions_count: number;
   positions: Array<{
@@ -35,7 +36,17 @@ interface AutoTradingStatus {
   total_auto_trades: number;
   last_run: string | null;
   next_run_in_seconds: number;
-  recent_log: Array<{ type: string; message: string; timestamp: string }>;
+  recent_log: Array<{ type: string; message: string; timestamp: string; data?: any }>;
+}
+
+interface DcaOrder {
+  id: number;
+  symbol: string;
+  target_price: number;
+  size_usd: number;
+  status: 'pending' | 'executed' | 'cancelled';
+  executed_at?: string | null;
+  created_at?: string | null;
 }
 
 interface CircuitBreakerStatus {
@@ -171,10 +182,12 @@ export default function AutoTradingScreen() {
   const [status, setStatus] = useState<AutoTradingStatus | null>(null);
   const [circuitBreaker, setCircuitBreaker] = useState<CircuitBreakerStatus | null>(null);
   const [autopilotMode, setAutopilotMode] = useState<UiAuthorityMode>('confirm-first');
+  const [dcaOrders, setDcaOrders] = useState<{ pending: DcaOrder[]; executed: DcaOrder[]; cancelled?: DcaOrder[] }>({ pending: [], executed: [] });
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const shownDcaPlanTsRef = useRef<string | null>(null);
 
   const handleAuthRequired = useCallback(async () => {
     showToast(t('sessionExpired'), 'error');
@@ -189,13 +202,15 @@ export default function AutoTradingScreen() {
         return;
       }
 
-      const [statusData, autopilotData, cbData] = await Promise.all([
+      const [statusData, autopilotData, cbData, dcaData] = await Promise.all([
         api.getAutoTradingStatus(),
         api.getAutopilotMode().catch(() => null),
         api.getAutoTradingCircuitBreaker().catch(() => null),
+        api.getDcaOrders().catch(() => ({ pending: [], executed: [], cancelled: [] })),
       ]);
       setStatus(statusData);
       setCircuitBreaker(cbData);
+      setDcaOrders(dcaData || { pending: [], executed: [] });
       const backendMode = autopilotData?.current_mode || autopilotData?.mode;
       if (backendMode) {
         setAutopilotMode(normalizeBackendMode(backendMode));
@@ -289,6 +304,70 @@ export default function AutoTradingScreen() {
     }
   }, [doToggle]);
 
+  const toggleDcaMode = useCallback(async (enabled: boolean) => {
+    try {
+      await api.updateAutoTradingConfig({ dca_enabled: enabled });
+      showToast(enabled ? t('dcaEnabledMsg') : t('dcaDisabledMsg'), 'success');
+
+      if (enabled) {
+        const total = status?.config?.fixed_order_value_usd ?? 10;
+        const p0 = 71000;
+        const p1 = p0 * 0.98;
+        const p2 = p0 * 0.96;
+        Alert.alert(
+          t('dcaPlanTitle'),
+          `${t('dcaPlanForSymbol', { symbol: 'BTCUSDC' })}\n` +
+          `${t('dcaPlanLineNow', { percent: '40%', price: p0.toFixed(0) })}\n` +
+          `${t('dcaPlanLine2', { percent: '35%', price: p1.toFixed(0) })}\n` +
+          `${t('dcaPlanLine3', { percent: '25%', price: p2.toFixed(0) })}\n` +
+          `${t('dcaPlanTotal', { value: `$${Number(total).toFixed(2)}` })}`
+        );
+      }
+
+      await loadStatus();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
+      showToast(msg, 'error');
+    }
+  }, [loadStatus, showToast, status?.config?.fixed_order_value_usd, t]);
+
+  const cancelDcaOrder = useCallback(async (orderId: number) => {
+    try {
+      await api.cancelDcaOrder(orderId);
+      showToast(t('dcaCancelSuccess'), 'success');
+      await loadStatus();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
+      showToast(msg, 'error');
+    }
+  }, [loadStatus, showToast, t]);
+
+  useEffect(() => {
+    const logs = status?.recent_log || [];
+    const dcaPlanEvent = logs.slice().reverse().find((e) => e.type === 'DCA_PLAN' && e.data?.plan);
+    if (!dcaPlanEvent?.timestamp) return;
+    if (shownDcaPlanTsRef.current === dcaPlanEvent.timestamp) return;
+
+    shownDcaPlanTsRef.current = dcaPlanEvent.timestamp;
+    const plan = Array.isArray(dcaPlanEvent.data?.plan) ? dcaPlanEvent.data.plan : [];
+    if (!plan.length) return;
+
+    const symbol = String(dcaPlanEvent.data?.symbol || plan[0]?.symbol || 'BTCUSDC');
+    const l1 = plan[0];
+    const l2 = plan[1];
+    const l3 = plan[2];
+    const totalUsd = Number(dcaPlanEvent.data?.total_usd || 0);
+
+    Alert.alert(
+      t('dcaPlanTitle'),
+      `${t('dcaPlanForSymbol', { symbol })}\n` +
+      `${t('dcaPlanLineNow', { percent: '40%', price: Number(l1?.price || 0).toFixed(2) })}\n` +
+      `${t('dcaPlanLine2', { percent: '35%', price: Number(l2?.price || 0).toFixed(2) })}\n` +
+      `${t('dcaPlanLine3', { percent: '25%', price: Number(l3?.price || 0).toFixed(2) })}\n` +
+      `${t('dcaPlanTotal', { value: `$${totalUsd.toFixed(2)}` })}`
+    );
+  }, [status?.recent_log, t]);
+
   const getModeDef = (mode: UiAuthorityMode) => {
     return MODE_DEFINITIONS.find((item) => item.mode === mode) || MODE_DEFINITIONS[1];
   };
@@ -362,6 +441,7 @@ export default function AutoTradingScreen() {
   const config = status?.config;
   const positions = status?.positions ?? [];
   const logs = status?.recent_log ?? [];
+  const dcaEnabled = !!config?.dca_enabled;
   const locale = language === 'el' ? 'el-GR' : 'en-US';
   const environmentMode = status?.mode ?? 'paper';
   const selectedModeDef = getModeDef(autopilotMode);
@@ -607,8 +687,52 @@ export default function AutoTradingScreen() {
               <Text style={styles.configLabel}>{t('maxOrderValue')}</Text>
               <Text style={styles.configValue}>${config.max_order_value_usd}</Text>
             </View>
+            <View style={styles.configRow}>
+              <Text style={styles.configLabel}>{t('dcaMode')}</Text>
+              <Text style={styles.configValue}>{dcaEnabled ? 'ON' : 'OFF'}</Text>
+            </View>
           </View>
         )}
+
+        {/* DCA Mode */}
+        <View style={styles.card}>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{t('dcaMode')}</Text>
+              <Text style={styles.cardSubtitle}>{t('dcaModeSubtitle')}</Text>
+            </View>
+            <Switch
+              value={dcaEnabled}
+              onValueChange={toggleDcaMode}
+              trackColor={{ false: theme.colors.ui.border, true: theme.colors.brand.primary + '80' }}
+              thumbColor={dcaEnabled ? theme.colors.brand.primary : '#f4f3f4'}
+            />
+          </View>
+        </View>
+
+        {/* DCA Orders */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t('dcaOrdersTitle')}</Text>
+          {dcaOrders.pending.length === 0 ? (
+            <Text style={styles.emptyText}>{t('dcaNoPending')}</Text>
+          ) : (
+            dcaOrders.pending.map((order) => (
+              <View key={order.id} style={styles.positionRow}>
+                <View>
+                  <Text style={styles.positionSymbol}>{order.symbol}</Text>
+                  <Text style={styles.positionDetail}>{t('dcaTarget')}: ${order.target_price.toFixed(6)}</Text>
+                  <Text style={styles.positionDetail}>{t('dcaSize')}: ${order.size_usd.toFixed(2)}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.cancelDcaButton}
+                  onPress={() => cancelDcaOrder(order.id)}
+                >
+                  <Text style={styles.cancelDcaText}>{t('cancel')}</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </View>
 
         {/* Open Positions */}
         <View style={styles.card}>
@@ -746,6 +870,18 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.sm,
     color: theme.colors.text.secondary,
     fontFamily: theme.typography.fontFamily.mono,
+  },
+  cancelDcaButton: {
+    alignSelf: 'center' as const,
+    backgroundColor: theme.colors.semantic.error,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+  },
+  cancelDcaText: {
+    color: '#FFFFFF',
+    fontSize: theme.typography.sizes.xs,
+    fontWeight: '700' as const,
   },
   logEntry: {
     flexDirection: 'row',

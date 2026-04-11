@@ -280,6 +280,21 @@ def init_db():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_trade_feedback_symbol_created ON trade_feedback (symbol, created_at DESC)"
             ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dca_orders (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    symbol VARCHAR NOT NULL,
+                    target_price FLOAT NOT NULL,
+                    size_usd FLOAT NOT NULL,
+                    status VARCHAR DEFAULT 'pending',
+                    executed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_dca_orders_user_status ON dca_orders (user_id, status, created_at DESC)"
+            ))
             # ── Alembic-managed tables ──
             # When Alembic is active (alembic_version table has a revision),
             # skip raw SQL table creation — Alembic owns these tables.

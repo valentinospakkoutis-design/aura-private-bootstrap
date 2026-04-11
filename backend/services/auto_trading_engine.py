@@ -9,6 +9,8 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Callable
 
+from services.dca_engine import calculate_dca_plan, execute_dca_plan, check_pending_dca_orders
+
 logger = logging.getLogger(__name__)
 
 # Only USDC crypto pairs are allowed for auto trading.
@@ -59,11 +61,13 @@ class AutoTradingEngine:
             "smart_score_threshold": 75,    # only trade when Smart Score > 75
             "trail_pct": 2.0,              # trailing stop percentage
             "enabled": False,               # OFF by default
+            "dca_enabled": False,           # OFF by default (opt-in)
         }
         self.open_positions: Dict[str, dict] = {}
         self.closed_trades: List[dict] = []
         self.trade_log: List[dict] = []
         self.user_runtime: Dict[int, dict] = {}
+        self._last_dca_check_by_user: Dict[int, datetime] = {}
 
     def _ensure_user_runtime(self, user_id: int) -> dict:
         if user_id not in self.user_runtime:
@@ -555,6 +559,56 @@ class AutoTradingEngine:
             return None
 
         # ── Place order ──────────────────────────────────────────
+        dca_enabled = bool(self.config.get("dca_enabled", False))
+        if dca_enabled and confidence >= 0.90 and side == "BUY" and user_id is not None:
+            try:
+                total_amount_usd = float(order_value)
+                plan = calculate_dca_plan(symbol, total_amount_usd, price, num_entries=3)
+                dca_result = execute_dca_plan(symbol, plan, self.broker, user_id=int(user_id))
+                if not dca_result.get("success"):
+                    self._log_event("DCA_FAILED", f"{symbol}: {dca_result.get('error', 'unknown_error')}")
+                else:
+                    first = dca_result.get("first_entry", {})
+                    entry_price = float(first.get("price") or price)
+                    qty_first = float(first.get("quantity") or quantity)
+                    stop_loss_price = entry_price * (1 - self.config["stop_loss_pct"])
+
+                    position = {
+                        "symbol": symbol,
+                        "side": side,
+                        "quantity": qty_first,
+                        "entry_price": entry_price,
+                        "target_price": target_price,
+                        "stop_loss": round(stop_loss_price, 2),
+                        "trailing_stop": None,
+                        "trailing_last_move": "none",
+                        "trailing_move_count": 0,
+                        "confidence": confidence,
+                        "smart_score": smart_score,
+                        "smart_score_signals": signals,
+                        "order_id": first.get("order_id"),
+                        "opened_at": datetime.utcnow().isoformat(),
+                        "status": "open",
+                        "dca_mode": True,
+                        "dca_pending_order_ids": dca_result.get("pending_order_ids", []),
+                    }
+                    try:
+                        from services.trailing_stop import trailing_stop_service
+                        position["trailing_stop"] = trailing_stop_service.initialize_stop(
+                            side=side,
+                            entry_price=float(entry_price),
+                            trail_pct=float(self.config.get("trail_pct", 2.0)),
+                        )
+                    except Exception:
+                        position["trailing_stop"] = round(stop_loss_price, 2)
+
+                    self.open_positions[symbol] = position
+                    self._log_event("DCA_PLAN", f"{symbol}: staged entries created", {"symbol": symbol, "plan": plan, "total_usd": total_amount_usd})
+                    self._log_event("ORDER_FILLED", f"DCA entry1 BUY {qty_first} {symbol} @ ${entry_price:.2f}", position)
+                    return position
+            except Exception as e:
+                self._log_event("DCA_ERROR", f"{symbol}: {type(e).__name__}: {e}")
+
         try:
             import uuid
             client_order_id = f"AURA_AUTO_{uuid.uuid4().hex[:16]}"
@@ -738,6 +792,30 @@ class AutoTradingEngine:
                     if not self.config.get("enabled", False):
                         self._save_user_context(uid)
                         continue
+
+                    last_dca = self._last_dca_check_by_user.get(uid)
+                    now = datetime.utcnow()
+                    if not last_dca or (now - last_dca).total_seconds() >= 60:
+                        try:
+                            executed_dca = check_pending_dca_orders(uid, broker)
+                            for item in executed_dca:
+                                sym = item.get("symbol")
+                                if sym in self.open_positions:
+                                    pos = dict(self.open_positions[sym])
+                                    old_qty = float(pos.get("quantity") or 0.0)
+                                    old_price = float(pos.get("entry_price") or 0.0)
+                                    add_qty = float(item.get("quantity") or 0.0)
+                                    add_price = float(item.get("executed_price") or 0.0)
+                                    if add_qty > 0:
+                                        total_qty = old_qty + add_qty
+                                        if total_qty > 0:
+                                            pos["entry_price"] = ((old_qty * old_price) + (add_qty * add_price)) / total_qty
+                                            pos["quantity"] = total_qty
+                                            self.open_positions[sym] = pos
+                                self._log_event("DCA_EXECUTED", f"{sym}: BUY @ ${float(item.get('executed_price') or 0):.4f}", item)
+                        except Exception as e:
+                            self._log_event("DCA_CHECK_ERROR", f"user={uid}: {type(e).__name__}: {e}")
+                        self._last_dca_check_by_user[uid] = now
 
                     # Always maintain trailing stops on each scan before opening new positions.
                     self._update_trailing_stops(uid)

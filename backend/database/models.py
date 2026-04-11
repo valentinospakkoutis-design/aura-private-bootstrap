@@ -230,6 +230,20 @@ class TradeFeedback(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class DCAOrder(Base):
+    """Pending/executed DCA entries per user and symbol."""
+    __tablename__ = "dca_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    target_price = Column(Float, nullable=False)
+    size_usd = Column(Float, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    executed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class TrainingLog(Base):
     """Training pipeline execution logs"""
     __tablename__ = "training_logs"

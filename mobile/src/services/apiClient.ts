@@ -740,8 +740,19 @@ class ApiClient {
     stop_loss_pct?: number;
     max_positions?: number;
     max_order_value_usd?: number;
+    dca_enabled?: boolean;
   }) {
     const response = await this.client.put('/api/auto-trading/config', config);
+    return response.data;
+  }
+
+  async getDcaOrders() {
+    const response = await this.client.get('/api/dca/orders');
+    return response.data;
+  }
+
+  async cancelDcaOrder(orderId: number) {
+    const response = await this.client.post(`/api/dca/cancel/${orderId}`);
     return response.data;
   }
 
