@@ -537,6 +537,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getAchievements() {
+    const response = await this.client.get('/api/achievements');
+    return response.data;
+  }
+
   // Live Trading
   async getLiveTrades(useCache: boolean = false) {
     // Live trades should not be cached by default (real-time data)

@@ -1143,6 +1143,17 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
 
+    earned = []
+    if user_id is not None:
+        try:
+            from services.achievements import check_and_award
+            earned = check_and_award(user_id, "trade_placed")
+        except Exception:
+            earned = []
+
+    if isinstance(result, dict):
+        result["achievements_earned"] = earned
+
     return result
 
 @app.get("/api/trading/portfolio")
@@ -1489,10 +1500,20 @@ async def close_paper_trade(trade_id: str, request: Request):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
 
+    pnl_pct = float(result.get("pnl_percent", 0) or 0)
+    earned = []
+    if user_id is not None:
+        try:
+            from services.achievements import check_and_award
+            earned = check_and_award(user_id, "trade_closed", {"pnl_pct": pnl_pct})
+        except Exception:
+            earned = []
+
     return {
         "success": True,
         "closed_trade_id": trade_id,
         "close_order": result,
+        "achievements_earned": earned,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -1515,7 +1536,7 @@ def get_prediction(symbol: str, days: int = 7):
     return sanitize_floats(asset_predictor.predict_price(symbol.upper(), days))
 
 @app.get("/api/ai/predictions")
-def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
+def get_all_predictions(days: int = 7, asset_type: Optional[str] = None, request: Optional[Request] = None):
     """Επιστρέφει predictions για όλα τα assets ή filtered by type"""
     asset_type_enum = None
     if asset_type:
@@ -1654,6 +1675,15 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
             run_shadow_on_predictions(result)
     except Exception as e:
         print(f"[!] Sentiment shadow mode failed (non-fatal): {e}")
+
+    try:
+        if request is not None:
+            uid = _optional_user_id_from_request(request)
+            if uid is not None:
+                from services.achievements import check_and_award
+                check_and_award(uid, "predictions_viewed", {"count": 1})
+    except Exception:
+        pass
 
     return sanitize_floats(result)
 
@@ -3240,6 +3270,11 @@ def get_user_profile(payload=Depends(require_auth)):
     """Return user profile from database."""
     db, user = _get_db_user(payload)
     try:
+        try:
+            from services.achievements import check_and_award
+            check_and_award(user.id, "daily_login")
+        except Exception:
+            pass
         return _user_response(user)
     finally:
         db.close()
@@ -3431,6 +3466,17 @@ def get_user_trading_profile(payload=Depends(require_auth)):
     return get_user_profile(user_id)
 
 
+@app.get("/api/achievements")
+def get_user_achievements(payload=Depends(require_auth)):
+    """Return earned/locked achievements for current user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.achievements import get_achievements_overview
+    return sanitize_floats(get_achievements_overview(user_id))
+
+
 # ── Live Trading Endpoints ───────────────────────────────────────────
 LIVE_ORDER_MAX_VALUE_USD = 100.0  # Safety limit per order — protects against accidental large orders
 
@@ -3617,6 +3663,13 @@ def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth))
         parsed = _parse_binance_error(result)
         raise HTTPException(status_code=400, detail=parsed)
 
+    earned = []
+    try:
+        from services.achievements import check_and_award
+        earned = check_and_award(user_id, "trade_closed", {"pnl_pct": 0.0})
+    except Exception:
+        earned = []
+
     return sanitize_floats({
         "success": True,
         "symbol": sym,
@@ -3626,6 +3679,7 @@ def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth))
         "price": result.get("price"),
         "order_id": result.get("order_id"),
         "client_order_id": client_order_id,
+        "achievements_earned": earned,
     })
 
 
@@ -3674,6 +3728,16 @@ def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)
         parsed = _parse_binance_error(result)
         raise HTTPException(status_code=400, detail=parsed)
 
+    earned = []
+    try:
+        from services.achievements import check_and_award
+        earned = check_and_award(user_id, "trade_placed")
+    except Exception:
+        earned = []
+
+    if isinstance(result, dict):
+        result["achievements_earned"] = earned
+
     # Push notification on successful order
     try:
         from services.push_notifications import notify_order_executed
@@ -3710,6 +3774,16 @@ def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)
     if "error" in result:
         parsed = _parse_binance_error(result)
         raise HTTPException(status_code=400, detail=parsed)
+
+    earned = []
+    try:
+        from services.achievements import check_and_award
+        earned = check_and_award(user_id, "trade_placed")
+    except Exception:
+        earned = []
+
+    if isinstance(result, dict):
+        result["achievements_earned"] = earned
 
     # Place OCO for SL/TP if both provided
     if order.stop_loss and order.take_profit:
@@ -4020,7 +4094,19 @@ def enable_auto_trading(_user=Depends(require_auth)):
     ctx["config"] = cfg
     auto_trader.user_runtime[user_id] = ctx
 
-    return {"success": True, "message": "Auto trading enabled", "status": auto_trader.get_user_status(user_id)}
+    earned = []
+    try:
+        from services.achievements import check_and_award
+        earned = check_and_award(user_id, "auto_enabled")
+    except Exception:
+        earned = []
+
+    return {
+        "success": True,
+        "message": "Auto trading enabled",
+        "status": auto_trader.get_user_status(user_id),
+        "achievements_earned": earned,
+    }
 
 
 @app.post("/api/auto-trading/disable")

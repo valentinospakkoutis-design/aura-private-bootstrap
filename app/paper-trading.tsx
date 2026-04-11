@@ -39,7 +39,7 @@ interface PortfolioStats {
 export default function PaperTradingScreen() {
   const router = useRouter();
   const { showToast, showModal } = useAppStore();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const [stats, setStats] = useState<PortfolioStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,6 +51,16 @@ export default function PaperTradingScreen() {
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
   const [quantity, setQuantity] = useState('0.001');
   const [submitting, setSubmitting] = useState(false);
+
+  const showAchievementToasts = useCallback((earned: any[]) => {
+    if (!Array.isArray(earned)) return;
+    for (const a of earned) {
+      const title = language === 'el' ? (a?.title_el || a?.title_en) : (a?.title_en || a?.title_el);
+      if (title) {
+        showToast(`🏆 ${title}`, 'success');
+      }
+    }
+  }, [showToast, language]);
 
   const initialLoadDone = React.useRef(false);
 
@@ -94,8 +104,9 @@ export default function PaperTradingScreen() {
 
     try {
       setSubmitting(true);
-      await api.placePaperOrder(symbol.toUpperCase().trim(), side, qty);
+      const res = await api.placePaperOrder(symbol.toUpperCase().trim(), side, qty);
       showToast(`${side} ${qty} ${symbol} ${t('orderExecuted')}`, 'success');
+      showAchievementToasts(res?.achievements_earned || []);
       setQuantity('0.001');
       await loadData();
     } catch (err: any) {
@@ -118,15 +129,16 @@ export default function PaperTradingScreen() {
       t('confirmClose', { quantity: '', symbol: '', value: '' }),
       async () => {
         try {
-          await api.closePaperTrade(trade.id);
+          const res = await api.closePaperTrade(trade.id);
           showToast('Το trade έκλεισε επιτυχώς!', 'success');
+          showAchievementToasts(res?.achievements_earned || []);
           await loadData();
         } catch (err) {
           showToast('Αποτυχία κλεισίματος trade', 'error');
         }
       }
     );
-  }, [showModal, showToast, loadData, t]);
+  }, [showModal, showToast, loadData, t, showAchievementToasts]);
 
   const handleStartPaperTrading = useCallback(() => {
     router.push({ pathname: '/brokers' } as any);

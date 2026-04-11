@@ -209,6 +209,14 @@ function AppContent() {
             headerShown: true,
           }} 
         />
+
+        <Stack.Screen
+          name="achievements"
+          options={{
+            title: '🏆 Achievements',
+            headerShown: true,
+          }}
+        />
         
         <Stack.Screen 
           name="analytics" 

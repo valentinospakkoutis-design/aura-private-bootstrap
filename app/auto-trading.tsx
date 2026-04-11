@@ -260,6 +260,16 @@ export default function AutoTradingScreen() {
     setRefreshing(false);
   }, [loadStatus]);
 
+  const showAchievementToasts = useCallback((earned: any[]) => {
+    if (!Array.isArray(earned)) return;
+    for (const a of earned) {
+      const title = language === 'el' ? (a?.title_el || a?.title_en) : (a?.title_en || a?.title_el);
+      if (title) {
+        showToast(`🏆 ${title}`, 'success');
+      }
+    }
+  }, [showToast, language]);
+
   const doToggle = useCallback(async (value: boolean) => {
     setToggling(true);
     try {
@@ -270,8 +280,9 @@ export default function AutoTradingScreen() {
       }
 
       if (value) {
-        await api.enableAutoTrading();
+        const res = await api.enableAutoTrading();
         showToast(t('autopilotEnableSuccess'), 'success');
+        showAchievementToasts(res?.achievements_earned || []);
       } else {
         await api.disableAutoTrading();
         showToast(t('autopilotDisableSuccess'), 'success');
@@ -287,7 +298,7 @@ export default function AutoTradingScreen() {
     } finally {
       setToggling(false);
     }
-  }, [handleAuthRequired, showToast, loadStatus, t]);
+  }, [handleAuthRequired, showToast, loadStatus, t, showAchievementToasts]);
 
   const handleToggle = useCallback((value: boolean) => {
     if (value) {

@@ -244,6 +244,17 @@ class DCAOrder(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserAchievement(Base):
+    """Unlocked achievements per user (unique by user+achievement)."""
+    __tablename__ = "user_achievements"
+    __table_args__ = (UniqueConstraint("user_id", "achievement_id", name="uq_user_achievement"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    achievement_id = Column(String(64), nullable=False, index=True)
+    earned_at = Column(DateTime, default=datetime.utcnow)
+
+
 class TrainingLog(Base):
     """Training pipeline execution logs"""
     __tablename__ = "training_logs"

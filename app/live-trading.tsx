@@ -45,7 +45,7 @@ interface LiveStats {
 export default function LiveTradingScreen() {
   const router = useRouter();
   const { user, brokers, setBrokers, showToast, showModal } = useAppStore();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,6 +60,16 @@ export default function LiveTradingScreen() {
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
   const [quantity, setQuantity] = useState('0.0001');
   const [submitting, setSubmitting] = useState(false);
+
+  const showAchievementToasts = useCallback((earned: any[]) => {
+    if (!Array.isArray(earned)) return;
+    for (const a of earned) {
+      const title = language === 'el' ? (a?.title_el || a?.title_en) : (a?.title_en || a?.title_el);
+      if (title) {
+        showToast(`🏆 ${title}`, 'success');
+      }
+    }
+  }, [showToast, language]);
 
   const {
     loading: closingTrade,
@@ -132,8 +142,9 @@ export default function LiveTradingScreen() {
 
     try {
       setSubmitting(true);
-      await api.placeLiveOrder(symbol.toUpperCase().trim(), side, qty);
+      const res = await api.placeLiveOrder(symbol.toUpperCase().trim(), side, qty);
       showToast(`${side} ${qty} ${symbol} ${t('orderExecuted')}`, 'success');
+      showAchievementToasts(res?.achievements_earned || []);
       setQuantity('0.0001');
       await loadData();
     } catch (err: any) {
@@ -156,8 +167,9 @@ export default function LiveTradingScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await api.closeLivePosition(tradingSymbol, amount);
+              const res = await api.closeLivePosition(tradingSymbol, amount);
               showToast(`Sold ${amount} ${assetSymbol}`, 'success');
+              showAchievementToasts(res?.achievements_earned || []);
               await loadData();
             } catch (err: any) {
               const msg = err?.response?.data?.detail || err?.message || 'Close failed';
@@ -175,15 +187,16 @@ export default function LiveTradingScreen() {
       t('liveWarning'),
       async () => {
         try {
-          await closeTrade({ symbol: trade.asset, quantity: trade.amount });
+          const res = await closeTrade({ symbol: trade.asset, quantity: trade.amount });
           showToast('Το trade έκλεισε επιτυχώς!', 'success');
+          showAchievementToasts(res?.achievements_earned || []);
           await loadData();
         } catch (err) {
           showToast('Αποτυχία κλεισίματος trade', 'error');
         }
       }
     );
-  }, [closeTrade, showModal, showToast, loadData]);
+  }, [closeTrade, showModal, showToast, loadData, showAchievementToasts]);
 
   const handleSwitchToPaper = useCallback(() => {
     Alert.alert(

@@ -298,6 +298,18 @@ def init_db():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_dca_orders_user_status ON dca_orders (user_id, status, created_at DESC)"
             ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_achievements (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    achievement_id VARCHAR NOT NULL,
+                    earned_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, achievement_id)
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_user_achievements_user_id ON user_achievements (user_id, earned_at DESC)"
+            ))
             # ── Alembic-managed tables ──
             # When Alembic is active (alembic_version table has a revision),
             # skip raw SQL table creation — Alembic owns these tables.
