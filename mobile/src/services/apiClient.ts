@@ -682,6 +682,16 @@ class ApiClient {
   }
 
   // ── Auto Trading ───────────────────────────────────────────
+  async getAutopilotMode() {
+    const response = await this.client.get('/api/autopilot/mode');
+    return response.data;
+  }
+
+  async setAutopilotMode(mode: 'safe' | 'balanced' | 'aggressive') {
+    const response = await this.client.post('/api/autopilot/mode', { mode });
+    return response.data;
+  }
+
   async getAutoTradingStatus() {
     const response = await this.client.get('/api/auto-trading/status');
     return response.data;

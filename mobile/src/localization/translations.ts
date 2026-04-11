@@ -153,6 +153,14 @@ export const translations: Record<string, Record<string, string>> = {
     simulationTradePl: "P/L",
     simulationTradeConfidence: "Confidence",
     simulationDisclaimer: "⚠️ Τα αποτελεσματα ειναι υποθετικα και δεν εγγυωνται μελλοντικες αποδοσεις.",
+    autopilotMode: "Autopilot Mode",
+    safe: "Ασφαλες",
+    balanced: "Ισορροπημενο",
+    aggressive: "Επιθετικο",
+    changeMode: "Αλλαγη Mode",
+    modeChanged: "Mode αλλαχτηκε",
+    changeModePrompt: "Αλλαγη σε {mode} mode;",
+    changeModeApplyNow: "Θα εφαρμοστουν νεες ρυθμισεις αμεσως.",
   },
 
   en: {
@@ -309,5 +317,13 @@ export const translations: Record<string, Record<string, string>> = {
     simulationTradePl: "P/L",
     simulationTradeConfidence: "Confidence",
     simulationDisclaimer: "⚠️ Results are hypothetical and do not guarantee future performance.",
+    autopilotMode: "Autopilot Mode",
+    safe: "Safe",
+    balanced: "Balanced",
+    aggressive: "Aggressive",
+    changeMode: "Change Mode",
+    modeChanged: "Mode changed",
+    changeModePrompt: "Change to {mode} mode?",
+    changeModeApplyNow: "New settings will be applied immediately.",
   },
 };

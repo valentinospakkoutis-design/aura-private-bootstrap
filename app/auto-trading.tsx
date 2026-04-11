@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl, Alert, TouchableOpacity } from 'react-native';
 import { api } from '../mobile/src/services/apiClient';
 import { Button } from '../mobile/src/components/Button';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
@@ -27,18 +27,68 @@ interface AutoTradingStatus {
   recent_log: Array<{ type: string; message: string; timestamp: string }>;
 }
 
+type AutopilotMode = 'safe' | 'balanced' | 'aggressive';
+
+const AUTOPILOT_CARDS: Array<{
+  mode: AutopilotMode;
+  icon: string;
+  confidence: string;
+  size: string;
+  interval: string;
+  borderColor: string;
+}> = [
+  {
+    mode: 'safe',
+    icon: '🛡️',
+    confidence: '95%',
+    size: '$5/trade',
+    interval: '2 λεπτά',
+    borderColor: theme.colors.market.bullish,
+  },
+  {
+    mode: 'balanced',
+    icon: '⚖️',
+    confidence: '90%',
+    size: '$10/trade',
+    interval: '1 λεπτό',
+    borderColor: theme.colors.brand.primary,
+  },
+  {
+    mode: 'aggressive',
+    icon: '🚀',
+    confidence: '80%',
+    size: '$20/trade',
+    interval: '30 δευτ.',
+    borderColor: theme.colors.market.bearish,
+  },
+];
+
+function normalizeAutopilotMode(value: any): AutopilotMode {
+  const mode = String(value || '').toLowerCase();
+  if (mode === 'safe' || mode === 'balanced' || mode === 'aggressive') return mode;
+  return 'balanced';
+}
+
 export default function AutoTradingScreen() {
   const { showToast } = useAppStore();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [status, setStatus] = useState<AutoTradingStatus | null>(null);
+  const [autopilotMode, setAutopilotMode] = useState<AutopilotMode>('balanced');
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
+  const [changingMode, setChangingMode] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
-      const data = await api.getAutoTradingStatus();
-      setStatus(data);
+      const [statusData, autopilotData] = await Promise.all([
+        api.getAutoTradingStatus(),
+        api.getAutopilotMode().catch(() => null),
+      ]);
+      setStatus(statusData);
+      if (autopilotData?.mode) {
+        setAutopilotMode(normalizeAutopilotMode(autopilotData.mode));
+      }
     } catch (err) {
       console.error('Failed to load auto trading status:', err);
     } finally {
@@ -89,6 +139,44 @@ export default function AutoTradingScreen() {
       doToggle(false);
     }
   }, [doToggle]);
+
+  const modeLabelKey = (mode: AutopilotMode) => {
+    if (mode === 'safe') return 'safe';
+    if (mode === 'aggressive') return 'aggressive';
+    return 'balanced';
+  };
+
+  const confirmModeChange = useCallback((nextMode: AutopilotMode) => {
+    if (nextMode === autopilotMode || changingMode) return;
+
+    const localizedMode = t(modeLabelKey(nextMode));
+
+    Alert.alert(
+      t('changeMode'),
+      `${t('changeModePrompt', { mode: localizedMode.toUpperCase() })}\n\n${t('changeModeApplyNow')}`,
+      [
+        { text: t('cancel'), style: 'cancel' },
+        {
+          text: t('confirm'),
+          style: 'default',
+          onPress: async () => {
+            try {
+              setChangingMode(true);
+              await api.setAutopilotMode(nextMode);
+              setAutopilotMode(nextMode);
+              showToast(`${t('modeChanged')} ${language === 'el' ? 'σε' : 'to'} ${nextMode.toUpperCase()}`, 'success');
+              await loadStatus();
+            } catch (err: any) {
+              const msg = err?.response?.data?.detail || err?.message || t('error');
+              showToast(msg, 'error');
+            } finally {
+              setChangingMode(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [autopilotMode, changingMode, showToast, loadStatus, t]);
 
   if (loading) {
     return (
@@ -151,6 +239,40 @@ export default function AutoTradingScreen() {
         </View>
 
         {/* Config Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t('autopilotMode')}</Text>
+          <View style={styles.modeCardsRow}>
+            {AUTOPILOT_CARDS.map((card) => {
+              const selected = autopilotMode === card.mode;
+              return (
+                <TouchableOpacity
+                  key={card.mode}
+                  style={[
+                    styles.modeCard,
+                    {
+                      borderColor: card.borderColor,
+                      backgroundColor: selected ? card.borderColor + '15' : theme.colors.ui.background,
+                    },
+                    selected && styles.modeCardSelected,
+                  ]}
+                  activeOpacity={0.85}
+                  disabled={changingMode}
+                  onPress={() => confirmModeChange(card.mode)}
+                >
+                  <View style={styles.modeCardHeader}>
+                    <Text style={styles.modeCardIcon}>{card.icon}</Text>
+                    {selected && <Text style={styles.modeCheck}>✓</Text>}
+                  </View>
+                  <Text style={styles.modeCardTitle}>{t(modeLabelKey(card.mode)).toUpperCase()}</Text>
+                  <Text style={styles.modeCardDetail}>{t('confidence')}: {card.confidence}</Text>
+                  <Text style={styles.modeCardDetail}>{t('positionSize')}: {card.size}</Text>
+                  <Text style={styles.modeCardDetail}>Interval: {card.interval}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         {config && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t('configuration')}</Text>
@@ -351,6 +473,45 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.xs,
     color: theme.colors.text.secondary,
     marginTop: theme.spacing.sm,
+  },
+  modeCardsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  modeCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.sm,
+  },
+  modeCardSelected: {
+    borderWidth: 2,
+  },
+  modeCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modeCardIcon: {
+    fontSize: 18,
+  },
+  modeCheck: {
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.semantic.success,
+    fontWeight: '700' as const,
+  },
+  modeCardTitle: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '700' as const,
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+  },
+  modeCardDetail: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.secondary,
+    lineHeight: 16,
   },
 });
 
