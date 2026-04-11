@@ -1545,7 +1545,7 @@ def get_prediction(symbol: str, days: int = 7):
     return sanitize_floats(asset_predictor.predict_price(symbol.upper(), days))
 
 @app.get("/api/ai/predictions")
-def get_all_predictions(days: int = 7, asset_type: Optional[str] = None, request: Optional[Request] = None):
+def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[str] = None):
     """Επιστρέφει predictions για όλα τα assets ή filtered by type"""
     if request is not None:
         user_id = _optional_user_id_from_request(request)
