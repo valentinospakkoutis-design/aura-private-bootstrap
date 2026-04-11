@@ -5,5 +5,10 @@
       "@/*": ["./mobile/src/*"]
     }
   },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.d.ts"
+  ],
   "extends": "expo/tsconfig.base"
 }
