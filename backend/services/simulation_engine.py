@@ -12,6 +12,11 @@ import math
 from datetime import datetime
 from typing import Dict, List, Optional
 
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - fallback for environments without numpy
+    np = None
+
 logger = logging.getLogger(__name__)
 
 DISCLAIMER = (
@@ -39,6 +44,46 @@ STRATEGIES = {
         "default_confidence": 0.0,
     },
 }
+
+
+def calculate_sharpe(returns: List[float], risk_free: float = 0.02) -> float:
+    """Calculate annualized Sharpe ratio from periodic returns."""
+    if len(returns) < 2:
+        return 0.0
+    if np is not None:
+        excess = np.array(returns, dtype=float) - risk_free / 252
+        std = float(excess.std())
+        if std == 0:
+            return 0.0
+        sharpe = (float(excess.mean()) / std) * np.sqrt(252)
+        return round(float(sharpe), 2)
+
+    # Fallback path without numpy.
+    excess = [float(r) - risk_free / 252 for r in returns]
+    mean_excess = sum(excess) / len(excess)
+    variance = sum((r - mean_excess) ** 2 for r in excess) / len(excess)
+    std = math.sqrt(variance)
+    if std == 0:
+        return 0.0
+    sharpe = (mean_excess / std) * math.sqrt(252)
+    return round(float(sharpe), 2)
+
+
+def calculate_max_drawdown(equity_curve: List[float]) -> float:
+    """Calculate max drawdown in percent from a full equity curve."""
+    if len(equity_curve) < 2:
+        return 0.0
+    peak = equity_curve[0]
+    max_dd = 0.0
+    for value in equity_curve:
+        if value > peak:
+            peak = value
+        if peak <= 0:
+            continue
+        dd = (peak - value) / peak
+        if dd > max_dd:
+            max_dd = dd
+    return round(max_dd * 100, 2)
 
 
 def run_simulation(
@@ -90,11 +135,10 @@ def run_simulation(
 
     # ── Simulate trades ─────────────────────────────────────────
     capital = initial_capital
-    peak_capital = initial_capital
-    max_drawdown = 0.0
     trades = []
-    open_positions: Dict[str, dict] = {}
-    daily_returns = []
+    periodic_returns: List[float] = []
+    equity_curve: List[float] = [initial_capital]
+    executed_positions = 0
 
     for sym, pred in predictions.items():
         action = pred.get("recommendation", "HOLD")
@@ -102,32 +146,47 @@ def run_simulation(
         current_price = pred.get("current_price", 0)
         predicted_price = pred.get("predicted_price", 0)
         trend_score = pred.get("trend_score", 0)
+        price_path = pred.get("price_path") or []
+        ordered_path = sorted(
+            [p for p in price_path if isinstance(p, dict) and "price" in p],
+            key=lambda p: p.get("day", 0),
+        )
 
-        if current_price <= 0:
+        if current_price <= 0 or len(ordered_path) < 2:
+            continue
+
+        # Entry is strictly next day to avoid same-bar execution bias.
+        entry_price = float(ordered_path[1].get("price") or 0)
+        if entry_price <= 0:
             continue
 
         # ── Buy & Hold strategy ─────────────────────────────────
         if strategy == "buy_and_hold":
-            if len(open_positions) < max_positions:
+            if executed_positions < max_positions:
                 alloc = capital * (position_size_pct / 100)
-                qty = alloc / current_price
+                qty = alloc / entry_price
                 if qty > 0 and alloc > 1:
-                    pnl = (predicted_price - current_price) * qty
-                    pnl_pct = (predicted_price - current_price) / current_price * 100
+                    exit_price = float(ordered_path[-1].get("price") or entry_price)
+                    pnl = (exit_price - entry_price) * qty
+                    pnl_pct = (pnl / alloc * 100) if alloc > 0 else 0
 
                     trades.append({
                         "symbol": sym,
                         "side": "BUY",
-                        "entry_price": round(current_price, 2),
-                        "exit_price": round(predicted_price, 2),
+                        "entry_price": round(entry_price, 2),
+                        "exit_price": round(exit_price, 2),
                         "quantity": round(qty, 6),
                         "pnl": round(pnl, 2),
                         "pnl_pct": round(pnl_pct, 2),
                         "confidence": round(confidence, 3),
-                        "reason": "Buy & Hold allocation",
+                        "reason": "Buy at D+1 and exit at horizon end",
                     })
+                    prev_capital = capital
                     capital += pnl
-                    daily_returns.append(pnl_pct / max(timeframe_days, 1))
+                    if prev_capital > 0:
+                        periodic_returns.append((capital - prev_capital) / prev_capital)
+                    equity_curve.append(capital)
+                    executed_positions += 1
             continue
 
         # ── AI-based strategies ─────────────────────────────────
@@ -135,7 +194,7 @@ def run_simulation(
             trades.append({
                 "symbol": sym,
                 "side": "SKIP",
-                "entry_price": round(current_price, 2),
+                "entry_price": round(entry_price, 2),
                 "exit_price": None,
                 "quantity": 0,
                 "pnl": 0,
@@ -149,7 +208,7 @@ def run_simulation(
             trades.append({
                 "symbol": sym,
                 "side": "HOLD",
-                "entry_price": round(current_price, 2),
+                "entry_price": round(entry_price, 2),
                 "exit_price": None,
                 "quantity": 0,
                 "pnl": 0,
@@ -159,7 +218,7 @@ def run_simulation(
             })
             continue
 
-        if len(open_positions) >= max_positions:
+        if executed_positions >= max_positions:
             continue
 
         # Conservative AI: additional smart score check
@@ -167,7 +226,7 @@ def run_simulation(
             trades.append({
                 "symbol": sym,
                 "side": "SKIP",
-                "entry_price": round(current_price, 2),
+                "entry_price": round(entry_price, 2),
                 "exit_price": None,
                 "quantity": 0,
                 "pnl": 0,
@@ -179,47 +238,68 @@ def run_simulation(
 
         # Calculate position
         alloc = capital * (position_size_pct / 100)
-        qty = alloc / current_price
+        qty = alloc / entry_price
         if qty <= 0 or alloc < 1:
             continue
 
-        # Simulate exit based on predicted price
-        price_change = (predicted_price - current_price) / current_price
+        # Exit can only happen in future prices after entry.
+        if len(ordered_path) < 3:
+            trades.append({
+                "symbol": sym,
+                "side": "SKIP",
+                "entry_price": round(entry_price, 2),
+                "exit_price": None,
+                "quantity": 0,
+                "pnl": 0,
+                "pnl_pct": 0,
+                "confidence": round(confidence, 3),
+                "reason": "Insufficient future candles after entry",
+            })
+            continue
 
         if action == "BUY":
-            # Check SL/TP
-            if price_change <= -stop_loss_pct:
-                exit_price = current_price * (1 - stop_loss_pct)
-                pnl = -alloc * stop_loss_pct
-                exit_reason = "Stop loss hit"
-            elif price_change >= take_profit_pct:
-                exit_price = current_price * (1 + take_profit_pct)
-                pnl = alloc * take_profit_pct
-                exit_reason = "Take profit hit"
+            stop_price = entry_price * (1 - stop_loss_pct)
+            take_price = entry_price * (1 + take_profit_pct)
+        else:
+            stop_price = entry_price * (1 + stop_loss_pct)
+            take_price = entry_price * (1 - take_profit_pct)
+
+        exit_price = float(ordered_path[-1].get("price") or entry_price)
+        exit_reason = "Exit at horizon end"
+        for candle in ordered_path[2:]:
+            px = float(candle.get("price") or 0)
+            if px <= 0:
+                continue
+            if action == "BUY":
+                if px <= stop_price:
+                    exit_price = stop_price
+                    exit_reason = "Stop loss hit"
+                    break
+                if px >= take_price:
+                    exit_price = take_price
+                    exit_reason = "Take profit hit"
+                    break
             else:
-                exit_price = predicted_price
-                pnl = (predicted_price - current_price) * qty
-                exit_reason = "Exit at predicted price"
+                if px >= stop_price:
+                    exit_price = stop_price
+                    exit_reason = "Stop loss hit"
+                    break
+                if px <= take_price:
+                    exit_price = take_price
+                    exit_reason = "Take profit hit"
+                    break
+
+        if action == "BUY":
+            pnl = (exit_price - entry_price) * qty
         else:  # SELL
-            if price_change >= stop_loss_pct:
-                exit_price = current_price * (1 + stop_loss_pct)
-                pnl = -alloc * stop_loss_pct
-                exit_reason = "Stop loss hit"
-            elif price_change <= -take_profit_pct:
-                exit_price = current_price * (1 - take_profit_pct)
-                pnl = alloc * take_profit_pct
-                exit_reason = "Take profit hit"
-            else:
-                exit_price = predicted_price
-                pnl = (current_price - predicted_price) * qty
-                exit_reason = "Exit at predicted price"
+            pnl = (entry_price - exit_price) * qty
 
         pnl_pct = (pnl / alloc * 100) if alloc > 0 else 0
 
         trades.append({
             "symbol": sym,
             "side": action,
-            "entry_price": round(current_price, 2),
+            "entry_price": round(entry_price, 2),
             "exit_price": round(exit_price, 2),
             "quantity": round(qty, 6),
             "pnl": round(pnl, 2),
@@ -228,13 +308,12 @@ def run_simulation(
             "reason": exit_reason,
         })
 
+        prev_capital = capital
         capital += pnl
-        daily_returns.append(pnl_pct / max(timeframe_days, 1))
-
-        # Track drawdown
-        peak_capital = max(peak_capital, capital)
-        current_drawdown = (peak_capital - capital) / peak_capital if peak_capital > 0 else 0
-        max_drawdown = max(max_drawdown, current_drawdown)
+        if prev_capital > 0:
+            periodic_returns.append((capital - prev_capital) / prev_capital)
+        equity_curve.append(capital)
+        executed_positions += 1
 
     # ── Calculate risk metrics ──────────────────────────────────
     total_pnl = capital - initial_capital
@@ -249,13 +328,8 @@ def run_simulation(
     avg_loss = sum(t["pnl"] for t in losing_trades) / len(losing_trades) if losing_trades else 0
     profit_factor = abs(sum(t["pnl"] for t in winning_trades) / sum(t["pnl"] for t in losing_trades)) if losing_trades and sum(t["pnl"] for t in losing_trades) != 0 else float("inf")
 
-    # Sharpe ratio (simplified)
-    if daily_returns and len(daily_returns) > 1:
-        mean_ret = sum(daily_returns) / len(daily_returns)
-        std_ret = math.sqrt(sum((r - mean_ret) ** 2 for r in daily_returns) / (len(daily_returns) - 1))
-        sharpe = (mean_ret / std_ret * math.sqrt(252)) if std_ret > 0 else 0
-    else:
-        sharpe = 0
+    sharpe = calculate_sharpe(periodic_returns)
+    max_drawdown_pct = calculate_max_drawdown(equity_curve)
 
     return {
         "strategy": strategy,
@@ -265,8 +339,8 @@ def run_simulation(
         "final_capital": round(capital, 2),
         "pnl": round(total_pnl, 2),
         "pnl_pct": round(total_pnl_pct, 2),
-        "max_drawdown_pct": round(max_drawdown * 100, 2),
-        "sharpe_ratio": round(sharpe, 3),
+        "max_drawdown_pct": max_drawdown_pct,
+        "sharpe_ratio": sharpe,
         "total_trades": len(executed_trades),
         "winning_trades": len(winning_trades),
         "losing_trades": len(losing_trades),
