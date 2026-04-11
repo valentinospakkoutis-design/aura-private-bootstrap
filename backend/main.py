@@ -114,6 +114,41 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sch
     return payload
 
 
+LEGACY_SEED_USER_ID = 5
+
+
+def _extract_user_id(payload: Optional[dict]) -> Optional[int]:
+    """Extract int user_id from JWT payload supporting legacy key names."""
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("sub", payload.get("user_id"))
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _legacy_allowed_for_user(user_id: Optional[int]) -> bool:
+    """Only seed user can read legacy NULL-user rows."""
+    return user_id == LEGACY_SEED_USER_ID
+
+
+def _optional_user_id_from_request(request: Request) -> Optional[int]:
+    """Best-effort JWT parse for routes that remain backward-compatible without auth."""
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        from auth.jwt_handler import verify_token
+        payload = verify_token(token, "access")
+        return _extract_user_id(payload)
+    except Exception:
+        return None
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
@@ -153,11 +188,36 @@ def debug_binance_key(_user=Depends(require_auth)):
     }
 
 
-def _restore_broker_connections():
-    """Restore broker connections from database on startup."""
+def _broker_cache_key(broker_name: str, user_id: Optional[int] = None) -> str:
+    broker_name = broker_name.lower()
+    return f"u:{user_id}:{broker_name}" if user_id is not None else broker_name
+
+
+def _get_broker_instance_for_user(broker_name: str, user_id: Optional[int]) -> Optional[object]:
+    """Resolve broker by current user, with seed-user legacy fallback."""
+    key_user = _broker_cache_key(broker_name, user_id)
+    if key_user in broker_instances:
+        return broker_instances[key_user]
+
+    if _legacy_allowed_for_user(user_id):
+        key_legacy = _broker_cache_key(broker_name, None)
+        if key_legacy in broker_instances:
+            return broker_instances[key_legacy]
+    return None
+
+
+def _restore_broker_connections(user_id: Optional[int] = None):
+    """Restore broker connections from database (all users or one user's scope)."""
     try:
+        from sqlalchemy import or_ as _or
         db = SessionLocal()
-        rows = db.query(BrokerCredential).filter(BrokerCredential.is_active == True).all()
+        q = db.query(BrokerCredential).filter(BrokerCredential.is_active == True)
+        if user_id is not None:
+            if _legacy_allowed_for_user(user_id):
+                q = q.filter(_or(BrokerCredential.user_id == user_id, BrokerCredential.user_id.is_(None)))
+            else:
+                q = q.filter(BrokerCredential.user_id == user_id)
+        rows = q.all()
         loaded = 0
         for row in rows:
             try:
@@ -169,7 +229,10 @@ def _restore_broker_connections():
                 else:
                     broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
                 broker.connected = True
-                broker_instances[row.broker_name] = broker
+                broker_instances[_broker_cache_key(row.broker_name, row.user_id)] = broker
+                if row.user_id is None:
+                    # Keep legacy plain key for backward compatibility.
+                    broker_instances[_broker_cache_key(row.broker_name, None)] = broker
                 loaded += 1
             except Exception as decrypt_err:
                 print(f"[!] Failed to decrypt credentials for {row.broker_name}: {decrypt_err}")
@@ -236,12 +299,10 @@ async def startup_event():
     else:
         print("[!] Redis not configured - continuing without cache")
 
-    # Start auto trading engine (disabled by default, runs in background)
+    # Start auto trading engine (per-user isolated loop)
     from services.auto_trading_engine import auto_trader as _auto_trader
-    if broker_instances:
-        _auto_trader.set_broker(next(iter(broker_instances.values())))
 
-    async def _get_predictions_for_auto_trader():
+    async def _get_predictions_for_auto_trader(_user_id: int):
         """Fetch predictions for auto trader loop. Only USDC crypto pairs."""
         from services.auto_trading_engine import ALLOWED_AUTO_TRADE_SYMBOLS
         raw = asset_predictor.get_all_predictions(days=7, asset_type=AssetType.CRYPTO)
@@ -263,8 +324,58 @@ async def startup_event():
             })
         return result
 
-    asyncio.create_task(_auto_trader.run(_get_predictions_for_auto_trader))
-    print("[+] Auto trading engine initialized (disabled by default)")
+    def _get_active_autopilot_users() -> List[int]:
+        """Users with enabled auto-trading settings."""
+        try:
+            from database.models import UserAutopilotSettings, AutopilotConfig
+            db = SessionLocal()
+            user_ids = set(
+                int(r.user_id)
+                for r in db.query(UserAutopilotSettings.user_id).filter(
+                    UserAutopilotSettings.is_enabled == True
+                ).all()
+            )
+            user_ids.update(
+                int(r.user_id)
+                for r in db.query(AutopilotConfig.user_id).filter(
+                    AutopilotConfig.is_enabled == True
+                ).all()
+            )
+            db.close()
+            return sorted(user_ids)
+        except Exception:
+            return []
+
+    def _get_user_engine_config(user_id: int) -> Dict:
+        """Get normalized per-user engine config from persisted autopilot settings."""
+        try:
+            from services.autopilot_config import get_user_autopilot
+            settings = get_user_autopilot(user_id)
+            cfg = dict(settings.get("engine_config", {}))
+            overrides = settings.get("config_overrides", {}) or {}
+            if isinstance(overrides, dict):
+                cfg.update(overrides)
+            cfg["enabled"] = bool(settings.get("is_enabled", False))
+            return cfg
+        except Exception:
+            return {"enabled": False}
+
+    def _get_user_broker(user_id: int):
+        broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+        if not broker:
+            _restore_broker_connections(user_id=user_id)
+            broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+        return broker
+
+    asyncio.create_task(
+        _auto_trader.run_per_user(
+            _get_predictions_for_auto_trader,
+            _get_active_autopilot_users,
+            _get_user_broker,
+            _get_user_engine_config,
+        )
+    )
+    print("[+] Auto trading engine initialized (per-user mode)")
 
     # Train missing models in background (survives ephemeral filesystem wipes)
     async def _train_missing_on_startup():
@@ -710,8 +821,9 @@ class OrderRequest(BaseModel):
 broker_instances = {}  # Store active broker connections
 
 @app.post("/api/brokers/connect")
-async def connect_broker(connection: BrokerConnection, _user=Depends(require_auth)):
+async def connect_broker(connection: BrokerConnection, payload=Depends(require_auth)):
     """Συνδέει broker API"""
+    user_id = _extract_user_id(payload)
     print(f"[broker] Connect request: broker={connection.broker}, testnet={connection.testnet}")
     try:
         if connection.broker.lower() == "binance":
@@ -725,14 +837,15 @@ async def connect_broker(connection: BrokerConnection, _user=Depends(require_aut
             print(f"[broker] Connection result: {result.get('status', 'unknown')}")
 
             if result["status"] == "connected":
-                broker_instances[connection.broker.lower()] = broker
+                broker_instances[_broker_cache_key(connection.broker.lower(), user_id)] = broker
                 # Persist to database (sync DB in threadpool)
                 await asyncio.to_thread(
                     _save_broker_to_db,
                     connection.broker.lower(),
                     connection.api_key,
                     connection.api_secret,
-                    connection.testnet
+                    connection.testnet,
+                    user_id,
                 )
                 return {
                     "status": "connected",
@@ -755,13 +868,14 @@ async def connect_broker(connection: BrokerConnection, _user=Depends(require_aut
             print(f"[broker] Connection result: {result.get('status', 'unknown')}")
 
             if result["status"] == "connected":
-                broker_instances[connection.broker.lower()] = broker
+                broker_instances[_broker_cache_key(connection.broker.lower(), user_id)] = broker
                 await asyncio.to_thread(
                     _save_broker_to_db,
                     connection.broker.lower(),
                     connection.api_key,
                     connection.api_secret,
-                    connection.testnet
+                    connection.testnet,
+                    user_id,
                 )
                 return {
                     "status": "connected",
@@ -781,15 +895,30 @@ async def connect_broker(connection: BrokerConnection, _user=Depends(require_aut
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _save_broker_to_db(broker_name: str, api_key: str, api_secret: str, testnet: bool):
+def _save_broker_to_db(broker_name: str, api_key: str, api_secret: str, testnet: bool, user_id: Optional[int] = None):
     """Save broker credentials to database (sync, runs in threadpool)."""
     db = SessionLocal()
     try:
+        from sqlalchemy import or_ as _or
         enc_key = security_manager.encrypt_api_key(api_key)
         enc_secret = security_manager.encrypt_api_key(api_secret)
-        row = db.query(BrokerCredential).filter(
-            BrokerCredential.broker_name == broker_name
-        ).first()
+
+        if user_id is None:
+            row = db.query(BrokerCredential).filter(
+                BrokerCredential.broker_name == broker_name,
+                BrokerCredential.user_id.is_(None),
+            ).first()
+        elif _legacy_allowed_for_user(user_id):
+            row = db.query(BrokerCredential).filter(
+                BrokerCredential.broker_name == broker_name,
+                _or(BrokerCredential.user_id == user_id, BrokerCredential.user_id.is_(None)),
+            ).first()
+        else:
+            row = db.query(BrokerCredential).filter(
+                BrokerCredential.broker_name == broker_name,
+                BrokerCredential.user_id == user_id,
+            ).first()
+
         if row:
             row.encrypted_api_key = enc_key
             row.encrypted_api_secret = enc_secret
@@ -798,6 +927,7 @@ def _save_broker_to_db(broker_name: str, api_key: str, api_secret: str, testnet:
             row.updated_at = datetime.utcnow()
         else:
             db.add(BrokerCredential(
+                user_id=user_id,
                 broker_name=broker_name,
                 encrypted_api_key=enc_key,
                 encrypted_api_secret=enc_secret,
@@ -808,7 +938,7 @@ def _save_broker_to_db(broker_name: str, api_key: str, api_secret: str, testnet:
     except Exception as db_err:
         db.rollback()
         print(f"[-] Failed to save broker credentials: {db_err}")
-        broker_instances.pop(broker_name, None)
+        broker_instances.pop(_broker_cache_key(broker_name, user_id), None)
         raise HTTPException(
             status_code=500,
             detail=f"Broker connected but failed to save credentials: {db_err}"
@@ -817,46 +947,72 @@ def _save_broker_to_db(broker_name: str, api_key: str, api_secret: str, testnet:
         db.close()
 
 @app.get("/api/brokers/status")
-def get_broker_status():
+def get_broker_status(payload=Depends(require_auth)):
     """Επιστρέφει κατάσταση brokers"""
+    user_id = _extract_user_id(payload)
     # Auto-reload from DB if no brokers in memory
-    if not broker_instances:
-        _restore_broker_connections()
+    _restore_broker_connections(user_id=user_id)
 
     status = []
-    for broker_name, broker in broker_instances.items():
-        status.append(broker.get_status())
+    seen = set()
+    for key, broker in broker_instances.items():
+        if user_id is None:
+            continue
+        if key.startswith(f"u:{user_id}:"):
+            name = key.split(":", 2)[2]
+        elif _legacy_allowed_for_user(user_id) and ":" not in key:
+            name = key
+        else:
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        row = broker.get_status()
+        row["broker"] = name
+        status.append(row)
     return {
         "brokers": status,
-        "total_connected": len(broker_instances),
+        "total_connected": len(status),
         "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/brokers/{broker_name}/balance")
-def get_broker_balance(broker_name: str, _user=Depends(require_auth)):
+def get_broker_balance(broker_name: str, payload=Depends(require_auth)):
     """Επιστρέφει balance από broker"""
-    if broker_name.lower() not in broker_instances:
-        raise HTTPException(status_code=404, detail="Broker not connected")
+    user_id = _extract_user_id(payload)
+    broker = _get_broker_instance_for_user(broker_name.lower(), user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user(broker_name.lower(), user_id)
+    if not broker:
+        raise HTTPException(status_code=404, detail="Broker not connected for current user")
     
-    broker = broker_instances[broker_name.lower()]
     return broker.get_account_balance()
 
 @app.get("/api/brokers/{broker_name}/price/{symbol}")
-def get_price(broker_name: str, symbol: str):
+def get_price(broker_name: str, symbol: str, request: Request):
     """Επιστρέφει τιμή symbol"""
-    if broker_name.lower() not in broker_instances:
+    user_id = _optional_user_id_from_request(request)
+    broker = _get_broker_instance_for_user(broker_name.lower(), user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user(broker_name.lower(), user_id)
+    if not broker:
         raise HTTPException(status_code=404, detail="Broker not connected")
-    
-    broker = broker_instances[broker_name.lower()]
+
     return broker.get_market_price(symbol)
 
 @app.get("/api/brokers/{broker_name}/symbols")
-def get_supported_symbols(broker_name: str):
+def get_supported_symbols(broker_name: str, request: Request):
     """Επιστρέφει supported symbols"""
-    if broker_name.lower() not in broker_instances:
+    user_id = _optional_user_id_from_request(request)
+    broker = _get_broker_instance_for_user(broker_name.lower(), user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user(broker_name.lower(), user_id)
+    if not broker:
         raise HTTPException(status_code=404, detail="Broker not connected")
-    
-    broker = broker_instances[broker_name.lower()]
+
     return {
         "broker": broker_name,
         "symbols": broker.get_supported_symbols(),
@@ -897,15 +1053,15 @@ def _parse_binance_error(execution_result: Dict) -> Dict:
 def place_order(order: OrderRequest, _user=Depends(require_auth)):
     """Τοποθετεί order σε paper ή live mode"""
     broker_key = order.broker.lower()
+    user_id = _extract_user_id(_user)
 
     # Auto-reload from DB if broker not in memory
-    if broker_key not in broker_instances:
-        _restore_broker_connections()
-
-    if broker_key not in broker_instances:
+    broker = _get_broker_instance_for_user(broker_key, user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user(broker_key, user_id)
+    if not broker:
         raise HTTPException(status_code=404, detail="Broker not connected. Please connect via /api/brokers/connect")
-
-    broker = broker_instances[broker_key]
 
     # Get current market price
     price_info = broker.get_market_price(order.symbol)
@@ -957,6 +1113,7 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
             broker_order_id=execution_result.get("order_id"),
             response_summary={"status": execution_result.get("status")},
             error_message=execution_result.get("error"),
+            user_id=user_id,
         )
 
         if "error" in execution_result:
@@ -981,7 +1138,7 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
             "price": price,
             "order_type": order.order_type
         }
-        result = paper_trading_service.place_order(order_dict)
+        result = paper_trading_service.place_order(order_dict, user_id=user_id)
 
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -989,11 +1146,17 @@ def place_order(order: OrderRequest, _user=Depends(require_auth)):
     return result
 
 @app.get("/api/trading/portfolio")
-def get_trading_portfolio():
+def get_trading_portfolio(request: Request):
     """Επιστρέφει portfolio — live Binance balance αν υπάρχει broker, αλλιώς paper."""
-    if live_trading_service.trading_mode == "live" and broker_instances:
+    user_id = _optional_user_id_from_request(request)
+    if live_trading_service.trading_mode == "live":
         try:
-            broker = next(iter(broker_instances.values()))
+            broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+            if not broker:
+                _restore_broker_connections(user_id=user_id)
+                broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+            if not broker:
+                raise RuntimeError("no user broker")
             account = broker.get_account_balance()
             if "error" not in account:
                 return sanitize_floats({
@@ -1016,7 +1179,7 @@ def get_trading_portfolio():
                 current_prices[symbol] = price_info["price"]
             except:
                 pass
-    result = paper_trading_service.get_portfolio(current_prices)
+    result = paper_trading_service.get_portfolio(current_prices, user_id=user_id)
     result["mode"] = "paper"
     return result
 
@@ -1080,17 +1243,18 @@ def get_live_portfolio_full():
     })
 
 @app.get("/api/trading/history")
-def get_trading_history(limit: int = 50):
+def get_trading_history(request: Request, limit: int = 50):
     """Επιστρέφει trade history"""
-    trades = paper_trading_service.get_trade_history(limit)
+    user_id = _optional_user_id_from_request(request)
+    trades = paper_trading_service.get_trade_history(limit, user_id=user_id)
     return {
         "trades": trades,
-        "total": len(paper_trading_service.trade_history),
+        "total": len(paper_trading_service.get_trade_history(limit=10000, user_id=user_id)),
         "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/trading/positions")
-def get_positions():
+def get_positions(request: Request):
     """Επιστρέφει open positions"""
     # Get current prices
     current_prices = {}
@@ -1102,7 +1266,8 @@ def get_positions():
             except:
                 pass
     
-    portfolio = paper_trading_service.get_portfolio(current_prices)
+    user_id = _optional_user_id_from_request(request)
+    portfolio = paper_trading_service.get_portfolio(current_prices, user_id=user_id)
     
     return {
         "positions": portfolio["positions"],
@@ -1111,30 +1276,46 @@ def get_positions():
     }
 
 @app.delete("/api/brokers/{broker_name}/disconnect")
-def disconnect_broker(broker_name: str, _user=Depends(require_auth)):
+def disconnect_broker(broker_name: str, payload=Depends(require_auth)):
     """Αποσυνδέει broker"""
-    if broker_name.lower() in broker_instances:
-        del broker_instances[broker_name.lower()]
-        # Remove from database
-        try:
-            db = SessionLocal()
-            db.query(BrokerCredential).filter(
-                BrokerCredential.broker_name == broker_name.lower()
-            ).update({"is_active": False})
-            db.commit()
-            db.close()
-        except Exception as db_err:
-            print(f"[!] Could not update broker in DB: {db_err}")
-        return {
-            "status": "disconnected",
-            "broker": broker_name,
-            "timestamp": datetime.now().isoformat()
-        }
-    raise HTTPException(status_code=404, detail="Broker not found")
+    user_id = _extract_user_id(payload)
+    cache_key = _broker_cache_key(broker_name.lower(), user_id)
+    legacy_key = _broker_cache_key(broker_name.lower(), None)
+
+    if cache_key in broker_instances:
+        del broker_instances[cache_key]
+    elif _legacy_allowed_for_user(user_id) and legacy_key in broker_instances:
+        del broker_instances[legacy_key]
+
+    # Remove from database
+    try:
+        from sqlalchemy import or_ as _or
+        db = SessionLocal()
+        q = db.query(BrokerCredential).filter(BrokerCredential.broker_name == broker_name.lower())
+        if _legacy_allowed_for_user(user_id):
+            q = q.filter(_or(BrokerCredential.user_id == user_id, BrokerCredential.user_id.is_(None)))
+        else:
+            q = q.filter(BrokerCredential.user_id == user_id)
+        updated = q.update({"is_active": False})
+        db.commit()
+        db.close()
+        if updated <= 0:
+            raise HTTPException(status_code=404, detail="Broker not found for current user")
+    except HTTPException:
+        raise
+    except Exception as db_err:
+        print(f"[!] Could not update broker in DB: {db_err}")
+
+    return {
+        "status": "disconnected",
+        "broker": broker_name,
+        "timestamp": datetime.now().isoformat()
+    }
+
 
 # Paper Trading Endpoints
 @app.get("/api/paper-trading/portfolio")
-def get_portfolio():
+def get_portfolio(request: Request):
     """Επιστρέφει portfolio information"""
     # Get current prices from connected brokers
     current_prices = {}
@@ -1148,28 +1329,36 @@ def get_portfolio():
             except:
                 pass
     
-    return paper_trading_service.get_portfolio(current_prices)
+    user_id = _optional_user_id_from_request(request)
+    return paper_trading_service.get_portfolio(current_prices, user_id=user_id)
 
 @app.get("/api/paper-trading/history")
-def get_trade_history(limit: int = 50):
+def get_trade_history(request: Request, limit: int = 50):
     """Επιστρέφει trade history"""
+    user_id = _optional_user_id_from_request(request)
     return {
-        "trades": paper_trading_service.get_trade_history(limit),
-        "total": len(paper_trading_service.trade_history),
+        "trades": paper_trading_service.get_trade_history(limit, user_id=user_id),
+        "total": len(paper_trading_service.get_trade_history(limit=10000, user_id=user_id)),
         "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/paper-trading/statistics")
-def get_trading_statistics():
+def get_trading_statistics(request: Request):
     """Επιστρέφει trading statistics — live Binance data αν mode=live."""
-    if live_trading_service.trading_mode == "live" and broker_instances:
+    user_id = _optional_user_id_from_request(request)
+    if live_trading_service.trading_mode == "live":
         try:
-            broker = next(iter(broker_instances.values()))
+            broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+            if not broker:
+                _restore_broker_connections(user_id=user_id)
+                broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+            if not broker:
+                raise RuntimeError("no user broker")
             account = broker.get_account_balance()
             if "error" not in account:
                 total_balance = account.get("total_balance", 0)
                 trades = broker.get_trade_history()
-                result = paper_trading_service.get_statistics()
+                result = paper_trading_service.get_statistics(user_id=user_id)
                 result["current_balance"] = total_balance
                 result["total_value"] = total_balance
                 result["total_trades"] = len(trades) if isinstance(trades, list) else result.get("total_trades", 0)
@@ -1178,7 +1367,7 @@ def get_trading_statistics():
         except Exception as e:
             print(f"[!] Live stats failed, falling back to paper: {e}")
 
-    result = paper_trading_service.get_statistics()
+    result = paper_trading_service.get_statistics(user_id=user_id)
     result["mode"] = "paper"
     return sanitize_floats(result)
 
@@ -1192,7 +1381,7 @@ class ClosePaperTradeRequest(BaseModel):
     trade_id: str
 
 @app.post("/api/trading/order")
-async def place_trading_order(order: PaperOrderRequest):
+async def place_trading_order(order: PaperOrderRequest, request: Request):
     """Place a paper trading order (fetches price from Binance public API)"""
     import httpx
 
@@ -1227,13 +1416,14 @@ async def place_trading_order(order: PaperOrderRequest):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Could not fetch price for {symbol}: {e}")
 
+    user_id = _optional_user_id_from_request(request)
     result = paper_trading_service.place_order({
         "symbol": symbol,
         "side": side,
         "quantity": order.quantity,
         "price": price,
         "order_type": "MARKET",
-    })
+    }, user_id=user_id)
 
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -1242,11 +1432,12 @@ async def place_trading_order(order: PaperOrderRequest):
 
 
 @app.post("/api/paper-trading/close/{trade_id}")
-async def close_paper_trade(trade_id: str):
+async def close_paper_trade(trade_id: str, request: Request):
     """Close an open paper trade by trade/order id."""
     import httpx
 
-    history = paper_trading_service.get_trade_history(limit=10000)
+    user_id = _optional_user_id_from_request(request)
+    history = paper_trading_service.get_trade_history(limit=10000, user_id=user_id)
     target = next((t for t in history if str(t.get("order_id") or t.get("id")) == str(trade_id)), None)
     if not target:
         raise HTTPException(status_code=404, detail="Trade not found")
@@ -1255,7 +1446,7 @@ async def close_paper_trade(trade_id: str):
     original_side = str(target.get("side") or "BUY").upper()
     close_side = "SELL" if original_side == "BUY" else "BUY"
 
-    portfolio = paper_trading_service.get_portfolio()
+    portfolio = paper_trading_service.get_portfolio(user_id=user_id)
     pos = next((p for p in portfolio.get("positions", []) if p.get("symbol") == symbol), None)
     available_qty = float((pos or {}).get("quantity", 0) or 0)
     requested_qty = float(target.get("quantity", 0) or 0)
@@ -1293,7 +1484,7 @@ async def close_paper_trade(trade_id: str):
         "quantity": quantity,
         "price": price,
         "order_type": "MARKET",
-    })
+    }, user_id=user_id)
 
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -1307,9 +1498,10 @@ async def close_paper_trade(trade_id: str):
 
 
 @app.post("/api/paper-trading/reset")
-def reset_paper_trading():
+def reset_paper_trading(request: Request):
     """Reset paper trading account"""
-    paper_trading_service.reset()
+    user_id = _optional_user_id_from_request(request)
+    paper_trading_service.reset(user_id=user_id)
     return {
         "status": "reset",
         "message": "Paper trading account reset successfully",
@@ -2644,10 +2836,11 @@ def get_symbol_performance():
     }
 
 @app.get("/api/analytics/summary")
-def get_analytics_summary(period: str = "all"):
+def get_analytics_summary(period: str = "all", payload=Depends(require_auth)):
     """Analytics summary aggregating paper + live trades. period: 7d|30d|90d|all"""
-    trades = paper_trading_service.get_trade_history(limit=10000)
-    portfolio = paper_trading_service.get_portfolio()
+    user_id = _extract_user_id(payload)
+    trades = paper_trading_service.get_trade_history(limit=10000, user_id=user_id)
+    portfolio = paper_trading_service.get_portfolio(user_id=user_id)
 
     # Include live trades from audit logs
     try:
@@ -2658,9 +2851,13 @@ def get_analytics_summary(period: str = "all"):
             live_rows = db.execute(text(
                 "SELECT symbol, side, quantity, price, status, created_at "
                 "FROM live_order_audit_logs "
-                "WHERE status = 'FILLED' OR status = 'NEW' "
+                "WHERE (status = 'FILLED' OR status = 'NEW' OR status = 'filled' OR status = 'submitted' OR status = 'success') "
+                "AND ((user_id = :uid) OR (:allow_legacy = TRUE AND user_id IS NULL)) "
                 "ORDER BY created_at DESC LIMIT 10000"
-            )).fetchall()
+            ), {
+                "uid": user_id,
+                "allow_legacy": _legacy_allowed_for_user(user_id),
+            }).fetchall()
             db.close()
             for row in live_rows:
                 trades.append({
@@ -3207,13 +3404,15 @@ def _log_live_order_audit(
         print(f"[!] Live order audit log failed (non-fatal): {e}")
 
 
-def _get_live_broker():
-    """Get the first connected broker or raise 400."""
-    if not broker_instances:
-        _restore_broker_connections()
-    if not broker_instances:
-        raise HTTPException(status_code=400, detail="No broker connected. Use POST /api/brokers/connect first.")
-    return next(iter(broker_instances.values()))
+def _get_live_broker(user_id: Optional[int] = None):
+    """Get current user's preferred broker with legacy fallback for seed user."""
+    broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+    if not broker:
+        raise HTTPException(status_code=400, detail="No broker connected for current user. Use POST /api/brokers/connect first.")
+    return broker
 
 
 def _pre_order_safety_check(broker, symbol: str, quantity: float):
@@ -3248,8 +3447,9 @@ class LimitOrderRequest(BaseModel):
 
 
 @app.get("/api/live-trading/history")
-def get_live_trading_history(limit: int = 50):
+def get_live_trading_history(limit: int = 50, payload=Depends(require_auth)):
     """Returns executed live orders from audit log."""
+    user_id = _extract_user_id(payload)
     try:
         from sqlalchemy import text as _text
         db = SessionLocal()
@@ -3258,9 +3458,14 @@ def get_live_trading_history(limit: int = 50):
                    status, created_at, broker_order_id, source
             FROM live_order_audit_logs
             WHERE status IN ('filled', 'success', 'submitted')
+              AND ((user_id = :uid) OR (:allow_legacy = TRUE AND user_id IS NULL))
             ORDER BY created_at DESC
             LIMIT :lim
-        """), {"lim": limit}).fetchall()
+        """), {
+            "lim": limit,
+            "uid": user_id,
+            "allow_legacy": _legacy_allowed_for_user(user_id),
+        }).fetchall()
         db.close()
 
         trades = []
@@ -3290,7 +3495,8 @@ class ClosePositionRequest(BaseModel):
 def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth)):
     """Close a position by selling the specified quantity at market price."""
     _enforce_live_kill_switch()
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
 
     if data.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
@@ -3321,6 +3527,7 @@ def close_live_position(data: ClosePositionRequest, _user=Depends(require_auth))
         broker_order_id=result.get("order_id"),
         price=result.get("price"),
         error_message=result.get("error"),
+        user_id=user_id,
     )
 
     if "error" in result:
@@ -3361,7 +3568,8 @@ def get_live_positions():
 def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)):
     """Place a real MARKET order on Binance Spot."""
     _enforce_live_kill_switch()
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
     price = _pre_order_safety_check(broker, order.symbol, order.quantity)
     client_order_id = _generate_client_order_id()
     result = broker.place_live_order(
@@ -3377,6 +3585,7 @@ def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)
         status="filled" if "error" not in result else "failed",
         broker_order_id=result.get("order_id"),
         error_message=result.get("error"),
+        user_id=user_id,
     )
     if "error" in result:
         parsed = _parse_binance_error(result)
@@ -3396,7 +3605,8 @@ def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)
 def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)):
     """Place a LIMIT order with optional SL/TP."""
     _enforce_live_kill_switch()
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
     _pre_order_safety_check(broker, order.symbol, order.quantity)
     client_order_id = _generate_client_order_id()
     result = broker.place_limit_order(
@@ -3412,6 +3622,7 @@ def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)
         status="submitted" if "error" not in result else "failed",
         broker_order_id=result.get("order_id"),
         error_message=result.get("error"),
+        user_id=user_id,
     )
     if "error" in result:
         parsed = _parse_binance_error(result)
@@ -3436,7 +3647,8 @@ def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)
 @app.delete("/api/live-trading/order/{symbol}/{order_id}")
 def cancel_live_order(symbol: str, order_id: int, _user=Depends(require_auth)):
     """Cancel an open order."""
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
     result = broker.cancel_order(symbol, order_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -3468,7 +3680,8 @@ class FuturesOrderRequest(BaseModel):
 def get_futures_balance(_user=Depends(require_auth)):
     """Returns Binance Futures wallet balance."""
     _enforce_futures_kill_switch()
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
     account = broker.futures_account()
     if "error" in account:
         raise HTTPException(status_code=400, detail=account["error"])
@@ -3484,7 +3697,8 @@ def get_futures_balance(_user=Depends(require_auth)):
 def get_futures_positions(_user=Depends(require_auth)):
     """Returns open futures positions."""
     _enforce_futures_kill_switch()
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
     positions = broker.futures_positions()
     return sanitize_floats({"positions": positions, "count": len(positions)})
 
@@ -3509,7 +3723,8 @@ def place_futures_order(order: FuturesOrderRequest, _user=Depends(require_auth))
             detail=f"Leverage must be one of: {sorted(ALLOWED_FUTURES_LEVERAGE)}"
         )
 
-    broker = _get_live_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_live_broker(user_id=user_id)
     # Futures safety: check effective exposure (notional * leverage)
     price = _pre_order_safety_check(broker, order.symbol, order.quantity)
     effective_exposure = price * order.quantity * order.leverage
@@ -3539,6 +3754,7 @@ def place_futures_order(order: FuturesOrderRequest, _user=Depends(require_auth))
         broker_order_id=str(result.get("orderId", "")),
         error_message=result.get("error"),
         response_summary={"leverage": order.leverage, "requested_side": side_upper},
+        user_id=user_id,
     )
 
     if "error" in result:
@@ -3574,13 +3790,15 @@ def get_futures_positions_legacy(_user=Depends(require_auth)):
 ALLOWED_BYBIT_LEVERAGE = {1, 2, 5, 10}
 
 
-def _get_bybit_broker():
+def _get_bybit_broker(user_id: Optional[int] = None):
     """Get the Bybit broker instance or raise."""
-    if "bybit" not in broker_instances:
-        _restore_broker_connections()
-    if "bybit" not in broker_instances:
+    broker = _get_broker_instance_for_user("bybit", user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user("bybit", user_id)
+    if not broker:
         raise HTTPException(status_code=400, detail="Bybit not connected. Use POST /api/brokers/connect with broker='bybit'.")
-    return broker_instances["bybit"]
+    return broker
 
 
 class BybitOrderRequest(BaseModel):
@@ -3593,7 +3811,8 @@ class BybitOrderRequest(BaseModel):
 @app.get("/api/bybit/balance")
 def get_bybit_balance(_user=Depends(require_auth)):
     """Get Bybit unified wallet balance."""
-    broker = _get_bybit_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_bybit_broker(user_id=user_id)
     result = broker.get_balance()
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -3603,7 +3822,8 @@ def get_bybit_balance(_user=Depends(require_auth)):
 @app.get("/api/bybit/positions")
 def get_bybit_positions(_user=Depends(require_auth)):
     """Get open Bybit USDT perpetual positions."""
-    broker = _get_bybit_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_bybit_broker(user_id=user_id)
     positions = broker.get_positions()
     return sanitize_floats({"positions": positions, "count": len(positions)})
 
@@ -3623,7 +3843,8 @@ def place_bybit_order(order: BybitOrderRequest, _user=Depends(require_auth)):
     if order.qty <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
 
-    broker = _get_bybit_broker()
+    user_id = _extract_user_id(_user)
+    broker = _get_bybit_broker(user_id=user_id)
 
     # Set leverage
     lev_result = broker.set_leverage(order.symbol, order.leverage)
@@ -3647,6 +3868,7 @@ def place_bybit_order(order: BybitOrderRequest, _user=Depends(require_auth)):
         status="submitted" if "error" not in result else "failed",
         broker_order_id=result.get("order_id"),
         error_message=result.get("error"),
+        user_id=user_id,
     )
 
     if "error" in result:
@@ -3678,71 +3900,122 @@ class AutoTradingConfigUpdate(BaseModel):
 
 
 @app.get("/api/auto-trading/status")
-def get_auto_trading_status():
-    """Get auto trading engine status and config."""
-    return auto_trader.get_status()
+def get_auto_trading_status(payload=Depends(require_auth)):
+    """Get auto trading engine status and config for current user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    return auto_trader.get_user_status(user_id)
 
 
 @app.post("/api/auto-trading/enable")
 def enable_auto_trading(_user=Depends(require_auth)):
     """Enable auto trading — user must explicitly call this."""
-    if not broker_instances:
-        _restore_broker_connections()
-    if not broker_instances:
-        raise HTTPException(status_code=400, detail="No broker connected. Connect a broker first.")
-    broker = next(iter(broker_instances.values()))
-    auto_trader.set_broker(broker)
-    try:
-        auto_trader.enable()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"success": True, "message": "Auto trading enabled", "status": auto_trader.get_status()}
+    from services.autopilot_config import get_user_autopilot, save_user_autopilot
+
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+    if not broker:
+        _restore_broker_connections(user_id=user_id)
+        broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
+    if not broker:
+        raise HTTPException(status_code=400, detail="No broker connected for current user. Connect a broker first.")
+
+    settings = get_user_autopilot(user_id)
+    mode = settings.get("current_mode", "balanced")
+    save_user_autopilot(user_id=user_id, mode=mode, is_enabled=True, changed_by="user")
+
+    ctx = auto_trader._ensure_user_runtime(user_id)
+    cfg = dict(ctx.get("config", {}))
+    cfg.update(settings.get("engine_config", {}))
+    cfg.update(settings.get("config_overrides", {}) or {})
+    cfg["enabled"] = True
+    ctx["config"] = cfg
+    auto_trader.user_runtime[user_id] = ctx
+
+    return {"success": True, "message": "Auto trading enabled", "status": auto_trader.get_user_status(user_id)}
 
 
 @app.post("/api/auto-trading/disable")
 def disable_auto_trading(_user=Depends(require_auth)):
     """Disable auto trading."""
-    auto_trader.disable()
-    return {"success": True, "message": "Auto trading disabled"}
+    from services.autopilot_config import get_user_autopilot, save_user_autopilot
+
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    settings = get_user_autopilot(user_id)
+    mode = settings.get("current_mode", "balanced")
+    save_user_autopilot(user_id=user_id, mode=mode, is_enabled=False, changed_by="user")
+
+    ctx = auto_trader._ensure_user_runtime(user_id)
+    cfg = dict(ctx.get("config", {}))
+    cfg["enabled"] = False
+    ctx["config"] = cfg
+    auto_trader.user_runtime[user_id] = ctx
+
+    return {"success": True, "message": "Auto trading disabled", "status": auto_trader.get_user_status(user_id)}
 
 
 @app.put("/api/auto-trading/config")
 def update_auto_trading_config(config: AutoTradingConfigUpdate, _user=Depends(require_auth)):
     """Update auto trading config (thresholds, limits)."""
+    from services.autopilot_config import get_user_autopilot, save_user_autopilot
+
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    settings = get_user_autopilot(user_id)
+    mode = settings.get("current_mode", "balanced")
+    overrides = dict(settings.get("config_overrides", {}) or {})
+
     if config.confidence_threshold is not None:
-        auto_trader.config["confidence_threshold"] = max(0.5, min(1.0, config.confidence_threshold))
+        overrides["confidence_threshold"] = max(0.5, min(1.0, config.confidence_threshold))
     if config.fixed_order_value_usd is not None:
-        auto_trader.config["fixed_order_value_usd"] = max(5.0, min(100.0, config.fixed_order_value_usd))
+        overrides["fixed_order_value_usd"] = max(5.0, min(100.0, config.fixed_order_value_usd))
     if config.stop_loss_pct is not None:
-        auto_trader.config["stop_loss_pct"] = max(0.01, min(0.10, config.stop_loss_pct))
+        overrides["stop_loss_pct"] = max(0.01, min(0.10, config.stop_loss_pct))
     if config.max_positions is not None:
-        auto_trader.config["max_positions"] = max(1, min(10, config.max_positions))
+        overrides["max_positions"] = max(1, min(10, config.max_positions))
     if config.max_order_value_usd is not None:
-        auto_trader.config["max_order_value_usd"] = max(10, min(500, config.max_order_value_usd))
+        overrides["max_order_value_usd"] = max(10, min(500, config.max_order_value_usd))
     if config.smart_score_threshold is not None:
-        auto_trader.config["smart_score_threshold"] = max(50, min(95, config.smart_score_threshold))
-    return auto_trader.get_status()
+        overrides["smart_score_threshold"] = max(50, min(95, config.smart_score_threshold))
+
+    save_user_autopilot(
+        user_id=user_id,
+        mode=mode,
+        is_enabled=bool(settings.get("is_enabled", False)),
+        config_overrides=overrides,
+        changed_by="user",
+    )
+
+    ctx = auto_trader._ensure_user_runtime(user_id)
+    cfg = dict(settings.get("engine_config", {}))
+    cfg.update(overrides)
+    cfg["enabled"] = bool(settings.get("is_enabled", False))
+    ctx["config"] = cfg
+    auto_trader.user_runtime[user_id] = ctx
+    return auto_trader.get_user_status(user_id)
 
 
 @app.post("/api/auto-trading/toggle")
 def toggle_auto_trading(data: dict, _user=Depends(require_auth)):
     """Toggle auto trading on/off. Body: { "enabled": true/false }"""
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
     enabled = data.get("enabled", False)
     if enabled:
-        if not broker_instances:
-            _restore_broker_connections()
-        if not broker_instances:
-            raise HTTPException(status_code=400, detail="No broker connected. Connect a broker first.")
-        broker = next(iter(broker_instances.values()))
-        auto_trader.set_broker(broker)
-        try:
-            auto_trader.enable()
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        return {"success": True, "enabled": True, "status": auto_trader.get_status()}
+        return enable_auto_trading(_user=_user)
     else:
-        auto_trader.disable()
-        return {"success": True, "enabled": False, "status": auto_trader.get_status()}
+        return disable_auto_trading(_user=_user)
 
 
 @app.post("/api/autopilot/mode")
@@ -3751,8 +4024,12 @@ def set_autopilot_mode(data: dict, _user=Depends(require_auth)):
     from services.autopilot_config import apply_mode
     mode = data.get("mode", "balanced")
     reason = data.get("reason")
-    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    auto_trader._load_user_context(user_id)
     result = apply_mode(mode, auto_trader, user_id=user_id, reason=reason, changed_by="user")
+    auto_trader._save_user_context(user_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -3762,7 +4039,7 @@ def set_autopilot_mode(data: dict, _user=Depends(require_auth)):
 def get_autopilot_mode(_user=Depends(require_auth)):
     """Get current autopilot mode and available modes (per-user if persisted)."""
     from services.autopilot_config import get_current_mode, get_all_modes, get_mode_config, get_user_autopilot
-    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    user_id = _extract_user_id(_user)
     user_settings = get_user_autopilot(user_id) if user_id else None
     current = user_settings["current_mode"] if user_settings else get_current_mode()
     return {
@@ -3777,7 +4054,7 @@ def get_autopilot_mode(_user=Depends(require_auth)):
 def get_autopilot_history(_user=Depends(require_auth)):
     """Get autopilot mode change history for the current user."""
     from services.autopilot_config import get_autopilot_change_history
-    user_id = _user.get("user_id") if isinstance(_user, dict) else getattr(_user, "id", None)
+    user_id = _extract_user_id(_user)
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID not found")
     history = get_autopilot_change_history(user_id)
@@ -3785,9 +4062,12 @@ def get_autopilot_history(_user=Depends(require_auth)):
 
 
 @app.get("/api/auto-trading/log")
-def get_auto_trading_log():
+def get_auto_trading_log(payload=Depends(require_auth)):
     """Get the last 20 auto-trading decisions."""
-    logs = auto_trader.trade_log[-20:]
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    logs = auto_trader.get_user_log(user_id, limit=20)
     return {"log": list(reversed(logs)), "count": len(logs)}
 
 
@@ -3799,11 +4079,15 @@ def get_smart_score(symbol: str):
 
 
 @app.get("/api/auto-trading/positions")
-def get_auto_trading_positions():
+def get_auto_trading_positions(payload=Depends(require_auth)):
     """Get positions opened by auto trader."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    positions = auto_trader.get_user_positions(user_id)
     return {
-        "positions": list(auto_trader.open_positions.values()),
-        "count": len(auto_trader.open_positions),
+        "positions": positions,
+        "count": len(positions),
     }
 
 

@@ -44,6 +44,57 @@ class AutoTradingEngine:
         }
         self.open_positions: Dict[str, dict] = {}
         self.trade_log: List[dict] = []
+        self.user_runtime: Dict[int, dict] = {}
+
+    def _ensure_user_runtime(self, user_id: int) -> dict:
+        if user_id not in self.user_runtime:
+            self.user_runtime[user_id] = {
+                "config": dict(self.config),
+                "open_positions": {},
+                "trade_log": [],
+                "total_auto_trades": 0,
+                "last_run": None,
+            }
+        return self.user_runtime[user_id]
+
+    def _load_user_context(self, user_id: int):
+        ctx = self._ensure_user_runtime(user_id)
+        self.config = dict(ctx["config"])
+        self.open_positions = dict(ctx["open_positions"])
+        self.trade_log = list(ctx["trade_log"])
+        self.total_auto_trades = int(ctx["total_auto_trades"])
+        self.last_run = ctx["last_run"]
+
+    def _save_user_context(self, user_id: int):
+        self.user_runtime[user_id] = {
+            "config": dict(self.config),
+            "open_positions": dict(self.open_positions),
+            "trade_log": list(self.trade_log[-100:]),
+            "total_auto_trades": int(self.total_auto_trades),
+            "last_run": self.last_run,
+        }
+
+    def get_user_status(self, user_id: int) -> dict:
+        ctx = self._ensure_user_runtime(user_id)
+        return {
+            "enabled": bool(ctx["config"].get("enabled", False)),
+            "is_running": self.is_running,
+            "config": ctx["config"],
+            "open_positions_count": len(ctx["open_positions"]),
+            "positions": list(ctx["open_positions"].values()),
+            "total_auto_trades": int(ctx.get("total_auto_trades", 0)),
+            "last_run": ctx.get("last_run"),
+            "next_run_in_seconds": self.check_interval,
+            "recent_log": list(ctx.get("trade_log", [])[-20:]),
+        }
+
+    def get_user_log(self, user_id: int, limit: int = 20) -> List[dict]:
+        ctx = self._ensure_user_runtime(user_id)
+        return list(ctx.get("trade_log", [])[-limit:])
+
+    def get_user_positions(self, user_id: int) -> List[dict]:
+        ctx = self._ensure_user_runtime(user_id)
+        return list(ctx.get("open_positions", {}).values())
 
     def set_broker(self, broker):
         """Set the BinanceAPI broker instance."""
@@ -429,6 +480,70 @@ class AutoTradingEngine:
 
         self.is_running = False
         self._log_event("ENGINE_STOP", "Auto trading engine stopped")
+
+    async def run_per_user(
+        self,
+        get_predictions_func: Callable,
+        get_active_users_func: Callable,
+        get_broker_for_user_func: Callable,
+        get_user_config_func: Optional[Callable] = None,
+    ):
+        """Run isolated auto-trading cycles for all users with enabled autopilot."""
+        self.is_running = True
+        self._log_event("ENGINE_START", "Per-user auto trading engine started")
+        logger.info("[auto-trader] Per-user engine started")
+
+        while self.is_running:
+            try:
+                active_user_ids = get_active_users_func() or []
+
+                for user_id in active_user_ids:
+                    try:
+                        uid = int(user_id)
+                    except Exception:
+                        continue
+
+                    self._load_user_context(uid)
+
+                    # Refresh config from persistent user settings if provided.
+                    if get_user_config_func:
+                        cfg = get_user_config_func(uid) or {}
+                        self.config.update(cfg)
+
+                    broker = get_broker_for_user_func(uid)
+                    if not broker:
+                        self._log_event("SKIP", f"user={uid}: no connected broker")
+                        self._save_user_context(uid)
+                        continue
+
+                    self.broker = broker
+                    self.last_run = datetime.utcnow().isoformat()
+
+                    if not self.config.get("enabled", False):
+                        self._save_user_context(uid)
+                        continue
+
+                    predictions = await get_predictions_func(uid)
+                    high_conf = [
+                        p for p in predictions
+                        if p.get("confidence", 0) >= self.config["confidence_threshold"]
+                    ]
+
+                    for prediction in high_conf:
+                        result = self.place_auto_order(prediction)
+                        if result:
+                            self.total_auto_trades += 1
+
+                    self._save_user_context(uid)
+
+            except Exception as e:
+                logger.error(f"[auto-trader] Per-user loop error: {e}")
+                self._log_event("ERROR", f"Per-user loop error: {e}")
+
+            await asyncio.sleep(self.check_interval)
+
+        self.is_running = False
+        self._log_event("ENGINE_STOP", "Per-user auto trading engine stopped")
 
     def stop(self):
         self.is_running = False

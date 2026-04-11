@@ -120,9 +120,13 @@ class Prediction(Base):
 class BrokerCredential(Base):
     """Persistent broker API credentials (encrypted)"""
     __tablename__ = "broker_credentials"
+    __table_args__ = (
+        UniqueConstraint("user_id", "broker_name", name="uq_broker_credentials_user_broker"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    broker_name = Column(String(50), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    broker_name = Column(String(50), nullable=False, index=True)
     encrypted_api_key = Column(Text, nullable=False)
     encrypted_api_secret = Column(Text, nullable=False)
     testnet = Column(Boolean, default=True)
@@ -293,6 +297,8 @@ class UserProfile(Base):
     confidence_threshold_override = Column(Float, nullable=True)
     max_portfolio_exposure_override = Column(Float, nullable=True)
     max_position_size_override = Column(Float, nullable=True)
+    paper_balance = Column(Float, nullable=False, default=10000.0)
+    paper_positions = Column(JSON, default=[])
     behavior_flags_json = Column(JSON, default={})
     notes_json = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)

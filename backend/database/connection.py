@@ -144,6 +144,24 @@ def init_db():
             conn.execute(text(
                 "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS notes_json JSONB DEFAULT '{}'"
             ))
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS paper_balance FLOAT DEFAULT 10000.0"
+            ))
+            conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS paper_positions JSONB DEFAULT '[]'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE broker_credentials ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE broker_credentials DROP CONSTRAINT IF EXISTS broker_credentials_broker_name_key"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_broker_credentials_user_broker ON broker_credentials (user_id, broker_name)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_broker_credentials_user_id ON broker_credentials (user_id)"
+            ))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS auth_audit_logs (
                     id SERIAL PRIMARY KEY,
