@@ -43,6 +43,7 @@ const CATEGORIES = [
 
 export default function AIPredictionsScreen() {
   const router = useRouter();
+  const { t, language } = useLanguage();
   const { predictions, setPredictions } = useAppStore();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -232,7 +233,7 @@ export default function AIPredictionsScreen() {
       </View>
 
       <Text style={s.reasoning} numberOfLines={2}>
-        {item.reasoning || 'AI analysis is processing market conditions and trend signals.'}
+        {item.reasoning || (language === 'el' ? 'Ανάλυση βάσει τεχνικών δεικτών' : 'Analysis based on technical indicators')}
       </Text>
 
       {/* RL Agent prediction */}

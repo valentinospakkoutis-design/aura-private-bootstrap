@@ -64,9 +64,11 @@ export default function AnalyticsScreen() {
     try {
       const data = await fetchAnalytics();
       if (data && typeof data === 'object') {
+        const totalProfit = (data.final_capital || data.total_value || 0)
+          - (data.initial_capital || data.starting_balance || 10000);
         setAnalytics({
           totalValue: data.total_value || 0,
-          totalProfit: (data.total_value || 0) - 10000,
+          totalProfit,
           profitPercentage: data.pnl_percent || 0,
           totalTrades: data.total_trades || 0,
           winRate: data.win_rate || 0,

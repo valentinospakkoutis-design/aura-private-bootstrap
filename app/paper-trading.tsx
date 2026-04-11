@@ -112,13 +112,13 @@ export default function PaperTradingScreen() {
     setRefreshing(false);
   }, [loadData]);
 
-  const handleCloseTrade = useCallback((tradeId: string) => {
+  const handleCloseTrade = useCallback((trade: PaperTrade) => {
     showModal(
       t('closePosition'),
       t('confirmClose', { quantity: '', symbol: '', value: '' }),
       async () => {
         try {
-          // Placeholder for future close-trade API wiring.
+          await api.closePaperTrade(trade.id);
           showToast('Το trade έκλεισε επιτυχώς!', 'success');
           await loadData();
         } catch (err) {
@@ -126,7 +126,7 @@ export default function PaperTradingScreen() {
         }
       }
     );
-  }, [showModal, showToast, loadData]);
+  }, [showModal, showToast, loadData, t]);
 
   const handleStartPaperTrading = useCallback(() => {
     router.push({ pathname: '/brokers' } as any);
@@ -323,7 +323,7 @@ export default function PaperTradingScreen() {
         return (
           <SwipeableCard
             key={trade.id}
-            onDelete={trade.status === 'open' ? () => handleCloseTrade(trade.id) : undefined}
+            onDelete={trade.status === 'open' ? () => handleCloseTrade(trade) : undefined}
             deleteText="Κλείσιμο"
           >
             <View style={styles.tradeCard}>

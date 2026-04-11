@@ -385,6 +385,12 @@ class ApiClient {
     return response.data;
   }
 
+  async closePaperTrade(tradeId: string) {
+    const response = await this.client.post(`/api/paper-trading/close/${tradeId}`);
+    await cacheService.remove(CACHE_KEYS.PAPER_TRADES);
+    return response.data;
+  }
+
   // Voice
   async uploadVoiceSample(audioUri: string) {
     const formData = new FormData();
@@ -493,6 +499,21 @@ class ApiClient {
 
   async updateRiskProfile(riskProfile: 'conservative' | 'moderate' | 'aggressive') {
     const response = await this.client.put('/api/user/risk-profile', { risk_profile: riskProfile });
+    return response.data;
+  }
+
+  async updateUserPreferences(data: { push_notifications_enabled: boolean }) {
+    const response = await this.client.put('/api/user/preferences', data);
+    return response.data;
+  }
+
+  async setTradingMode(mode: 'paper' | 'live') {
+    const response = await this.client.post('/api/trading/mode', { mode });
+    return response.data;
+  }
+
+  async deleteUserAccount() {
+    const response = await this.client.delete('/api/user/account');
     return response.data;
   }
 

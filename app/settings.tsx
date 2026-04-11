@@ -69,8 +69,8 @@ export default function SettingsScreen() {
 
   const handleToggleNotifications = useCallback(async (value: boolean) => {
     try {
+      await api.updateUserPreferences({ push_notifications_enabled: value });
       setNotificationsEnabled(value);
-      // Placeholder for future notification settings persistence.
       showToast(value ? 'Ειδοποιήσεις ενεργοποιήθηκαν' : 'Ειδοποιήσεις απενεργοποιήθηκαν', 'success');
     } catch (err) {
       showToast('Αποτυχία ενημέρωσης', 'error');
@@ -101,8 +101,8 @@ export default function SettingsScreen() {
             style: 'destructive',
             onPress: async () => {
               try {
+                await api.setTradingMode('live');
                 setPaperTradingMode(value);
-                // Placeholder for future paper-trading settings persistence.
                 showToast('Paper Trading απενεργοποιήθηκε', 'warning');
               } catch (err) {
                 showToast('Αποτυχία ενημέρωσης', 'error');
@@ -113,8 +113,14 @@ export default function SettingsScreen() {
         ]
       );
     } else {
-      setPaperTradingMode(value);
-      showToast('Paper Trading ενεργοποιήθηκε', 'success');
+      try {
+        await api.setTradingMode('paper');
+        setPaperTradingMode(value);
+        showToast('Paper Trading ενεργοποιήθηκε', 'success');
+      } catch (err) {
+        showToast('Αποτυχία ενημέρωσης', 'error');
+        setPaperTradingMode(!value);
+      }
     }
   }, [showToast]);
 
@@ -155,7 +161,8 @@ export default function SettingsScreen() {
                   style: 'destructive',
                   onPress: async () => {
                     try {
-                      // Placeholder for future account deletion endpoint wiring.
+                      await api.deleteUserAccount();
+                      await api.logout();
                       showToast('Ο λογαριασμός διαγράφηκε', 'success');
                       setUser(null); // AuthGuard handles redirect
                     } catch (err) {

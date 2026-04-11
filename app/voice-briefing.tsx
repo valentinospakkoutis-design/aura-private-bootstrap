@@ -8,17 +8,20 @@ import { LoadingSpinner } from '../mobile/src/components/LoadingSpinner';
 import { Button } from '../mobile/src/components/Button';
 import { theme } from '../mobile/src/constants/theme';
 import { useAppStore } from '../mobile/src/stores/appStore';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 
 type RecordingStatus = 'idle' | 'recording' | 'stopped' | 'uploading';
 
 export default function VoiceBriefingScreen() {
   const { user, showToast } = useAppStore();
+  const { t } = useLanguage();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>('idle');
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [briefingUrl, setBriefingUrl] = useState<string | null>(null);
+  const [briefingText, setBriefingText] = useState<string | null>(null);
   const [durationInterval, setDurationInterval] = useState<NodeJS.Timeout | null>(null);
 
   const {
@@ -72,12 +75,10 @@ export default function VoiceBriefingScreen() {
   const loadBriefing = async () => {
     try {
       const data = await fetchBriefing();
-      // Backend returns briefing object with sections, not url
-      // For now, just log it - audio generation would need backend endpoint
       if (data) {
         console.log('Briefing loaded:', data.briefing_id || 'briefing');
-        // TODO: Generate audio from briefing text if needed
-        // setBriefingUrl(data.url);
+        setBriefingUrl(data.audio_url || null);
+        setBriefingText(data.text || data.full_text || null);
       }
     } catch (err) {
       console.error('Failed to load briefing:', err);
@@ -217,7 +218,7 @@ export default function VoiceBriefingScreen() {
   const playBriefing = async () => {
     try {
       if (!briefingUrl) {
-        showToast('Δεν υπάρχει διαθέσιμο briefing', 'warning');
+        showToast(t('noVoiceBriefing') || 'Δεν υπάρχει διαθέσιμο briefing', 'warning');
         return;
       }
 
@@ -328,20 +329,22 @@ export default function VoiceBriefingScreen() {
       </View>
 
       {/* Daily Briefing Card */}
-      {briefingUrl && (
+      {(briefingUrl || briefingText) && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>📊 Καθημερινό Briefing</Text>
-          <Text style={styles.cardDescription}>
-            Άκουσε το καθημερινό briefing με τη δική σου φωνή!
-          </Text>
+          {briefingText ? (
+            <Text style={styles.cardDescription}>{briefingText}</Text>
+          ) : null}
 
-          <Button
-            title={isPlaying ? '⏸️ Σταμάτημα' : '▶️ Αναπαραγωγή'}
-            onPress={isPlaying ? stopBriefing : playBriefing}
-            variant={isPlaying ? 'secondary' : 'primary'}
-            size="large"
-            fullWidth
-          />
+          {briefingUrl ? (
+            <Button
+              title={isPlaying ? '⏸️ Σταμάτημα' : '▶️ Αναπαραγωγή'}
+              onPress={isPlaying ? stopBriefing : playBriefing}
+              variant={isPlaying ? 'secondary' : 'primary'}
+              size="large"
+              fullWidth
+            />
+          ) : null}
         </View>
       )}
 

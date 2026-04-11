@@ -1187,6 +1187,10 @@ class PaperOrderRequest(BaseModel):
     side: str  # BUY or SELL
     quantity: float
 
+
+class ClosePaperTradeRequest(BaseModel):
+    trade_id: str
+
 @app.post("/api/trading/order")
 async def place_trading_order(order: PaperOrderRequest):
     """Place a paper trading order (fetches price from Binance public API)"""
@@ -1235,6 +1239,71 @@ async def place_trading_order(order: PaperOrderRequest):
         raise HTTPException(status_code=400, detail=result["error"])
 
     return result
+
+
+@app.post("/api/paper-trading/close/{trade_id}")
+async def close_paper_trade(trade_id: str):
+    """Close an open paper trade by trade/order id."""
+    import httpx
+
+    history = paper_trading_service.get_trade_history(limit=10000)
+    target = next((t for t in history if str(t.get("order_id") or t.get("id")) == str(trade_id)), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+    symbol = str(target.get("symbol") or "").upper()
+    original_side = str(target.get("side") or "BUY").upper()
+    close_side = "SELL" if original_side == "BUY" else "BUY"
+
+    portfolio = paper_trading_service.get_portfolio()
+    pos = next((p for p in portfolio.get("positions", []) if p.get("symbol") == symbol), None)
+    available_qty = float((pos or {}).get("quantity", 0) or 0)
+    requested_qty = float(target.get("quantity", 0) or 0)
+    quantity = min(requested_qty if requested_qty > 0 else available_qty, available_qty)
+
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="No open quantity available for this trade")
+
+    price = None
+    if broker_instances:
+        for broker in broker_instances.values():
+            try:
+                info = broker.get_market_price(symbol)
+                if "price" in info:
+                    price = float(info["price"])
+                    break
+            except Exception:
+                pass
+
+    if price is None:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://api.binance.com/api/v3/ticker/price",
+                    params={"symbol": symbol}
+                )
+                resp.raise_for_status()
+                price = float(resp.json()["price"])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not fetch price for {symbol}: {e}")
+
+    result = paper_trading_service.place_order({
+        "symbol": symbol,
+        "side": close_side,
+        "quantity": quantity,
+        "price": price,
+        "order_type": "MARKET",
+    })
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {
+        "success": True,
+        "closed_trade_id": trade_id,
+        "close_order": result,
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 @app.post("/api/paper-trading/reset")
@@ -2293,12 +2362,17 @@ def get_morning_briefing(
     max_duration: int = 90
 ):
     """Επιστρέφει morning briefing"""
-    return voice_briefing_service.generate_briefing(
+    briefing = voice_briefing_service.generate_briefing(
         include_market_news=include_news,
         include_ai_predictions=include_predictions,
         include_portfolio=include_portfolio,
         max_duration_seconds=max_duration
     )
+    return {
+        **briefing,
+        "audio_url": briefing.get("audio_url"),
+        "text": briefing.get("full_text", ""),
+    }
 
 @app.post("/api/voice/upload")
 async def upload_voice_sample(audio: UploadFile = File(...), _user=Depends(require_auth)):
@@ -2612,9 +2686,15 @@ def get_analytics_summary(period: str = "all"):
 
     total_trades = len(trades)
 
+    initial_capital = float(portfolio.get("initial_balance", 10000.0) or 10000.0)
+    final_capital = float(portfolio.get("total_value", 0) or 0)
+
     if total_trades == 0:
         return {
-            "total_value": portfolio.get("total_value", 0),
+            "total_value": final_capital,
+            "final_capital": final_capital,
+            "initial_capital": initial_capital,
+            "starting_balance": initial_capital,
             "pnl_percent": 0,
             "total_trades": 0,
             "win_rate": 0,
@@ -2651,7 +2731,10 @@ def get_analytics_summary(period: str = "all"):
     pnl_pct = portfolio.get("total_pnl_percent", 0)
 
     return {
-        "total_value": round(portfolio.get("total_value", 0), 2),
+        "total_value": round(final_capital, 2),
+        "final_capital": round(final_capital, 2),
+        "initial_capital": round(initial_capital, 2),
+        "starting_balance": round(initial_capital, 2),
         "pnl_percent": round(pnl_pct, 2),
         "total_trades": total_trades,
         "win_rate": round(win_rate, 1),
@@ -2872,6 +2955,10 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class UserPreferencesRequest(BaseModel):
+    push_notifications_enabled: bool
+
+
 def _get_db_user(payload: dict):
     """Get DB user from JWT payload. Returns (db_session, user). Caller must close db."""
     from database.models import User as _User
@@ -3009,6 +3096,51 @@ def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+@app.put("/api/user/preferences")
+def update_user_preferences(data: UserPreferencesRequest, payload=Depends(require_auth)):
+    """Persist simple user preferences in user_profiles.behavior_flags_json."""
+    from database.models import UserProfile
+
+    user_id = int(payload.get("sub", 0))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    db = SessionLocal()
+    try:
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+        if not profile:
+            profile = UserProfile(user_id=user_id)
+            db.add(profile)
+            db.flush()
+
+        flags = dict(profile.behavior_flags_json or {})
+        flags["push_notifications_enabled"] = bool(data.push_notifications_enabled)
+        profile.behavior_flags_json = flags
+        db.commit()
+        return {"success": True}
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update preferences")
+    finally:
+        db.close()
+
+
+@app.delete("/api/user/account")
+def delete_user_account(payload=Depends(require_auth)):
+    """Soft delete user account and invalidate all tokens."""
+    db, user = _get_db_user(payload)
+    try:
+        user.is_active = False
+        user.token_version = (user.token_version or 0) + 1
+        db.commit()
+        return {"success": True}
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+    finally:
+        db.close()
 
 
 @app.get("/api/user/trading-profile")
