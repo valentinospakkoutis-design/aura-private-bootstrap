@@ -34,6 +34,13 @@ interface Prediction {
     lstm?: number | null;
     method?: '3-model' | '2-model' | string;
   } | null;
+  onchain?: {
+    score?: number | null;
+    sentiment?: 'bullish' | 'bearish' | 'neutral' | string;
+    funding_rate?: number | null;
+    long_short_ratio?: number | null;
+    fear_greed?: number | null;
+  } | null;
 }
 
 interface Mover {
@@ -167,6 +174,12 @@ export default function AIPredictionsScreen() {
     if (trend === 'bullish') return '↑';
     if (trend === 'bearish') return '↓';
     return '→';
+  };
+
+  const onchainIndicator = (sentiment?: string | null) => {
+    if (sentiment === 'bullish') return { icon: '🟢', label: t('onchainBullish'), color: theme.colors.market.bullish };
+    if (sentiment === 'bearish') return { icon: '🔴', label: t('onchainBearish'), color: theme.colors.market.bearish };
+    return { icon: '🟡', label: t('onchainNeutral'), color: '#ca8a04' };
   };
 
   const modelTrendArrow = (trend?: string) => {
@@ -320,6 +333,15 @@ export default function AIPredictionsScreen() {
           </Text>
         </View>
       )}
+
+      {item.onchain?.sentiment && (() => {
+        const chip = onchainIndicator(item.onchain.sentiment);
+        return (
+          <View style={s.onchainRow}>
+            <Text style={[s.onchainText, { color: chip.color }]}>{chip.icon} {t('onchainLabel')}: {chip.label}</Text>
+          </View>
+        );
+      })()}
 
       {/* RL Agent prediction */}
       {(() => {
@@ -582,6 +604,13 @@ const s = StyleSheet.create({
     marginTop: 2,
     fontSize: 10,
     fontWeight: '600',
+  },
+  onchainRow: {
+    marginBottom: theme.spacing.sm,
+  },
+  onchainText: {
+    fontSize: theme.typography.sizes.xs,
+    fontWeight: '700',
   },
   viewDetails: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600', textAlign: 'right' },
 });

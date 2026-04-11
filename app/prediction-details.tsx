@@ -37,6 +37,13 @@ interface PredictionDetail {
     lstm?: number | null;
     method?: '3-model' | '2-model' | string;
   } | null;
+  onchain?: {
+    score?: number | null;
+    sentiment?: 'bullish' | 'bearish' | 'neutral' | string;
+    funding_rate?: number | null;
+    long_short_ratio?: number | null;
+    fear_greed?: number | null;
+  } | null;
 }
 
 export default function PredictionDetailsScreen() {
@@ -98,6 +105,29 @@ export default function PredictionDetailsScreen() {
     if (trend === 'bullish') return t('mtfBullish');
     if (trend === 'bearish') return t('mtfBearish');
     return t('mtfNeutral');
+  };
+
+  const onchainSentimentLabel = (sentiment?: string | null) => {
+    if (sentiment === 'bullish') return t('onchainBullish');
+    if (sentiment === 'bearish') return t('onchainBearish');
+    return t('onchainNeutral');
+  };
+
+  const fearGreedStatus = (value?: number | null) => {
+    if (typeof value !== 'number') return t('onchainNeutral');
+    if (value < 20) return t('onchainExtremeFear');
+    if (value > 80) return t('onchainExtremeGreed');
+    return t('onchainNeutral');
+  };
+
+  const fundingStatus = (value?: number | null) => {
+    if (typeof value !== 'number') return 'N/A';
+    return value > 0.01 ? t('onchainOverheated') : t('onchainNormal');
+  };
+
+  const longShortStatus = (value?: number | null) => {
+    if (typeof value !== 'number') return 'N/A';
+    return value > 2 ? t('onchainOverleveraged') : t('onchainBalanced');
   };
 
   if (loading && !refreshing) {
@@ -224,6 +254,44 @@ export default function PredictionDetailsScreen() {
               </Text>
             </View>
             <AnimatedProgressBar progress={prediction.ensemble.lstm ?? 0} color={'#7c3aed'} height={8} animated />
+          </View>
+        )}
+
+        {prediction.onchain && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t('onchainSignalsTitle')}</Text>
+
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>{t('onchainFundingRate')}</Text>
+              <Text style={styles.trendValue}>
+                {typeof prediction.onchain.funding_rate === 'number'
+                  ? `${prediction.onchain.funding_rate.toFixed(3)}% ${fundingStatus(prediction.onchain.funding_rate)}`
+                  : 'N/A'}
+              </Text>
+            </View>
+
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>{t('onchainLongShort')}</Text>
+              <Text style={styles.trendValue}>
+                {typeof prediction.onchain.long_short_ratio === 'number'
+                  ? `${prediction.onchain.long_short_ratio.toFixed(2)}x ${longShortStatus(prediction.onchain.long_short_ratio)}`
+                  : 'N/A'}
+              </Text>
+            </View>
+
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>{t('onchainFearGreed')}</Text>
+              <Text style={styles.trendValue}>
+                {typeof prediction.onchain.fear_greed === 'number'
+                  ? `${prediction.onchain.fear_greed} ${fearGreedStatus(prediction.onchain.fear_greed)}`
+                  : 'N/A'}
+              </Text>
+            </View>
+
+            <View style={styles.trendRow}>
+              <Text style={styles.trendLabel}>{t('onchainSentiment')}</Text>
+              <Text style={styles.trendValue}>{onchainSentimentLabel(prediction.onchain.sentiment)}</Text>
+            </View>
           </View>
         )}
 

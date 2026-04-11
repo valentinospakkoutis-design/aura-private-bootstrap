@@ -538,6 +538,7 @@ class AssetPredictor:
         use_ml_model = symbol in self.models and symbol in self.scalers
         
         mtf: Dict[str, Any] = {}
+        onchain: Optional[Dict[str, Any]] = None
         ensemble = {
             "xgboost": None,
             "random_forest": None,
@@ -681,6 +682,30 @@ class AssetPredictor:
                 recommendation = "HOLD"
                 recommendation_strength = "NEUTRAL"
 
+        # On-chain runtime layer (crypto only, additive only)
+        if asset.get("type") == AssetType.CRYPTO:
+            try:
+                from services.onchain_service import ONCHAIN_SYMBOLS, get_onchain_signals
+
+                if symbol in ONCHAIN_SYMBOLS:
+                    onchain = get_onchain_signals(symbol)
+                    score = float(onchain.get("onchain_score", 0.5) or 0.5)
+
+                    if score >= 0.75:
+                        confidence = min(confidence + 5.0, 100.0)
+                    elif score <= 0.25:
+                        confidence = max(confidence - 10.0, 0.0)
+
+                    if onchain.get("extreme_fear"):
+                        if recommendation == "BUY" and confidence < 92.0:
+                            recommendation = "HOLD"
+                            recommendation_strength = "NEUTRAL"
+
+                    if onchain.get("overleveraged_longs") and recommendation == "BUY":
+                        confidence = max(confidence - 8.0, 0.0)
+            except Exception as e:
+                logger.debug(f"On-chain layer failed for {symbol}: {e}")
+
         def _trend_label(value: Any) -> str:
             try:
                 v = float(value)
@@ -712,6 +737,13 @@ class AssetPredictor:
             "prediction_horizon_days": days,
             "price_path": price_path,
             "ensemble": ensemble,
+            "onchain": {
+                "score": round(float(onchain.get("onchain_score", 0.5)), 3),
+                "sentiment": onchain.get("onchain_sentiment", "neutral"),
+                "funding_rate": onchain.get("funding_rate"),
+                "long_short_ratio": onchain.get("long_short_ratio"),
+                "fear_greed": onchain.get("fear_greed"),
+            } if onchain else None,
             "timestamp": datetime.now().isoformat(),
             "model_version": "v1.0-trained" if use_ml_model else "v1.0-alpha",
             "using_ml_model": use_ml_model

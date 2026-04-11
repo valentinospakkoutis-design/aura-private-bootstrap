@@ -1643,6 +1643,7 @@ def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[st
             "timestamp": p.get("timestamp", datetime.now().isoformat()),
             "reasoning": reasoning,
             "ensemble": p.get("ensemble"),
+            "onchain": p.get("onchain"),
             "mtf_confluence": p.get("mtf_confluence"),
             "trend_1h": p.get("trend_1h"),
             "trend_4h": p.get("trend_4h"),
@@ -1767,6 +1768,18 @@ def get_market_movers():
     }
 
 
+@app.get("/api/market/onchain/{symbol}")
+def get_market_onchain(symbol: str):
+    """Return full on-chain signal bundle for supported crypto symbols."""
+    from services.onchain_service import ONCHAIN_SYMBOLS, get_onchain_signals
+
+    sym = symbol.upper()
+    if sym not in ONCHAIN_SYMBOLS:
+        raise HTTPException(status_code=404, detail=f"On-chain signals not supported for {sym}")
+
+    return sanitize_floats(get_onchain_signals(sym))
+
+
 @app.get("/api/v1/predictions/extended")
 def get_extended_predictions(days: int = 7):
     """Extended predictions with yfinance pricing for stocks, bonds, FX, VIX."""
@@ -1888,6 +1901,7 @@ def get_prediction_by_id(prediction_id: str):
         "priceChangePercent": round(change_pct, 2),
         "recommendationStrength": p.get("recommendation_strength", "N/A"),
         "ensemble": p.get("ensemble"),
+        "onchain": p.get("onchain"),
         "mtf_confluence": p.get("mtf_confluence"),
         "trend_1h": p.get("trend_1h"),
         "trend_4h": p.get("trend_4h"),
