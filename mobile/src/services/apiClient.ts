@@ -517,7 +517,12 @@ class ApiClient {
     return response.data;
   }
 
-  async updateUserPreferences(data: { push_notifications_enabled: boolean }) {
+  async getUserPreferences() {
+    const response = await this.client.get('/api/user/preferences');
+    return response.data;
+  }
+
+  async updateUserPreferences(data: { push_notifications_enabled?: boolean; morning_briefing_enabled?: boolean }) {
     const response = await this.client.put('/api/user/preferences', data);
     return response.data;
   }

@@ -329,6 +329,7 @@ class UserProfile(Base):
     confidence_threshold_override = Column(Float, nullable=True)
     max_portfolio_exposure_override = Column(Float, nullable=True)
     max_position_size_override = Column(Float, nullable=True)
+    morning_briefing_enabled = Column(Boolean, nullable=False, default=True)
     paper_balance = Column(Float, nullable=False, default=10000.0)
     paper_positions = Column(JSON, default=[])
     behavior_flags_json = Column(JSON, default={})

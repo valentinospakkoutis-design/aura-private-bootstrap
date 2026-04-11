@@ -28,6 +28,7 @@ export default function SettingsScreen() {
   const styles = createStyles(theme);
   
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
   const [paperTradingMode, setPaperTradingMode] = useState(true);
   const [selectedRiskProfile, setSelectedRiskProfile] = useState<RiskProfile>(user?.riskProfile || 'moderate');
   const [showRiskModal, setShowRiskModal] = useState(false);
@@ -77,6 +78,35 @@ export default function SettingsScreen() {
       setNotificationsEnabled(!value);
     }
   }, [showToast]);
+
+  const handleToggleMorningBriefing = useCallback(async (value: boolean) => {
+    try {
+      await api.updateUserPreferences({ morning_briefing_enabled: value });
+      setMorningBriefingEnabled(value);
+      showToast(value ? 'Morning briefing ενεργοποιήθηκε' : 'Morning briefing απενεργοποιήθηκε', 'success');
+    } catch (err) {
+      showToast('Αποτυχία ενημέρωσης', 'error');
+      setMorningBriefingEnabled(!value);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadPreferences = async () => {
+      try {
+        const prefs = await api.getUserPreferences();
+        if (!mounted) return;
+        setNotificationsEnabled(Boolean(prefs?.push_notifications_enabled ?? true));
+        setMorningBriefingEnabled(Boolean(prefs?.morning_briefing_enabled ?? true));
+      } catch {
+        // Keep defaults if fetch fails.
+      }
+    };
+    loadPreferences();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleBiometricsToggle = useCallback(async () => {
     if (biometricsLoading) return;
@@ -297,6 +327,22 @@ export default function SettingsScreen() {
             trackColor={{ 
               false: theme.colors.ui.border, 
               true: theme.colors.brand.primary 
+            }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+
+        <View style={styles.settingItem}>
+          <View style={styles.settingLeft}>
+            <Text style={styles.settingLabel}>🌅 {t('morningBriefing')}</Text>
+            <Text style={styles.settingDescription}>{t('morningBriefingDesc')}</Text>
+          </View>
+          <Switch
+            value={morningBriefingEnabled}
+            onValueChange={handleToggleMorningBriefing}
+            trackColor={{
+              false: theme.colors.ui.border,
+              true: theme.colors.brand.primary
             }}
             thumbColor="#FFFFFF"
           />

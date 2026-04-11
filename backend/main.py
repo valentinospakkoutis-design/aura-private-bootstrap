@@ -3201,7 +3201,8 @@ class ChangePasswordRequest(BaseModel):
 
 
 class UserPreferencesRequest(BaseModel):
-    push_notifications_enabled: bool
+    push_notifications_enabled: Optional[bool] = None
+    morning_briefing_enabled: Optional[bool] = None
 
 
 def _get_db_user(payload: dict):
@@ -3343,6 +3344,33 @@ def update_user_risk_profile(data: dict, payload=Depends(require_auth)):
     return result
 
 
+@app.get("/api/user/preferences")
+def get_user_preferences(payload=Depends(require_auth)):
+    """Return current user preferences from user_profiles."""
+    from database.models import UserProfile
+
+    user_id = int(payload.get("sub", 0))
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    db = SessionLocal()
+    try:
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+        if not profile:
+            return {
+                "push_notifications_enabled": True,
+                "morning_briefing_enabled": True,
+            }
+
+        flags = dict(profile.behavior_flags_json or {})
+        return {
+            "push_notifications_enabled": bool(flags.get("push_notifications_enabled", True)),
+            "morning_briefing_enabled": bool(getattr(profile, "morning_briefing_enabled", True)),
+        }
+    finally:
+        db.close()
+
+
 @app.put("/api/user/preferences")
 def update_user_preferences(data: UserPreferencesRequest, payload=Depends(require_auth)):
     """Persist simple user preferences in user_profiles.behavior_flags_json."""
@@ -3361,10 +3389,17 @@ def update_user_preferences(data: UserPreferencesRequest, payload=Depends(requir
             db.flush()
 
         flags = dict(profile.behavior_flags_json or {})
-        flags["push_notifications_enabled"] = bool(data.push_notifications_enabled)
+        if data.push_notifications_enabled is not None:
+            flags["push_notifications_enabled"] = bool(data.push_notifications_enabled)
+        if data.morning_briefing_enabled is not None:
+            profile.morning_briefing_enabled = bool(data.morning_briefing_enabled)
         profile.behavior_flags_json = flags
         db.commit()
-        return {"success": True}
+        return {
+            "success": True,
+            "push_notifications_enabled": bool(flags.get("push_notifications_enabled", True)),
+            "morning_briefing_enabled": bool(getattr(profile, "morning_briefing_enabled", True)),
+        }
     except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to update preferences")

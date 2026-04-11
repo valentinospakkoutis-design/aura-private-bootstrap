@@ -663,6 +663,18 @@ def _weekly_retraining_with_feedback():
         logger.error(f"[scheduler] Weekly feedback refinement failed: {e}")
 
 
+def _daily_morning_briefings():
+    """Daily morning AI briefings push job (06:00 UTC / 08:00 EET)."""
+    logger.info("[scheduler] Starting morning briefings push...")
+    try:
+        from services.morning_briefing import send_morning_briefings
+
+        send_morning_briefings()
+        logger.info("[scheduler] Morning briefings push done")
+    except Exception as e:
+        logger.error(f"[scheduler] Morning briefings push failed: {e}")
+
+
 def setup_weekly_retraining():
     """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
@@ -686,6 +698,15 @@ def setup_weekly_retraining():
             trigger=CronTrigger(hour=6, minute=0),
             id="daily_xgboost_retrain",
             name="Daily XGBoost retraining",
+            replace_existing=True,
+        )
+
+        # Morning AI briefing push — 06:00 UTC (08:00 EET)
+        scheduler.add_job(
+            _daily_morning_briefings,
+            trigger=CronTrigger(hour=6, minute=0),
+            id="daily_morning_briefings",
+            name="Daily morning AI briefing push",
             replace_existing=True,
         )
 
@@ -724,7 +745,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), morning briefing push (06:00), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")

@@ -151,6 +151,9 @@ def init_db():
                 "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS paper_positions JSONB DEFAULT '[]'"
             ))
             conn.execute(text(
+                "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS morning_briefing_enabled BOOLEAN DEFAULT TRUE"
+            ))
+            conn.execute(text(
                 "ALTER TABLE broker_credentials ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"
             ))
             conn.execute(text(
