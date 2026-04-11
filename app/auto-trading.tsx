@@ -147,7 +147,7 @@ function serializeUiModeToBackend(mode: UiAuthorityMode): BackendAutopilotMode {
 
 export default function AutoTradingScreen() {
   const { showToast } = useAppStore();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [status, setStatus] = useState<AutoTradingStatus | null>(null);
   const [autopilotMode, setAutopilotMode] = useState<UiAuthorityMode>('confirm-first');
   const [loading, setLoading] = useState(true);
@@ -187,19 +187,19 @@ export default function AutoTradingScreen() {
     try {
       if (value) {
         await api.enableAutoTrading();
-        showToast('Auto Trading enabled', 'success');
+        showToast(t('autopilotEnableSuccess'), 'success');
       } else {
         await api.disableAutoTrading();
-        showToast('Auto Trading disabled', 'success');
+        showToast(t('autopilotDisableSuccess'), 'success');
       }
       await loadStatus();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Failed';
+      const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
       showToast(msg, 'error');
     } finally {
       setToggling(false);
     }
-  }, [showToast, loadStatus]);
+  }, [showToast, loadStatus, t]);
 
   const handleToggle = useCallback((value: boolean) => {
     if (value) {
@@ -279,10 +279,13 @@ export default function AutoTradingScreen() {
   const config = status?.config;
   const positions = status?.positions ?? [];
   const logs = status?.recent_log ?? [];
+  const locale = language === 'el' ? 'el-GR' : 'en-US';
   const environmentMode = status?.mode ?? 'paper';
   const selectedModeDef = getModeDef(autopilotMode);
   const inLiveMode = environmentMode === 'live';
   const executionReady = isEnabled && autopilotMode !== 'manual';
+  const hasLastRun = !!status?.last_run;
+  const hasNextRun = typeof status?.next_run_in_seconds === 'number' && status.next_run_in_seconds >= 0;
 
   const permissionRows = [
     { key: 'alertsOnly', enabled: selectedModeDef.permissions.alertsOnly },
@@ -363,9 +366,14 @@ export default function AutoTradingScreen() {
               {inLiveMode ? `🔴 ${t('liveMode')}` : `🟢 ${t('paperMode')}`}
             </Text>
           </View>
-          {status?.last_run && (
+          {hasLastRun && (
             <Text style={styles.statusMeta}>
-              {t('lastRun')}: {new Date(status.last_run).toLocaleTimeString('el-GR')} | {t('totalTrades')}: {status.total_auto_trades} | {t('nextRun')}: {status.next_run_in_seconds}s
+              {t('lastRun')}: {new Date(status!.last_run!).toLocaleTimeString(locale)} | {t('totalTrades')}: {status?.total_auto_trades ?? 0}
+            </Text>
+          )}
+          {hasNextRun && (
+            <Text style={styles.statusMeta}>
+              {t('nextRun')}: {status?.next_run_in_seconds}s
             </Text>
           )}
         </View>
@@ -517,14 +525,14 @@ export default function AutoTradingScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{t('activityLog')}</Text>
           {logs.length === 0 ? (
-            <Text style={styles.emptyText}>No activity yet</Text>
+            <Text style={styles.emptyText}>{t('autopilotNoActivity')}</Text>
           ) : (
             logs.slice().reverse().slice(0, 10).map((entry, i) => (
               <View key={i} style={styles.logEntry}>
                 <Text style={styles.logType}>{entry.type}</Text>
                 <Text style={styles.logMessage}>{entry.message}</Text>
                 <Text style={styles.logTime}>
-                  {new Date(entry.timestamp).toLocaleTimeString('el-GR')}
+                  {new Date(entry.timestamp).toLocaleTimeString(locale)}
                 </Text>
               </View>
             ))
