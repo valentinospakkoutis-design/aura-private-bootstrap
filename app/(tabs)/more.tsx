@@ -18,6 +18,7 @@ export default function MoreScreen() {
     { icon: '🎙️', title: t('voiceBriefing'), href: '/voice-briefing' },
     { icon: '📊', title: t('weeklyReportTitle'), href: '/weekly-report' },
     { icon: '🏆', title: t('achievements'), href: '/achievements' },
+    { icon: '💎', title: t('subscriptionTitle'), href: '/subscription' },
     { icon: '📝', title: t('paperTrading'), href: '/paper-trading' },
     { icon: '💰', title: 'Live Trading', href: '/live-trading' },
     { icon: '📉', title: t('futures'), href: '/futures-trading' },

@@ -7,6 +7,7 @@ import { useAppStore } from '../mobile/src/stores/appStore';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { theme } from '../mobile/src/constants/theme';
 import { getToken } from '../mobile/src/utils/tokenStorage';
+import { PaywallModal } from '../mobile/src/components/PaywallModal';
 
 interface AutoTradingStatus {
   enabled: boolean;
@@ -188,6 +189,19 @@ export default function AutoTradingScreen() {
   const [changingMode, setChangingMode] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const shownDcaPlanTsRef = useRef<string | null>(null);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTier, setPaywallTier] = useState<'pro' | 'elite'>('pro');
+
+  const handlePaywallError = useCallback((err: any) => {
+    const detail = err?.response?.data?.detail;
+    if (detail?.code === 'SUBSCRIPTION_REQUIRED' || detail?.code === 'FREE_PREDICTION_LIMIT_REACHED') {
+      const required = String(detail?.required_tier || 'pro').toLowerCase();
+      setPaywallTier(required === 'elite' ? 'elite' : 'pro');
+      setPaywallVisible(true);
+      return true;
+    }
+    return false;
+  }, []);
 
   const handleAuthRequired = useCallback(async () => {
     showToast(t('sessionExpired'), 'error');
@@ -293,12 +307,15 @@ export default function AutoTradingScreen() {
         await handleAuthRequired();
         return;
       }
+      if (handlePaywallError(err)) {
+        return;
+      }
       const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
       showToast(msg, 'error');
     } finally {
       setToggling(false);
     }
-  }, [handleAuthRequired, showToast, loadStatus, t, showAchievementToasts]);
+  }, [handleAuthRequired, showToast, loadStatus, t, showAchievementToasts, handlePaywallError]);
 
   const handleToggle = useCallback((value: boolean) => {
     if (value) {
@@ -317,7 +334,11 @@ export default function AutoTradingScreen() {
 
   const toggleDcaMode = useCallback(async (enabled: boolean) => {
     try {
-      await api.updateAutoTradingConfig({ dca_enabled: enabled });
+      if (enabled) {
+        await api.enableDcaMode();
+      } else {
+        await api.updateAutoTradingConfig({ dca_enabled: false });
+      }
       showToast(enabled ? t('dcaEnabledMsg') : t('dcaDisabledMsg'), 'success');
 
       if (enabled) {
@@ -337,10 +358,13 @@ export default function AutoTradingScreen() {
 
       await loadStatus();
     } catch (err: any) {
+      if (handlePaywallError(err)) {
+        return;
+      }
       const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
       showToast(msg, 'error');
     }
-  }, [loadStatus, showToast, status?.config?.fixed_order_value_usd, t]);
+  }, [loadStatus, showToast, status?.config?.fixed_order_value_usd, t, handlePaywallError]);
 
   const cancelDcaOrder = useCallback(async (orderId: number) => {
     try {
@@ -494,6 +518,7 @@ export default function AutoTradingScreen() {
   ];
 
   return (
+    <>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -795,6 +820,13 @@ export default function AutoTradingScreen() {
 
         <View style={{ height: theme.spacing.xl * 2 }} />
       </ScrollView>
+      <PaywallModal
+        visible={paywallVisible}
+        requiredTier={paywallTier}
+        feature="autoTrading"
+        onClose={() => setPaywallVisible(false)}
+      />
+    </>
   );
 }
 

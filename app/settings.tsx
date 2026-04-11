@@ -30,6 +30,7 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
   const [paperTradingMode, setPaperTradingMode] = useState(true);
+  const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'pro' | 'elite'>('free');
   const [selectedRiskProfile, setSelectedRiskProfile] = useState<RiskProfile>(user?.riskProfile || 'moderate');
   const [showRiskModal, setShowRiskModal] = useState(false);
 
@@ -103,6 +104,28 @@ export default function SettingsScreen() {
       }
     };
     loadPreferences();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSubscription = async () => {
+      try {
+        const data = await api.getSubscriptionStatus();
+        if (!mounted) return;
+        const tier = String(data?.tier || 'free').toLowerCase();
+        if (tier === 'pro' || tier === 'elite') {
+          setSubscriptionTier(tier);
+        } else {
+          setSubscriptionTier('free');
+        }
+      } catch {
+        if (mounted) setSubscriptionTier('free');
+      }
+    };
+    loadSubscription();
     return () => {
       mounted = false;
     };
@@ -265,6 +288,17 @@ export default function SettingsScreen() {
       {/* Trading Settings */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📊 Trading</Text>
+
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => router.push({ pathname: '/subscription' } as any)}
+        >
+          <View style={styles.settingLeft}>
+            <Text style={styles.settingLabel}>💎 {t('subscriptionTitle')}</Text>
+            <Text style={styles.settingDescription}>{t('currentPlan')}: {subscriptionTier.toUpperCase()}</Text>
+          </View>
+          <Text style={styles.arrow}>→</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity 
           style={styles.settingItem}

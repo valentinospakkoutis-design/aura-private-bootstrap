@@ -29,6 +29,7 @@ class User(Base):
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     portfolio_positions = relationship("PortfolioPosition", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
+    subscription = relationship("Subscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 class UserSession(Base):
@@ -270,6 +271,37 @@ class WeeklyReport(Base):
     ai_accuracy = Column(Float)
     report_text = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Subscription(Base):
+    """User subscription tier and billing metadata."""
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    tier = Column(String(20), nullable=False, default="free", server_default="free")
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    started_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    payment_provider = Column(String(40), nullable=True)
+    provider_subscription_id = Column(String(120), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="subscription")
+
+
+class PredictionUsage(Base):
+    """Daily prediction requests per user for FREE-tier quota enforcement."""
+    __tablename__ = "prediction_usage"
+    __table_args__ = (UniqueConstraint("user_id", "usage_date", name="uq_prediction_usage_user_date"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    usage_date = Column(Date, nullable=False, index=True)
+    predictions_requested = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class TrainingLog(Base):

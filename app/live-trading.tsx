@@ -12,6 +12,7 @@ import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
 import { Button } from '../mobile/src/components/Button';
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { NoTrades } from '../mobile/src/components/NoTrades';
+import { PaywallModal } from '../mobile/src/components/PaywallModal';
 import { theme } from '../mobile/src/constants/theme';
 import { NumberFormatter } from '../mobile/src/utils/NumberFormatter';
 import { DateFormatter } from '../mobile/src/utils/DateFormatter';
@@ -60,6 +61,19 @@ export default function LiveTradingScreen() {
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
   const [quantity, setQuantity] = useState('0.0001');
   const [submitting, setSubmitting] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallTier, setPaywallTier] = useState<'pro' | 'elite'>('pro');
+
+  const handlePaywallError = useCallback((err: any) => {
+    const detail = err?.response?.data?.detail;
+    if (detail?.code === 'SUBSCRIPTION_REQUIRED' || detail?.code === 'FREE_PREDICTION_LIMIT_REACHED') {
+      const required = String(detail?.required_tier || 'pro').toLowerCase();
+      setPaywallTier(required === 'elite' ? 'elite' : 'pro');
+      setPaywallVisible(true);
+      return true;
+    }
+    return false;
+  }, []);
 
   const showAchievementToasts = useCallback((earned: any[]) => {
     if (!Array.isArray(earned)) return;
@@ -148,6 +162,9 @@ export default function LiveTradingScreen() {
       setQuantity('0.0001');
       await loadData();
     } catch (err: any) {
+      if (handlePaywallError(err)) {
+        return;
+      }
       const msg = err?.response?.data?.detail || err?.message || t('orderFailed');
       showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), 'error');
     } finally {
@@ -254,6 +271,7 @@ export default function LiveTradingScreen() {
     : theme.colors.market.bearish;
 
   return (
+    <>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -616,6 +634,14 @@ export default function LiveTradingScreen() {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      <PaywallModal
+        visible={paywallVisible}
+        requiredTier={paywallTier}
+        feature="liveTrading"
+        onClose={() => setPaywallVisible(false)}
+      />
+    </>
   );
 }
 

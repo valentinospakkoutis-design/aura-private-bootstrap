@@ -739,6 +739,15 @@ async def register(
             is_verified=True,
         ))
         db.commit()
+
+        created_user = db.query(_User).filter(_User.email == email).first()
+        if created_user:
+            try:
+                from services.subscription_service import ensure_user_subscription
+                ensure_user_subscription(created_user.id, db=db)
+            except Exception:
+                pass
+
         return RedirectResponse(url=f"/?success={quote('Επιτυχής εγγραφή! Μπορείτε τώρα να συνδεθείτε')}", status_code=303)
     except Exception:
         db.rollback()
@@ -1538,6 +1547,12 @@ def get_prediction(symbol: str, days: int = 7):
 @app.get("/api/ai/predictions")
 def get_all_predictions(days: int = 7, asset_type: Optional[str] = None, request: Optional[Request] = None):
     """Επιστρέφει predictions για όλα τα assets ή filtered by type"""
+    if request is not None:
+        user_id = _optional_user_id_from_request(request)
+        if user_id is not None:
+            from services.subscription_service import consume_prediction_quota
+            consume_prediction_quota(user_id)
+
     asset_type_enum = None
     if asset_type:
         try:
@@ -3499,6 +3514,34 @@ def get_latest_weekly_report_endpoint(payload=Depends(require_auth)):
     return sanitize_floats(get_latest_weekly_report(user_id))
 
 
+class SubscriptionUpgradeRequest(BaseModel):
+    tier: str
+
+
+@app.get("/api/subscription/status")
+def get_subscription_status_endpoint(payload=Depends(require_auth)):
+    """Return current user's subscription tier and feature access."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.subscription_service import get_subscription_status
+
+    return sanitize_floats(get_subscription_status(user_id))
+
+
+@app.post("/api/subscription/upgrade")
+def upgrade_subscription_endpoint(data: SubscriptionUpgradeRequest, payload=Depends(require_auth)):
+    """Upgrade current user to PRO or ELITE (billing integration placeholder)."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.subscription_service import upgrade_subscription
+
+    return sanitize_floats(upgrade_subscription(user_id, data.tier))
+
+
 # ── Live Trading Endpoints ───────────────────────────────────────────
 LIVE_ORDER_MAX_VALUE_USD = 100.0  # Safety limit per order — protects against accidental large orders
 
@@ -3728,6 +3771,10 @@ def place_live_market_order(order: LiveOrderRequest, _user=Depends(require_auth)
     """Place a real MARKET order on Binance Spot."""
     _enforce_live_kill_switch()
     user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    from services.subscription_service import enforce_feature
+    enforce_feature(user_id, "live_trading")
     broker = _get_live_broker(user_id=user_id)
     price = _pre_order_safety_check(broker, order.symbol, order.quantity)
     client_order_id = _generate_client_order_id()
@@ -3775,6 +3822,10 @@ def place_live_limit_order(order: LimitOrderRequest, _user=Depends(require_auth)
     """Place a LIMIT order with optional SL/TP."""
     _enforce_live_kill_switch()
     user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    from services.subscription_service import enforce_feature
+    enforce_feature(user_id, "live_trading")
     broker = _get_live_broker(user_id=user_id)
     _pre_order_safety_check(broker, order.symbol, order.quantity)
     client_order_id = _generate_client_order_id()
@@ -4097,6 +4148,9 @@ def enable_auto_trading(_user=Depends(require_auth)):
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid user token")
 
+    from services.subscription_service import enforce_feature
+    enforce_feature(user_id, "auto_trading")
+
     broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
     if not broker:
         _restore_broker_connections(user_id=user_id)
@@ -4162,6 +4216,10 @@ def update_auto_trading_config(config: AutoTradingConfigUpdate, _user=Depends(re
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid user token")
 
+    if config.dca_enabled:
+        from services.subscription_service import enforce_feature
+        enforce_feature(user_id, "dca_strategy")
+
     settings = get_user_autopilot(user_id)
     mode = settings.get("current_mode", "balanced")
     overrides = dict(settings.get("config_overrides", {}) or {})
@@ -4208,6 +4266,41 @@ def get_dca_orders(payload=Depends(require_auth)):
     from services.dca_engine import get_user_dca_orders
 
     return sanitize_floats(get_user_dca_orders(user_id))
+
+
+@app.post("/api/dca/enable")
+def enable_dca_mode(payload=Depends(require_auth)):
+    """Enable DCA mode for current user (ELITE only)."""
+    from services.autopilot_config import get_user_autopilot, save_user_autopilot
+    from services.subscription_service import enforce_feature
+
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    enforce_feature(user_id, "dca_strategy")
+
+    settings = get_user_autopilot(user_id)
+    mode = settings.get("current_mode", "balanced")
+    overrides = dict(settings.get("config_overrides", {}) or {})
+    overrides["dca_enabled"] = True
+
+    save_user_autopilot(
+        user_id=user_id,
+        mode=mode,
+        is_enabled=bool(settings.get("is_enabled", False)),
+        config_overrides=overrides,
+        changed_by="user",
+    )
+
+    ctx = auto_trader._ensure_user_runtime(user_id)
+    cfg = dict(settings.get("engine_config", {}))
+    cfg.update(overrides)
+    cfg["enabled"] = bool(settings.get("is_enabled", False))
+    ctx["config"] = cfg
+    auto_trader.user_runtime[user_id] = ctx
+
+    return {"success": True, "dca_enabled": True, "status": auto_trader.get_user_status(user_id)}
 
 
 @app.post("/api/dca/cancel/{order_id}")

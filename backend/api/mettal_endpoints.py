@@ -84,6 +84,13 @@ async def register(user_create: UserCreate):
         db.commit()
         db.refresh(new_user)
 
+        try:
+            from services.subscription_service import ensure_user_subscription
+            ensure_user_subscription(new_user.id, db=db)
+        except Exception:
+            # Non-fatal to avoid breaking auth flow.
+            pass
+
         token_data = {
             "sub": str(new_user.id),
             "email": email_lower,

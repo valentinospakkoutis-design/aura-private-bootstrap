@@ -552,6 +552,16 @@ class ApiClient {
     return response.data;
   }
 
+  async getSubscriptionStatus() {
+    const response = await this.client.get('/api/subscription/status');
+    return response.data;
+  }
+
+  async upgradeSubscription(tier: 'pro' | 'elite') {
+    const response = await this.client.post('/api/subscription/upgrade', { tier });
+    return response.data;
+  }
+
   // Live Trading
   async getLiveTrades(useCache: boolean = false) {
     // Live trades should not be cached by default (real-time data)
@@ -773,6 +783,11 @@ class ApiClient {
 
   async cancelDcaOrder(orderId: number) {
     const response = await this.client.post(`/api/dca/cancel/${orderId}`);
+    return response.data;
+  }
+
+  async enableDcaMode() {
+    const response = await this.client.post('/api/dca/enable');
     return response.data;
   }
 

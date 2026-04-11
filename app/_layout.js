@@ -249,6 +249,14 @@ function AppContent() {
             headerShown: true,
           }} 
         />
+
+        <Stack.Screen
+          name="subscription"
+          options={{
+            title: '💎 Subscription',
+            headerShown: true,
+          }}
+        />
         
         <Stack.Screen
           name="change-password"

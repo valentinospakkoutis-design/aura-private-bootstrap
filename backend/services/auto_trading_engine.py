@@ -479,9 +479,17 @@ class AutoTradingEngine:
 
         side = "BUY" if action == "buy" else "SELL"
 
-        # ── Claude AI validation (only for high-confidence signals) ──
+        # ── Claude AI validation (only for high-confidence ELITE signals) ──
         claude_size_multiplier = 1.0
-        if confidence >= 0.90:
+        can_use_claude = False
+        if user_id is not None:
+            try:
+                from services.subscription_service import user_has_feature
+                can_use_claude = user_has_feature(int(user_id), "claude_validation")
+            except Exception:
+                can_use_claude = False
+
+        if confidence >= 0.90 and can_use_claude:
             try:
                 from services.claude_validator import validate_trade_signal
                 ml_reasoning = (

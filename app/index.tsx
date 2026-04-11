@@ -77,15 +77,18 @@ export default function HomeScreen() {
   const [portfolio, setPortfolio] = useState<PortfolioStats | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
   const [latestWeeklyReport, setLatestWeeklyReport] = useState<LatestWeeklyReport | null>(null);
+  const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'pro' | 'elite'>('free');
 
   useEffect(() => {
     loadUnreadCount();
     loadPortfolio();
     loadLatestWeeklyReport();
+    loadSubscription();
     const interval = setInterval(() => {
       loadUnreadCount();
       loadPortfolio();
       loadLatestWeeklyReport();
+      loadSubscription();
     }, 30000); // Every 30 seconds
 
     return () => clearInterval(interval);
@@ -133,6 +136,20 @@ export default function HomeScreen() {
     }
   };
 
+  const loadSubscription = async () => {
+    try {
+      const data = await api.getSubscriptionStatus();
+      const tier = String(data?.tier || 'free').toLowerCase();
+      if (tier === 'pro' || tier === 'elite') {
+        setSubscriptionTier(tier);
+      } else {
+        setSubscriptionTier('free');
+      }
+    } catch {
+      setSubscriptionTier('free');
+    }
+  };
+
   const initials = (user?.name || 'AU').split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
 
   const handleQuickAction = (route: string) => {
@@ -156,7 +173,17 @@ export default function HomeScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.logo}>AURA</Text>
+          <View>
+            <Text style={styles.logo}>AURA</Text>
+            <View style={styles.logoRow}>
+              <Text style={styles.userName}>{user?.name || 'Trader'}</Text>
+              {subscriptionTier !== 'free' && (
+                <View style={styles.tierBadge}>
+                  <Text style={styles.tierBadgeText}>{subscriptionTier.toUpperCase()}</Text>
+                </View>
+              )}
+            </View>
+          </View>
           <TouchableOpacity
             style={styles.notificationButton}
             onPress={() => router.push({ pathname: '/notifications' } as any)}
@@ -317,11 +344,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: theme.spacing.lg,
   },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginTop: 2,
+  },
+  userName: {
+    color: theme.colors.text.secondary,
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '600',
+  },
   logo: {
     fontSize: theme.typography.sizes.h3,
     fontWeight: '700',
     color: theme.colors.text.primary,
     letterSpacing: 0.8,
+  },
+  tierBadge: {
+    backgroundColor: theme.colors.brand.primary,
+    borderRadius: 999,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+  },
+  tierBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   notificationButton: {
     position: 'relative',
