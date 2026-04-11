@@ -14,6 +14,33 @@ CONSECUTIVE_LOSSES_LIMIT = 3
 
 
 class CircuitBreakerService:
+    def _ensure_table(self):
+        """Create table/indexes lazily to avoid runtime 500s on brownfield deploys."""
+        db = SessionLocal()
+        try:
+            db.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS circuit_breaker_events (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        rule_id VARCHAR NOT NULL,
+                        reason VARCHAR NOT NULL,
+                        tripped_at TIMESTAMP DEFAULT NOW(),
+                        resume_at TIMESTAMP NOT NULL,
+                        reset_manually BOOLEAN DEFAULT FALSE
+                    )
+                    """
+                )
+            )
+            db.execute(text("CREATE INDEX IF NOT EXISTS ix_circuit_breaker_events_user_id ON circuit_breaker_events (user_id)"))
+            db.execute(text("CREATE INDEX IF NOT EXISTS ix_circuit_breaker_events_tripped_at ON circuit_breaker_events (tripped_at DESC)"))
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+
     def _parse_ts(self, value) -> Optional[datetime]:
         if isinstance(value, datetime):
             return value
@@ -28,6 +55,7 @@ class CircuitBreakerService:
             return None
 
     def _get_active_event(self, user_id: int) -> Optional[Dict]:
+        self._ensure_table()
         db = SessionLocal()
         try:
             row = db.execute(
@@ -45,10 +73,13 @@ class CircuitBreakerService:
                 {"user_id": user_id},
             ).mappings().first()
             return dict(row) if row else None
+        except Exception:
+            return None
         finally:
             db.close()
 
     def _insert_event(self, user_id: int, rule_id: str, reason: str, pause_minutes: int) -> Dict:
+        self._ensure_table()
         db = SessionLocal()
         try:
             row = db.execute(
@@ -68,6 +99,15 @@ class CircuitBreakerService:
             ).mappings().first()
             db.commit()
             return dict(row)
+        except Exception:
+            db.rollback()
+            return {
+                "id": None,
+                "rule_id": rule_id,
+                "reason": reason,
+                "tripped_at": datetime.utcnow().isoformat(),
+                "resume_at": (datetime.utcnow() + timedelta(minutes=int(max(1, pause_minutes)))).isoformat(),
+            }
         finally:
             db.close()
 
@@ -95,6 +135,7 @@ class CircuitBreakerService:
         }
 
     def reset(self, user_id: int) -> bool:
+        self._ensure_table()
         db = SessionLocal()
         try:
             db.execute(
@@ -111,6 +152,9 @@ class CircuitBreakerService:
                 {"user_id": user_id},
             )
             db.commit()
+            return True
+        except Exception:
+            db.rollback()
             return True
         finally:
             db.close()
