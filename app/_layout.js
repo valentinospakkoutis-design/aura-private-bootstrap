@@ -283,6 +283,14 @@ function AppContent() {
         />
 
         <Stack.Screen
+          name="simulation"
+          options={{
+            title: '🧪 Simulation',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
           name="futures-trading"
           options={{
             title: '📉 Futures',

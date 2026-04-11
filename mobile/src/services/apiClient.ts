@@ -256,6 +256,19 @@ class ApiClient {
     return response.data;
   }
 
+  async runSimulation(payload: {
+    strategy: string;
+    symbols: string[];
+    timeframe_days: number;
+    capital: number;
+    confidence_threshold: number;
+    stop_loss_pct: number;
+    take_profit_pct: number;
+  }) {
+    const response = await this.client.post('/api/simulation/run', payload);
+    return response.data;
+  }
+
   async getMarketMovers() {
     const response = await this.client.get('/api/v1/market/movers', { timeout: 60000 });
     return response.data;
