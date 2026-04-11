@@ -218,6 +218,13 @@ export const translations: Record<string, Record<string, string>> = {
     circuitBreakerResetSuccess: "Ο circuit breaker επαναφέρθηκε",
     trailingStop: "Trailing Stop",
     trailingStopMovedUp: "↑",
+    aiAccuracyTitle: "AI Accuracy",
+    historicalAccuracyBadge: "Ιστορική Ακρίβεια: {value}% ✓",
+    overallAccuracy7d: "Συνολική Ακρίβεια 7 ημερών",
+    confidenceBreakdown: "Ανάλυση ανά Confidence Band",
+    bestAssets: "Best Assets",
+    worstAssets: "Worst Assets",
+    evaluatedPredictionsCount: "Αξιολογήθηκαν {value} προβλέψεις",
   },
 
   en: {
@@ -439,5 +446,12 @@ export const translations: Record<string, Record<string, string>> = {
     circuitBreakerResetSuccess: "Circuit breaker reset successfully",
     trailingStop: "Trailing Stop",
     trailingStopMovedUp: "↑",
+    aiAccuracyTitle: "AI Accuracy",
+    historicalAccuracyBadge: "Historical Accuracy: {value}% ✓",
+    overallAccuracy7d: "Overall 7-Day Accuracy",
+    confidenceBreakdown: "Breakdown by Confidence Band",
+    bestAssets: "Best Assets",
+    worstAssets: "Worst Assets",
+    evaluatedPredictionsCount: "Evaluated {value} predictions",
   },
 };

@@ -232,6 +232,31 @@ def init_db():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_circuit_breaker_events_tripped_at ON circuit_breaker_events (tripped_at DESC)"
             ))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS prediction_outcomes (
+                    id SERIAL PRIMARY KEY,
+                    symbol VARCHAR NOT NULL,
+                    action VARCHAR NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    price_at_prediction FLOAT NOT NULL,
+                    price_7d_later FLOAT,
+                    price_30d_later FLOAT,
+                    was_correct_7d BOOLEAN,
+                    was_correct_30d BOOLEAN,
+                    pnl_7d_pct FLOAT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    evaluated_at TIMESTAMP
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_symbol ON prediction_outcomes (symbol)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_created_at ON prediction_outcomes (created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_eval_7d ON prediction_outcomes (was_correct_7d, created_at)"
+            ))
             # ── Alembic-managed tables ──
             # When Alembic is active (alembic_version table has a revision),
             # skip raw SQL table creation — Alembic owns these tables.

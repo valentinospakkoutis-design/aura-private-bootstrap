@@ -560,6 +560,21 @@ def _daily_predictions_refresh():
         logger.error(f"[scheduler] Daily predictions refresh failed: {e}")
 
 
+def _daily_prediction_outcomes_eval():
+    """Daily delayed evaluation of previously recorded predictions."""
+    logger.info("[scheduler] Starting prediction outcomes evaluation...")
+    try:
+        from services.prediction_outcomes import prediction_outcomes_service
+        res = prediction_outcomes_service.evaluate_predictions()
+        logger.info(
+            "[scheduler] Prediction outcomes eval done: 7d=%s 30d=%s",
+            res.get("evaluated_7d", 0),
+            res.get("evaluated_30d", 0),
+        )
+    except Exception as e:
+        logger.error(f"[scheduler] Prediction outcomes eval failed: {e}")
+
+
 def setup_weekly_retraining():
     """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
@@ -595,6 +610,15 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+        # Daily prediction outcomes evaluation — 06:10 UTC
+        scheduler.add_job(
+            _daily_prediction_outcomes_eval,
+            trigger=CronTrigger(hour=6, minute=10),
+            id="daily_prediction_outcomes_eval",
+            name="Daily prediction outcomes evaluation",
+            replace_existing=True,
+        )
+
         # Sentiment fetch — every 30 minutes (gated behind ENABLE_SENTIMENT_DATA flag)
         def _sentiment_fetch_job():
             try:
@@ -612,7 +636,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")

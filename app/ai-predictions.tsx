@@ -10,6 +10,7 @@ import { theme } from '../mobile/src/constants/theme';
 import { useRouter } from 'expo-router';
 import { usePriceUpdates } from '../mobile/src/hooks/useWebSocket';
 import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
 
 interface Prediction {
   id: string;
@@ -50,6 +51,8 @@ export default function AIPredictionsScreen() {
   const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
   const [modelAccuracy, setModelAccuracy] = useState<Record<string, number>>({});
   const [rlData, setRlData] = useState<any>(null);
+  const [historicalAccuracy, setHistoricalAccuracy] = useState<number | null>(null);
+  const [symbolHistoricalAccuracy, setSymbolHistoricalAccuracy] = useState<Record<string, number>>({});
   const { isOfflineMode } = useOfflineMode();
 
   const {
@@ -88,6 +91,12 @@ export default function AIPredictionsScreen() {
         fetchPredictions(isOfflineMode),
         api.getMarketMovers().then(setMovers).catch(() => {}),
         api.getRLBatchPredictions().then(setRlData).catch(() => {}),
+        api.getAIPredictionAccuracy().then((data: any) => {
+          if (typeof data?.overall_accuracy_7d === 'number') {
+            setHistoricalAccuracy(data.overall_accuracy_7d);
+          }
+          setSymbolHistoricalAccuracy(data?.per_symbol_accuracy || {});
+        }).catch(() => {}),
         api.getModelPerformance().then((data: any) => {
           const map: Record<string, number> = {};
           for (const m of data?.models || []) {
@@ -178,7 +187,10 @@ export default function AIPredictionsScreen() {
 
   // ── Prediction Card ───────────────────────────────────────
   const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => {
-    const acc = modelAccuracy[item.symbol || ''] ?? null;
+    const accModel = modelAccuracy[item.symbol || ''] ?? null;
+    const accHist = (item.symbol && symbolHistoricalAccuracy[item.symbol] != null)
+      ? symbolHistoricalAccuracy[item.symbol]
+      : null;
     return (
     <TouchableOpacity
       activeOpacity={0.7}
@@ -192,10 +204,17 @@ export default function AIPredictionsScreen() {
             {item.symbol && item.symbol !== item.asset && (
               <Text style={s.symbolBadge}>{item.symbol}</Text>
             )}
-            {acc !== null && (
-              <View style={[s.accuracyBadge, { backgroundColor: getAccuracyColor(acc) + '20' }]}>
-                <Text style={[s.accuracyText, { color: getAccuracyColor(acc) }]}>
-                  🎯 {(acc * 100).toFixed(1)}%
+            {accHist !== null && (
+              <View style={[s.accuracyBadge, { backgroundColor: getAccuracyColor(accHist / 100) + '20' }]}>
+                <Text style={[s.accuracyText, { color: getAccuracyColor(accHist / 100) }]}>
+                  {item.symbol || item.asset} 🎯 {accHist.toFixed(0)}%
+                </Text>
+              </View>
+            )}
+            {accHist === null && accModel !== null && (
+              <View style={[s.accuracyBadge, { backgroundColor: getAccuracyColor(accModel) + '20' }]}>
+                <Text style={[s.accuracyText, { color: getAccuracyColor(accModel) }]}>
+                  🎯 {(accModel * 100).toFixed(1)}%
                 </Text>
               </View>
             )}
@@ -306,6 +325,14 @@ export default function AIPredictionsScreen() {
 
               {/* Top Movers */}
               {renderMoversSection()}
+
+              {/* Historical Accuracy Header */}
+              {historicalAccuracy !== null && (
+                <TouchableOpacity style={s.histBadge} onPress={() => router.push('/ai-accuracy')}>
+                  <Text style={s.histBadgeText}>{t('historicalAccuracyBadge', { value: historicalAccuracy.toFixed(0) })}</Text>
+                </TouchableOpacity>
+              )}
+
               {/* Model links */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: theme.spacing.sm }}>
                 <TouchableOpacity style={s.perfLink} onPress={() => router.push('/model-performance')}>
@@ -313,6 +340,9 @@ export default function AIPredictionsScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.perfLink, { backgroundColor: '#6366f120', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }]} onPress={() => router.push('/rl-performance')}>
                   <Text style={[s.perfLinkText, { color: '#6366f1' }]}>🤖 RL Agent →</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.perfLink, { backgroundColor: '#16a34a20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }]} onPress={() => router.push('/ai-accuracy')}>
+                  <Text style={[s.perfLinkText, { color: '#16a34a' }]}>{t('aiAccuracyTitle')} →</Text>
                 </TouchableOpacity>
               </View>
 
@@ -402,6 +432,21 @@ const s = StyleSheet.create({
   perfLinkText: { fontSize: theme.typography.sizes.sm, color: theme.colors.brand.primary, fontWeight: '600' },
   accuracyBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   accuracyText: { fontSize: 10, fontWeight: '700' },
+  histBadge: {
+    backgroundColor: '#16a34a22',
+    borderColor: '#16a34a55',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+    alignSelf: 'flex-start',
+  },
+  histBadgeText: {
+    color: '#166534',
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '700',
+  },
   countText: { fontSize: theme.typography.sizes.xs, color: theme.colors.text.secondary, marginBottom: theme.spacing.sm },
 
   // ── Prediction Cards ──────────────────────────────────────

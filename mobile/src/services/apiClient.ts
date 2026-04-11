@@ -284,6 +284,16 @@ class ApiClient {
     return response.data;
   }
 
+  async getAIPredictionAccuracy() {
+    const response = await this.client.get('/api/ai/accuracy');
+    return response.data;
+  }
+
+  async getAIPredictionAccuracyBySymbol(symbol: string) {
+    const response = await this.client.get(`/api/ai/accuracy/${symbol}`);
+    return response.data;
+  }
+
   // Brokers
   async getBrokers(useCache: boolean = true) {
     if (useCache) {

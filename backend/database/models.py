@@ -412,6 +412,24 @@ class CircuitBreakerEvent(Base):
     reset_manually = Column(Boolean, default=False)
 
 
+class PredictionOutcome(Base):
+    """Prediction lifecycle tracking and delayed outcome evaluation."""
+    __tablename__ = "prediction_outcomes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(30), nullable=False, index=True)
+    action = Column(String(20), nullable=False)
+    confidence = Column(Float, nullable=False)
+    price_at_prediction = Column(Float, nullable=False)
+    price_7d_later = Column(Float, nullable=True)
+    price_30d_later = Column(Float, nullable=True)
+    was_correct_7d = Column(Boolean, nullable=True)
+    was_correct_30d = Column(Boolean, nullable=True)
+    pnl_7d_pct = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    evaluated_at = Column(DateTime, nullable=True)
+
+
 class AIDecisionEvent(Base):
     """
     Append-only log of every AI trading decision with full context.

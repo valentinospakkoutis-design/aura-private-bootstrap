@@ -1607,6 +1607,18 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
             "reasoning": reasoning,
         })
 
+        # Prediction tracking layer (non-fatal): store prediction for delayed accuracy evaluation.
+        try:
+            from services.prediction_outcomes import prediction_outcomes_service
+            prediction_outcomes_service.track_prediction(
+                symbol=symbol,
+                action=rec,
+                confidence=confidence,
+                price_at_prediction=float(current_price or 0.0),
+            )
+        except Exception:
+            pass
+
     print(f"[+] Predictions: {len(result)} items, live prices: {len(live_prices)} symbols from Binance")
     if result:
         sample = result[0]
@@ -1638,6 +1650,22 @@ def get_all_predictions(days: int = 7, asset_type: Optional[str] = None):
         print(f"[!] Sentiment shadow mode failed (non-fatal): {e}")
 
     return sanitize_floats(result)
+
+
+@app.get("/api/ai/accuracy")
+def get_ai_accuracy_summary():
+    """Prediction direction accuracy summary from delayed outcome evaluation."""
+    from services.prediction_outcomes import prediction_outcomes_service
+
+    return sanitize_floats(prediction_outcomes_service.get_accuracy(symbol=None))
+
+
+@app.get("/api/ai/accuracy/{symbol}")
+def get_ai_accuracy_for_symbol(symbol: str):
+    """Prediction direction accuracy for a specific asset symbol."""
+    from services.prediction_outcomes import prediction_outcomes_service
+
+    return sanitize_floats(prediction_outcomes_service.get_accuracy(symbol=symbol.upper()))
 
 @app.get("/api/v1/market/movers")
 def get_market_movers():

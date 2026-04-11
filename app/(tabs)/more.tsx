@@ -10,6 +10,7 @@ export default function MoreScreen() {
 
   const MORE_ITEMS = [
     { icon: '📊', title: t('analytics'), href: '/analytics' },
+    { icon: '🎯', title: t('aiAccuracyTitle'), href: '/ai-accuracy' },
     { icon: '🧪', title: t('simulationTitle'), href: '/simulation' },
     { icon: '🔗', title: t('brokers'), href: '/brokers' },
     { icon: '👤', title: t('profile'), href: '/profile' },
