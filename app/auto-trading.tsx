@@ -17,15 +17,32 @@ interface AutoTradingStatus {
     fixed_order_value_usd: number;
     stop_loss_pct: number;
     take_profit_pct: number;
+    trail_pct?: number;
     max_positions: number;
     max_order_value_usd: number;
   };
   open_positions_count: number;
-  positions: any[];
+  positions: Array<{
+    symbol: string;
+    side: string;
+    quantity: number;
+    entry_price: number;
+    target_price?: number;
+    stop_loss?: number;
+    trailing_stop?: number;
+    trailing_last_move?: string;
+  }>;
   total_auto_trades: number;
   last_run: string | null;
   next_run_in_seconds: number;
   recent_log: Array<{ type: string; message: string; timestamp: string }>;
+}
+
+interface CircuitBreakerStatus {
+  state: 'active' | 'paused';
+  reason: string | null;
+  resume_at: string | null;
+  minutes_remaining: number;
 }
 
 type UiAuthorityMode = 'manual' | 'confirm-first' | 'semi-auto' | 'full-autopilot';
@@ -152,6 +169,7 @@ export default function AutoTradingScreen() {
   const { showToast } = useAppStore();
   const { t, language } = useLanguage();
   const [status, setStatus] = useState<AutoTradingStatus | null>(null);
+  const [circuitBreaker, setCircuitBreaker] = useState<CircuitBreakerStatus | null>(null);
   const [autopilotMode, setAutopilotMode] = useState<UiAuthorityMode>('confirm-first');
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
@@ -171,11 +189,13 @@ export default function AutoTradingScreen() {
         return;
       }
 
-      const [statusData, autopilotData] = await Promise.all([
+      const [statusData, autopilotData, cbData] = await Promise.all([
         api.getAutoTradingStatus(),
         api.getAutopilotMode().catch(() => null),
+        api.getAutoTradingCircuitBreaker().catch(() => null),
       ]);
       setStatus(statusData);
+      setCircuitBreaker(cbData);
       const backendMode = autopilotData?.current_mode || autopilotData?.mode;
       if (backendMode) {
         setAutopilotMode(normalizeBackendMode(backendMode));
@@ -194,6 +214,30 @@ export default function AutoTradingScreen() {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  const resetCircuitBreaker = useCallback(() => {
+    Alert.alert(
+      t('circuitBreakerResetConfirmTitle'),
+      t('circuitBreakerResetConfirmBody'),
+      [
+        { text: t('cancel'), style: 'cancel' },
+        {
+          text: t('circuitBreakerReset'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.resetAutoTradingCircuitBreaker();
+              showToast(t('circuitBreakerResetSuccess'), 'success');
+              await loadStatus();
+            } catch (err: any) {
+              const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
+              showToast(msg, 'error');
+            }
+          },
+        },
+      ]
+    );
+  }, [loadStatus, showToast, t]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -325,6 +369,7 @@ export default function AutoTradingScreen() {
   const executionReady = isEnabled && autopilotMode !== 'manual';
   const hasLastRun = !!status?.last_run;
   const hasNextRun = typeof status?.next_run_in_seconds === 'number' && status.next_run_in_seconds >= 0;
+  const isCircuitPaused = circuitBreaker?.state === 'paused';
 
   const permissionRows = [
     { key: 'alertsOnly', enabled: selectedModeDef.permissions.alertsOnly },
@@ -502,6 +547,38 @@ export default function AutoTradingScreen() {
           )}
         </View>
 
+        {/* Circuit Breaker */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{t('circuitBreaker')}</Text>
+          <View style={styles.configRow}>
+            <Text style={styles.configLabel}>{t('circuitBreakerState')}</Text>
+            <Text style={[styles.configValue, isCircuitPaused ? styles.readinessWarn : styles.readinessOk]}>
+              {isCircuitPaused ? t('circuitBreakerPaused') : t('circuitBreakerActive')}
+            </Text>
+          </View>
+          {isCircuitPaused && (
+            <>
+              <View style={styles.configRow}>
+                <Text style={styles.configLabel}>{t('circuitBreakerReason')}</Text>
+                <Text style={styles.configValue}>{circuitBreaker?.reason || '-'}</Text>
+              </View>
+              <View style={styles.configRow}>
+                <Text style={styles.configLabel}>{t('circuitBreakerResumeAt')}</Text>
+                <Text style={styles.configValue}>
+                  {circuitBreaker?.resume_at ? new Date(circuitBreaker.resume_at).toLocaleString(locale) : '-'}
+                </Text>
+              </View>
+              <View style={styles.configRow}>
+                <Text style={styles.configLabel}>{t('circuitBreakerMinutesRemaining')}</Text>
+                <Text style={styles.configValue}>{circuitBreaker?.minutes_remaining ?? 0}</Text>
+              </View>
+              <TouchableOpacity style={styles.resetButton} onPress={resetCircuitBreaker}>
+                <Text style={styles.resetButtonText}>{t('circuitBreakerReset')}</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
         {/* Current Configuration */}
         {config && (
           <View style={styles.card}>
@@ -553,6 +630,9 @@ export default function AutoTradingScreen() {
                   </Text>
                   <Text style={[styles.positionDetail, { color: theme.colors.market.bearish }]}>
                     SL: ${pos.stop_loss?.toFixed(2)}
+                  </Text>
+                  <Text style={[styles.positionDetail, { color: theme.colors.brand.primary }]}>
+                    {t('trailingStop')}: ${Number(pos.trailing_stop ?? pos.stop_loss ?? 0).toFixed(2)} {pos.trailing_last_move === 'up' ? t('trailingStopMovedUp') : ''}
                   </Text>
                 </View>
               </View>
@@ -819,6 +899,18 @@ const styles = StyleSheet.create({
   },
   readinessWarn: {
     color: theme.colors.semantic.warning,
+  },
+  resetButton: {
+    marginTop: theme.spacing.md,
+    backgroundColor: theme.colors.semantic.error,
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  resetButtonText: {
+    color: '#FFFFFF',
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: '700' as const,
   },
 });
 

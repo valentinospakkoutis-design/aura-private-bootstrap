@@ -399,6 +399,23 @@ class AutopilotModeChangeLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class CircuitBreakerEvent(Base):
+    """Append-only circuit breaker trip/reset window events."""
+    __tablename__ = "circuit_breaker_events"
+    __table_args__ = (
+        Index("ix_circuit_breaker_events_user_id", "user_id"),
+        Index("ix_circuit_breaker_events_tripped_at", "tripped_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    rule_id = Column(String(100), nullable=False)
+    reason = Column(String(500), nullable=False)
+    tripped_at = Column(DateTime, default=datetime.utcnow)
+    resume_at = Column(DateTime, nullable=False)
+    reset_manually = Column(Boolean, default=False)
+
+
 class AIDecisionEvent(Base):
     """
     Append-only log of every AI trading decision with full context.

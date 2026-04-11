@@ -70,6 +70,34 @@ def _get_all_tokens() -> List[str]:
         return []
 
 
+def _get_tokens_for_user(user_id: int) -> List[str]:
+    """Get active push tokens for a single user."""
+    try:
+        from database.connection import SessionLocal
+        from sqlalchemy import text
+        db = SessionLocal()
+        rows = db.execute(
+            text("SELECT token FROM push_tokens WHERE is_active = true AND user_id = :user_id"),
+            {"user_id": int(user_id)},
+        ).fetchall()
+        db.close()
+        return [r[0] for r in rows if r[0]]
+    except Exception as e:
+        logger.error(f"[push] Failed to get user tokens (user_id={user_id}): {e}")
+        return []
+
+
+def send_push_to_user_id(user_id: int, title: str, body: str, data: Optional[dict] = None) -> int:
+    """Send push notification only to a specific user."""
+    tokens = _get_tokens_for_user(user_id)
+    sent = 0
+    for token in tokens:
+        if send_push_notification(token, title=title, body=body, data=data):
+            sent += 1
+    logger.info(f"[push] Sent user notification to {sent}/{len(tokens)} devices (user_id={user_id})")
+    return sent
+
+
 # ── Event helpers (called from order/prediction code) ───────
 
 def notify_order_executed(symbol: str, side: str, quantity: float, price: float):

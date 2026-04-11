@@ -215,6 +215,23 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS circuit_breaker_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    rule_id VARCHAR NOT NULL,
+                    reason VARCHAR NOT NULL,
+                    tripped_at TIMESTAMP DEFAULT NOW(),
+                    resume_at TIMESTAMP NOT NULL,
+                    reset_manually BOOLEAN DEFAULT FALSE
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_circuit_breaker_events_user_id ON circuit_breaker_events (user_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_circuit_breaker_events_tripped_at ON circuit_breaker_events (tripped_at DESC)"
+            ))
             # ── Alembic-managed tables ──
             # When Alembic is active (alembic_version table has a revision),
             # skip raw SQL table creation — Alembic owns these tables.

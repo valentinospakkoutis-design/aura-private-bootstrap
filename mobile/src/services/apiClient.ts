@@ -734,6 +734,16 @@ class ApiClient {
     const response = await this.client.get('/api/auto-trading/positions');
     return response.data;
   }
+
+  async getAutoTradingCircuitBreaker() {
+    const response = await this.client.get('/api/auto-trading/circuit-breaker');
+    return response.data;
+  }
+
+  async resetAutoTradingCircuitBreaker() {
+    const response = await this.client.post('/api/auto-trading/circuit-breaker/reset');
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

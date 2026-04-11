@@ -40,9 +40,11 @@ class AutoTradingEngine:
             "max_positions": 3,             # max 3 concurrent positions
             "max_order_value_usd": 100.0,   # hard safety limit per order
             "smart_score_threshold": 75,    # only trade when Smart Score > 75
+            "trail_pct": 2.0,              # trailing stop percentage
             "enabled": False,               # OFF by default
         }
         self.open_positions: Dict[str, dict] = {}
+        self.closed_trades: List[dict] = []
         self.trade_log: List[dict] = []
         self.user_runtime: Dict[int, dict] = {}
 
@@ -51,6 +53,7 @@ class AutoTradingEngine:
             self.user_runtime[user_id] = {
                 "config": dict(self.config),
                 "open_positions": {},
+                "closed_trades": [],
                 "trade_log": [],
                 "total_auto_trades": 0,
                 "last_run": None,
@@ -61,6 +64,7 @@ class AutoTradingEngine:
         ctx = self._ensure_user_runtime(user_id)
         self.config = dict(ctx["config"])
         self.open_positions = dict(ctx["open_positions"])
+        self.closed_trades = list(ctx.get("closed_trades", []))
         self.trade_log = list(ctx["trade_log"])
         self.total_auto_trades = int(ctx["total_auto_trades"])
         self.last_run = ctx["last_run"]
@@ -69,6 +73,7 @@ class AutoTradingEngine:
         self.user_runtime[user_id] = {
             "config": dict(self.config),
             "open_positions": dict(self.open_positions),
+            "closed_trades": list(self.closed_trades[-200:]),
             "trade_log": list(self.trade_log[-100:]),
             "total_auto_trades": int(self.total_auto_trades),
             "last_run": self.last_run,
@@ -82,6 +87,7 @@ class AutoTradingEngine:
             "config": ctx["config"],
             "open_positions_count": len(ctx["open_positions"]),
             "positions": list(ctx["open_positions"].values()),
+            "closed_trades_count": len(ctx.get("closed_trades", [])),
             "total_auto_trades": int(ctx.get("total_auto_trades", 0)),
             "last_run": ctx.get("last_run"),
             "next_run_in_seconds": self.check_interval,
@@ -200,7 +206,166 @@ class AutoTradingEngine:
                 return 0.0
             return round(position_value / price, 6)
 
-    def place_auto_order(self, prediction: dict) -> Optional[dict]:
+    def _notify_user(self, user_id: Optional[int], title: str, body: str, data: Optional[dict] = None):
+        try:
+            if user_id is None:
+                return
+            from services.push_notifications import send_push_to_user_id
+            send_push_to_user_id(int(user_id), title=title, body=body, data=data or {})
+        except Exception:
+            pass
+
+    def _get_market_price(self, symbol: str) -> float:
+        if not self.broker:
+            return 0.0
+        try:
+            px = self.broker.get_symbol_price(symbol)
+            return float(px or 0.0)
+        except Exception:
+            return 0.0
+
+    def _estimate_equity_reference(self) -> float:
+        balance = self._get_available_balance()
+        exposure = 0.0
+        for p in self.open_positions.values():
+            qty = float(p.get("quantity") or 0.0)
+            symbol = p.get("symbol")
+            market_px = self._get_market_price(symbol) if symbol else 0.0
+            if market_px <= 0:
+                market_px = float(p.get("entry_price") or 0.0)
+            exposure += qty * market_px
+        total = balance + exposure
+        return float(total if total > 0 else 10000.0)
+
+    def _close_position(self, symbol: str, current_price: float, user_id: Optional[int], reason: str) -> Optional[dict]:
+        position = self.open_positions.get(symbol)
+        if not position or not self.broker or not self.broker.connected:
+            return None
+
+        side = "SELL" if position.get("side") == "BUY" else "BUY"
+        quantity = float(position.get("quantity") or 0.0)
+        if quantity <= 0:
+            return None
+
+        try:
+            result = self.broker.place_live_order(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                order_type="MARKET",
+            )
+            if "error" in result:
+                self._log_event("CLOSE_FAILED", f"{symbol}: {result['error']}")
+                return None
+
+            exit_price = float(result.get("price") or current_price or 0.0)
+            entry_price = float(position.get("entry_price") or 0.0)
+            if position.get("side") == "BUY":
+                pnl = (exit_price - entry_price) * quantity
+            else:
+                pnl = (entry_price - exit_price) * quantity
+
+            closed_trade = {
+                "symbol": symbol,
+                "entry_side": position.get("side"),
+                "exit_side": side,
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pnl": round(pnl, 8),
+                "reason": reason,
+                "opened_at": position.get("opened_at"),
+                "closed_at": datetime.utcnow().isoformat(),
+                "order_id": result.get("order_id"),
+            }
+            self.closed_trades.append(closed_trade)
+            self.open_positions.pop(symbol, None)
+
+            self._log_event("POSITION_CLOSED", f"{symbol} closed ({reason}) PnL=${pnl:.2f}", closed_trade)
+            self._notify_user(
+                user_id,
+                title="Position Closed",
+                body=f"{symbol} closed by risk control ({reason}). PnL ${pnl:.2f}",
+                data={"screen": "/auto-trading", "type": "position_closed", "symbol": symbol},
+            )
+            return closed_trade
+        except Exception as e:
+            self._log_event("CLOSE_ERROR", f"{symbol}: {type(e).__name__}: {e}")
+            return None
+
+    def _update_trailing_stops(self, user_id: Optional[int]):
+        if not self.open_positions:
+            return
+
+        from services.trailing_stop import trailing_stop_service
+
+        trail_pct = float(self.config.get("trail_pct", 2.0))
+        for symbol, position in list(self.open_positions.items()):
+            current_price = self._get_market_price(symbol)
+            if current_price <= 0:
+                continue
+
+            new_stop, moved, move_dir = trailing_stop_service.update_stop(
+                position,
+                current_price=current_price,
+                trail_pct=trail_pct,
+            )
+            if moved:
+                position["trailing_stop"] = new_stop
+                position["trailing_last_move"] = move_dir
+                position["trailing_move_count"] = int(position.get("trailing_move_count") or 0) + 1
+                self.open_positions[symbol] = position
+                self._log_event("TRAILING_UPDATE", f"{symbol}: trailing stop moved to ${new_stop:.4f}")
+
+            if trailing_stop_service.should_stop(position, current_price=current_price):
+                self._close_position(symbol, current_price=current_price, user_id=user_id, reason="trailing_stop")
+
+    def _check_circuit_breaker_pause(self, user_id: Optional[int]) -> bool:
+        if user_id is None:
+            return False
+        from services.circuit_breaker import circuit_breaker_service
+        state = circuit_breaker_service.get_state(int(user_id))
+        if state.get("state") == "paused":
+            self._log_event(
+                "CIRCUIT_BREAKER_PAUSED",
+                f"Auto trading paused: {state.get('reason')}",
+                {
+                    "resume_at": state.get("resume_at"),
+                    "minutes_remaining": state.get("minutes_remaining"),
+                },
+            )
+            return True
+        return False
+
+    def _evaluate_circuit_breaker(self, user_id: Optional[int]):
+        if user_id is None:
+            return
+        from services.circuit_breaker import circuit_breaker_service
+
+        result = circuit_breaker_service.evaluate_and_trip(
+            int(user_id),
+            closed_trades=self.closed_trades,
+            equity_reference=self._estimate_equity_reference(),
+        )
+        if result.get("tripped"):
+            reason = result.get("reason") or "Risk rule triggered"
+            event = result.get("event") or {}
+            self._log_event(
+                "CIRCUIT_BREAKER_TRIPPED",
+                reason,
+                {
+                    "rule_id": event.get("rule_id"),
+                    "resume_at": event.get("resume_at"),
+                },
+            )
+            self._notify_user(
+                user_id,
+                title="Circuit Breaker Activated",
+                body=reason,
+                data={"screen": "/auto-trading", "type": "circuit_breaker"},
+            )
+
+    def place_auto_order(self, prediction: dict, user_id: Optional[int] = None) -> Optional[dict]:
         """Place an automated order based on a prediction. Returns position dict or None."""
         symbol = prediction.get("symbol", "")
         action = prediction.get("action", "")
@@ -410,6 +575,9 @@ class AutoTradingEngine:
                 "entry_price": entry_price,
                 "target_price": target_price,
                 "stop_loss": round(stop_loss_price, 2),
+                "trailing_stop": None,
+                "trailing_last_move": "none",
+                "trailing_move_count": 0,
                 "confidence": confidence,
                 "smart_score": smart_score,
                 "smart_score_signals": signals,
@@ -417,6 +585,16 @@ class AutoTradingEngine:
                 "opened_at": datetime.utcnow().isoformat(),
                 "status": "open",
             }
+            try:
+                from services.trailing_stop import trailing_stop_service
+                position["trailing_stop"] = trailing_stop_service.initialize_stop(
+                    side=side,
+                    entry_price=float(entry_price),
+                    trail_pct=float(self.config.get("trail_pct", 2.0)),
+                )
+            except Exception:
+                position["trailing_stop"] = round(stop_loss_price, 2)
+
             self.open_positions[symbol] = position
 
             self._log_event("ORDER_FILLED", f"{side} {quantity} {symbol} @ ${entry_price:.2f}", position)
@@ -425,7 +603,15 @@ class AutoTradingEngine:
             # Push notification
             try:
                 from services.push_notifications import notify_auto_trade
-                notify_auto_trade(symbol, side, entry_price, confidence)
+                if user_id is None:
+                    notify_auto_trade(symbol, side, entry_price, confidence)
+                else:
+                    self._notify_user(
+                        user_id,
+                        title="Auto Trade",
+                        body=f"AURA {side.lower()} {symbol} @ ${entry_price:,.2f} (confidence: {confidence:.0%})",
+                        data={"screen": "/auto-trading", "type": "auto_trade", "symbol": symbol},
+                    )
             except Exception:
                 pass
 
@@ -523,6 +709,15 @@ class AutoTradingEngine:
                         self._save_user_context(uid)
                         continue
 
+                    # Always maintain trailing stops on each scan before opening new positions.
+                    self._update_trailing_stops(uid)
+                    self._evaluate_circuit_breaker(uid)
+
+                    # Circuit breaker pause prevents opening new auto-trades.
+                    if self._check_circuit_breaker_pause(uid):
+                        self._save_user_context(uid)
+                        continue
+
                     predictions = await get_predictions_func(uid)
                     high_conf = [
                         p for p in predictions
@@ -530,9 +725,10 @@ class AutoTradingEngine:
                     ]
 
                     for prediction in high_conf:
-                        result = self.place_auto_order(prediction)
+                        result = self.place_auto_order(prediction, user_id=uid)
                         if result:
                             self.total_auto_trades += 1
+                            self._evaluate_circuit_breaker(uid)
 
                     self._save_user_context(uid)
 
