@@ -4094,28 +4094,44 @@ def get_auto_trading_positions(payload=Depends(require_auth)):
 @app.get("/api/auto-trading/circuit-breaker")
 def get_auto_trading_circuit_breaker(payload=Depends(require_auth)):
     """Get current circuit breaker state for authenticated user."""
-    from services.circuit_breaker import circuit_breaker_service
-
     user_id = _extract_user_id(payload)
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid user token")
 
-    return circuit_breaker_service.get_state(user_id)
+    try:
+        from services.circuit_breaker import circuit_breaker_service
+        return circuit_breaker_service.get_state(user_id)
+    except Exception as e:
+        return {
+            "state": "active",
+            "reason": f"fallback: {type(e).__name__}",
+            "resume_at": None,
+            "minutes_remaining": 0,
+        }
 
 
 @app.post("/api/auto-trading/circuit-breaker/reset")
 def reset_auto_trading_circuit_breaker(payload=Depends(require_auth)):
     """Manually reset active circuit breaker pause for authenticated user."""
-    from services.circuit_breaker import circuit_breaker_service
-
     user_id = _extract_user_id(payload)
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid user token")
 
-    circuit_breaker_service.reset(user_id)
+    try:
+        from services.circuit_breaker import circuit_breaker_service
+        circuit_breaker_service.reset(user_id)
+        state = circuit_breaker_service.get_state(user_id)
+    except Exception as e:
+        state = {
+            "state": "active",
+            "reason": f"fallback: {type(e).__name__}",
+            "resume_at": None,
+            "minutes_remaining": 0,
+        }
+
     return {
         "success": True,
-        "state": circuit_breaker_service.get_state(user_id),
+        "state": state,
     }
 
 
