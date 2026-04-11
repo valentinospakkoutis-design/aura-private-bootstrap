@@ -199,10 +199,12 @@ class AssetPredictor:
         self.models = {}
         self.scalers = {}
         self.model_features: Dict[str, List[str]] = {}  # XGBoost feature columns
+        self.ensemble_models: Dict[str, Dict[str, Any]] = {}
+        self.lstm_symbols_loaded = set()
         self._load_models()
     
     def _load_models(self):
-        """Load trained ML models from disk (XGBoost preferred, Random Forest fallback)"""
+        """Load trained ML models from disk (XGBoost preferred, Random Forest fallback)."""
         models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
 
         if not os.path.exists(models_dir):
@@ -246,6 +248,26 @@ class AssetPredictor:
                 print(f"[+] Loaded RF model for {symbol} (fallback)")
             except Exception as e:
                 print(f"[-] Error loading RF model {model_path}: {e}")
+
+        # 3) Optional enhanced ensemble artifacts (XGBoost + RF sidecar)
+        ensemble_files = glob.glob(os.path.join(models_dir, "*_ensemble_latest.pkl"))
+        for model_path in ensemble_files:
+            try:
+                filename = os.path.basename(model_path)
+                symbol = filename.split("_ensemble")[0]
+                with open(model_path, "rb") as f:
+                    self.ensemble_models[symbol] = pickle.load(f)
+                print(f"[+] Loaded enhanced ensemble sidecar for {symbol}")
+            except Exception as e:
+                print(f"[-] Error loading enhanced ensemble {model_path}: {e}")
+
+        # 4) Optional LSTM sidecars
+        try:
+            from ml.lstm_model import load_all_lstm_models
+
+            self.lstm_symbols_loaded = set(load_all_lstm_models().keys())
+        except Exception as e:
+            logger.debug(f"LSTM preload skipped: {e}")
     
     def _fetch_binance_klines(self, symbol: str, days: int = 7) -> Optional[List[float]]:
         """Fetch daily closing prices from Binance public API (no auth needed)."""
@@ -346,7 +368,7 @@ class AssetPredictor:
         
         return features
     
-    def _predict_xgboost(self, symbol: str, current_price: float):
+    def _predict_xgboost(self, symbol: str, current_price: float, recent_df: Optional[pd.DataFrame] = None):
         """
         Run prediction using XGBoost model with full feature engineering.
         Returns (predicted_price, trend_score, confidence).
@@ -354,7 +376,9 @@ class AssetPredictor:
         from ml.auto_trainer import fetch_binance_ohlcv, fetch_yfinance_ohlcv, engineer_features, YFINANCE_SYMBOL_MAP
 
         # Fetch recent data — yfinance for non-crypto, Binance for crypto
-        if symbol in YFINANCE_SYMBOL_MAP:
+        if recent_df is not None:
+            df = recent_df
+        elif symbol in YFINANCE_SYMBOL_MAP:
             df = fetch_yfinance_ohlcv(symbol, days=250)
         else:
             df = fetch_binance_ohlcv(symbol, interval="1d", days=250)
@@ -395,6 +419,55 @@ class AssetPredictor:
         confidence = min(95.0, 85.0 + abs(trend_score) * 8)
 
         return predicted_price, trend_score, confidence
+
+    def _get_recent_ohlcv(self, symbol: str, days: int = 250) -> Optional[pd.DataFrame]:
+        from ml.auto_trainer import fetch_binance_ohlcv, fetch_yfinance_ohlcv, YFINANCE_SYMBOL_MAP
+
+        if symbol in YFINANCE_SYMBOL_MAP:
+            return fetch_yfinance_ohlcv(symbol, days=days)
+        return fetch_binance_ohlcv(symbol, interval="1d", days=days)
+
+    def _predict_rf_sidecar(self, symbol: str, recent_df: Optional[pd.DataFrame]) -> Optional[float]:
+        if symbol not in self.ensemble_models or recent_df is None or recent_df.empty:
+            return None
+
+        try:
+            from ml.auto_trainer import engineer_features
+
+            bundle = self.ensemble_models[symbol]
+            feature_cols = bundle.get("feature_cols", [])
+            rf_model = bundle.get("rf_model")
+            scaler = bundle.get("scaler")
+            if not feature_cols or rf_model is None or scaler is None:
+                return None
+
+            feat = engineer_features(recent_df)
+            if feat.empty:
+                return None
+
+            available = [c for c in feature_cols if c in feat.columns]
+            if not available:
+                return None
+
+            row = feat[available].iloc[-1:].values
+            if len(available) < len(feature_cols):
+                full_row = np.zeros((1, len(feature_cols)))
+                for i, col in enumerate(feature_cols):
+                    if col in available:
+                        idx = available.index(col)
+                        full_row[0, i] = row[0, idx]
+                row = full_row
+
+            scaled = scaler.transform(row)
+            if hasattr(rf_model, "predict_proba"):
+                prob = float(rf_model.predict_proba(scaled)[0][1])
+            else:
+                pred = float(rf_model.predict(scaled)[0])
+                prob = max(0.0, min(1.0, pred))
+            return max(0.0, min(1.0, prob))
+        except Exception as e:
+            logger.debug(f"RF sidecar failed for {symbol}: {e}")
+            return None
 
     def get_current_price(self, symbol: str) -> float:
         """Get current price from real market data, fallback to base_price."""
@@ -465,14 +538,51 @@ class AssetPredictor:
         use_ml_model = symbol in self.models and symbol in self.scalers
         
         mtf: Dict[str, Any] = {}
+        ensemble = {
+            "xgboost": None,
+            "random_forest": None,
+            "lstm": None,
+            "method": "2-model",
+        }
 
         if use_ml_model:
             try:
                 is_xgboost = symbol in self.model_features and len(self.model_features[symbol]) > 10
+                recent_df = self._get_recent_ohlcv(symbol, days=250) if is_xgboost else None
 
                 if is_xgboost:
                     # XGBoost path: use auto_trainer's feature engineering
-                    predicted_price, trend_score, confidence = self._predict_xgboost(symbol, current_price)
+                    predicted_price, trend_score, confidence = self._predict_xgboost(symbol, current_price, recent_df=recent_df)
+
+                    xgb_prob = max(0.0, min(1.0, confidence / 100.0))
+                    rf_prob = self._predict_rf_sidecar(symbol, recent_df)
+                    lstm_prob = None
+
+                    if symbol in self.all_assets and self.all_assets[symbol].get("type") == AssetType.CRYPTO:
+                        try:
+                            from ml.lstm_model import LSTM_SYMBOLS, predict_lstm
+
+                            if symbol in LSTM_SYMBOLS and recent_df is not None:
+                                lstm_prob = predict_lstm(symbol, recent_df)
+                        except Exception as e:
+                            logger.debug(f"LSTM prediction failed for {symbol}: {e}")
+
+                    ensemble["xgboost"] = round(xgb_prob, 4)
+                    ensemble["random_forest"] = round(rf_prob, 4) if rf_prob is not None else None
+                    ensemble["lstm"] = round(lstm_prob, 4) if lstm_prob is not None else None
+
+                    if symbol in self.all_assets and self.all_assets[symbol].get("type") == AssetType.CRYPTO:
+                        if rf_prob is not None and lstm_prob is not None:
+                            final_prob = xgb_prob * 0.50 + rf_prob * 0.30 + lstm_prob * 0.20
+                            ensemble["method"] = "3-model"
+                        elif lstm_prob is not None:
+                            final_prob = xgb_prob * 0.80 + lstm_prob * 0.20
+                            ensemble["method"] = "2-model"
+                        else:
+                            final_prob = xgb_prob
+                            ensemble["method"] = "2-model"
+
+                        confidence = max(0.0, min(100.0, final_prob * 100.0))
 
                     # Multi-timeframe runtime layer (no model retraining, additive only)
                     try:
@@ -514,6 +624,7 @@ class AssetPredictor:
                     trend_score = np.clip(price_change_pct / 5.0, -1, 1)
                     base_confidence = 88.8
                     confidence = min(95, base_confidence + abs(trend_score) * 5)
+                    ensemble["random_forest"] = round(max(0.0, min(1.0, confidence / 100.0)), 4)
 
                 daily_change = trend_score * 0.005
 
@@ -600,6 +711,7 @@ class AssetPredictor:
             "rsi_1h": round(float(mtf.get("rsi_1h", 50.0)), 1) if mtf else None,
             "prediction_horizon_days": days,
             "price_path": price_path,
+            "ensemble": ensemble,
             "timestamp": datetime.now().isoformat(),
             "model_version": "v1.0-trained" if use_ml_model else "v1.0-alpha",
             "using_ml_model": use_ml_model

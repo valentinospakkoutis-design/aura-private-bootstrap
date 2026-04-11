@@ -28,6 +28,12 @@ interface Prediction {
   trend_4h?: 'bullish' | 'bearish' | 'neutral' | null;
   trend_1d?: 'bullish' | 'bearish' | 'neutral' | null;
   rsi_1h?: number | null;
+  ensemble?: {
+    xgboost?: number | null;
+    random_forest?: number | null;
+    lstm?: number | null;
+    method?: '3-model' | '2-model' | string;
+  } | null;
 }
 
 interface Mover {
@@ -257,6 +263,13 @@ export default function AIPredictionsScreen() {
               <View style={s.modelBadge}>
                 <Text style={s.modelBadgeText}>
                   {t('modelVersionBadge', { version: String(health.version), arrow: modelTrendArrow(health.trend) })}
+                </Text>
+              </View>
+            )}
+            {item.ensemble?.method && (
+              <View style={s.ensembleBadge}>
+                <Text style={s.ensembleBadgeText}>
+                  {item.ensemble.method === '3-model' ? t('ensembleBadge3Model') : t('ensembleBadge2Model')}
                 </Text>
               </View>
             )}
@@ -497,6 +510,19 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: '#1d4ed8',
+  },
+  ensembleBadge: {
+    backgroundColor: '#0f172a12',
+    borderColor: '#0f172a20',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  ensembleBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: theme.colors.text.secondary,
   },
   histBadge: {
     backgroundColor: '#16a34a22',

@@ -300,6 +300,9 @@ export const translations: Record<string, Record<string, string>> = {
     viewPlans: "Δες πλάνα",
     maybeLater: "Ίσως αργότερα",
     liveTrading: "Live Trading",
+    ensembleBadge3Model: "🧠 3-Model Ensemble",
+    ensembleBadge2Model: "🤖 2-Model Ensemble",
+    ensembleBreakdownTitle: "Ensemble Breakdown",
   },
 
   en: {
@@ -603,5 +606,8 @@ export const translations: Record<string, Record<string, string>> = {
     viewPlans: "View plans",
     maybeLater: "Maybe later",
     liveTrading: "Live Trading",
+    ensembleBadge3Model: "🧠 3-Model Ensemble",
+    ensembleBadge2Model: "🤖 2-Model Ensemble",
+    ensembleBreakdownTitle: "Ensemble Breakdown",
   },
 };

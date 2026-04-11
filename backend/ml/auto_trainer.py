@@ -73,6 +73,13 @@ YFINANCE_SYMBOLS = list(YFINANCE_SYMBOL_MAP.keys())
 TRAINING_SYMBOLS = CRYPTO_SYMBOLS + YFINANCE_SYMBOLS
 
 
+def fetch_ohlcv(symbol: str, days: int = 365, interval: str = "1d") -> Optional[pd.DataFrame]:
+    """Fetch OHLCV using the existing crypto/yfinance split."""
+    if symbol in YFINANCE_SYMBOL_MAP:
+        return fetch_yfinance_ohlcv(symbol, days=days)
+    return fetch_binance_ohlcv(symbol, interval=interval, days=days)
+
+
 def fetch_binance_ohlcv(symbol: str, interval: str = "1d", days: int = 730) -> Optional[pd.DataFrame]:
     """
     Fetch historical OHLCV data from Binance public API.
@@ -663,6 +670,28 @@ def _weekly_retraining_with_feedback():
         logger.error(f"[scheduler] Weekly feedback refinement failed: {e}")
 
 
+def _weekly_lstm_retraining():
+    """Weekly LSTM sidecar training for top-10 crypto symbols."""
+    logger.info("[scheduler] Starting weekly LSTM sidecar retraining...")
+    try:
+        from ml.lstm_model import LSTM_SYMBOLS, train_lstm
+
+        succeeded = 0
+        for symbol in LSTM_SYMBOLS:
+            try:
+                ohlcv = fetch_ohlcv(symbol, days=365)
+                result = train_lstm(symbol, ohlcv)
+                if result is not None:
+                    succeeded += 1
+            except Exception as e:
+                print(f"[LSTM] Failed {symbol}: {e}")
+                continue
+
+        logger.info("[scheduler] Weekly LSTM sidecar retraining done: %s/%s succeeded", succeeded, len(LSTM_SYMBOLS))
+    except Exception as e:
+        logger.error(f"[scheduler] Weekly LSTM sidecar retraining failed: {e}")
+
+
 def _daily_morning_briefings():
     """Daily morning AI briefings push job (06:00 UTC / 08:00 EET)."""
     logger.info("[scheduler] Starting morning briefings push...")
@@ -701,6 +730,15 @@ def setup_weekly_retraining():
             trigger=CronTrigger(day_of_week="sun", hour=0, minute=0),
             id="weekly_retrain",
             name="Weekly model retraining + feedback refinement",
+            replace_existing=True,
+        )
+
+        # Weekly LSTM sidecar retraining — Sunday 01:00 UTC
+        scheduler.add_job(
+            _weekly_lstm_retraining,
+            trigger=CronTrigger(day_of_week="sun", hour=1, minute=0),
+            id="weekly_lstm_retrain",
+            name="Weekly LSTM sidecar retraining",
             replace_existing=True,
         )
 
@@ -766,7 +804,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")

@@ -31,6 +31,12 @@ interface PredictionDetail {
   trend_4h?: 'bullish' | 'bearish' | 'neutral' | null;
   trend_1d?: 'bullish' | 'bearish' | 'neutral' | null;
   rsi_1h?: number | null;
+  ensemble?: {
+    xgboost?: number | null;
+    random_forest?: number | null;
+    lstm?: number | null;
+    method?: '3-model' | '2-model' | string;
+  } | null;
 }
 
 export default function PredictionDetailsScreen() {
@@ -180,7 +186,46 @@ export default function PredictionDetailsScreen() {
           </View>
           <AnimatedProgressBar progress={prediction.confidence ?? 0} color={actionColor} height={10} animated />
           <Text style={styles.modelVersion}>Model: {prediction.modelVersion}</Text>
+          {prediction.ensemble?.method && (
+            <Text style={styles.ensembleMethod}>
+              {prediction.ensemble.method === '3-model' ? t('ensembleBadge3Model') : t('ensembleBadge2Model')}
+            </Text>
+          )}
         </View>
+
+        {prediction.ensemble && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t('ensembleBreakdownTitle')}</Text>
+
+            <View style={styles.ensembleRow}>
+              <Text style={styles.ensembleLabel}>XGBoost</Text>
+              <Text style={styles.ensembleValue}>
+                {typeof prediction.ensemble.xgboost === 'number' ? `${(prediction.ensemble.xgboost * 100).toFixed(0)}%` : 'N/A'}
+              </Text>
+            </View>
+            <AnimatedProgressBar progress={prediction.ensemble.xgboost ?? 0} color={theme.colors.brand.primary} height={8} animated />
+
+            <View style={styles.ensembleSpacer} />
+
+            <View style={styles.ensembleRow}>
+              <Text style={styles.ensembleLabel}>RandomForest</Text>
+              <Text style={styles.ensembleValue}>
+                {typeof prediction.ensemble.random_forest === 'number' ? `${(prediction.ensemble.random_forest * 100).toFixed(0)}%` : 'N/A'}
+              </Text>
+            </View>
+            <AnimatedProgressBar progress={prediction.ensemble.random_forest ?? 0} color={'#2563eb'} height={8} animated />
+
+            <View style={styles.ensembleSpacer} />
+
+            <View style={styles.ensembleRow}>
+              <Text style={styles.ensembleLabel}>LSTM</Text>
+              <Text style={styles.ensembleValue}>
+                {typeof prediction.ensemble.lstm === 'number' ? `${(prediction.ensemble.lstm * 100).toFixed(0)}%` : 'N/A'}
+              </Text>
+            </View>
+            <AnimatedProgressBar progress={prediction.ensemble.lstm ?? 0} color={'#7c3aed'} height={8} animated />
+          </View>
+        )}
 
         {/* Trend Card */}
         <View style={styles.card}>
@@ -347,6 +392,30 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.xs,
     color: theme.colors.text.secondary,
     marginTop: theme.spacing.sm,
+  },
+  ensembleMethod: {
+    fontSize: theme.typography.sizes.xs,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing.sm,
+    fontWeight: '600',
+  },
+  ensembleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.xs,
+  },
+  ensembleLabel: {
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.secondary,
+  },
+  ensembleValue: {
+    fontSize: theme.typography.sizes.md,
+    color: theme.colors.text.primary,
+    fontWeight: '700',
+  },
+  ensembleSpacer: {
+    height: theme.spacing.sm,
   },
   trendRow: {
     flexDirection: 'row',

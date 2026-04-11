@@ -9,7 +9,7 @@ python-multipart>=0.0.6
 jinja2>=3.1.0
 flask>=3.1.0
 pandas>=2.3.0
-numpy>=2.3.0
+numpy>=1.24.0
 scikit-learn>=1.8.0
 sqlalchemy>=2.0.0
 werkzeug>=3.1.0
@@ -43,7 +43,5 @@ PyJWT>=2.8.0
 pyotp>=2.9.0
 qrcode[pil]>=7.4.2
 anthropic>=0.40.0
-# Note: TensorFlow is not available for Python 3.14 yet (supports up to 3.12)
-# To use TensorFlow, downgrade to Python 3.12 or wait for TensorFlow 3.x support
-# tensorflow>=2.15.0
+tensorflow==2.15.0; python_version < '3.13'
 
