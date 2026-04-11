@@ -402,10 +402,6 @@ class AutopilotModeChangeLog(Base):
 class CircuitBreakerEvent(Base):
     """Append-only circuit breaker trip/reset window events."""
     __tablename__ = "circuit_breaker_events"
-    __table_args__ = (
-        Index("ix_circuit_breaker_events_user_id", "user_id"),
-        Index("ix_circuit_breaker_events_tripped_at", "tripped_at"),
-    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
