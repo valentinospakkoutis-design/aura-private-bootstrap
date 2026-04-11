@@ -685,9 +685,9 @@ class AssetPredictor:
         # On-chain runtime layer (crypto only, additive only)
         if asset.get("type") == AssetType.CRYPTO:
             try:
-                from services.onchain_service import ONCHAIN_SYMBOLS, get_onchain_signals
+                from services.onchain_service import get_onchain_signals, is_onchain_supported
 
-                if symbol in ONCHAIN_SYMBOLS:
+                if is_onchain_supported(symbol):
                     onchain = get_onchain_signals(symbol)
                     score = float(onchain.get("onchain_score", 0.5) or 0.5)
 
@@ -741,6 +741,7 @@ class AssetPredictor:
                 "score": round(float(onchain.get("onchain_score", 0.5)), 3),
                 "sentiment": onchain.get("onchain_sentiment", "neutral"),
                 "funding_rate": onchain.get("funding_rate"),
+                "open_interest": onchain.get("open_interest"),
                 "long_short_ratio": onchain.get("long_short_ratio"),
                 "fear_greed": onchain.get("fear_greed"),
             } if onchain else None,

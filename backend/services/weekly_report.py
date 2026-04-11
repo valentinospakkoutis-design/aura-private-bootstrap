@@ -66,6 +66,24 @@ def _get_predictions_accuracy() -> float:
     return float(acc.get("overall_accuracy_7d", 0.0) or 0.0)
 
 
+def _get_onchain_summary(days: int = 7) -> Dict:
+    try:
+        from services.onchain_service import get_recent_onchain_summary
+
+        return get_recent_onchain_summary(days=days)
+    except Exception as e:
+        logger.warning(f"[WEEKLY] On-chain summary unavailable: {e}")
+        return {
+            "days": days,
+            "tracked_assets": 0,
+            "average_score": 0.5,
+            "market_sentiment": "neutral",
+            "strongest_bullish": None,
+            "strongest_bearish": None,
+            "assets": [],
+        }
+
+
 def _best_trade(trades: List[Dict]) -> str:
     candidates = [t for t in trades if float(t.get("pnl", 0) or 0) != 0]
     if not candidates:
@@ -98,6 +116,10 @@ def _generate_report_text(stats: Dict) -> str:
 - Καλύτερο trade: {stats['best_trade']}
 - Χειρότερο trade: {stats['worst_trade']}
 - AI Accuracy: {float(stats['ai_accuracy']):.1f}%
+- On-chain sentiment: {stats.get('onchain_summary', {}).get('market_sentiment', 'neutral')}
+- On-chain avg score: {float(stats.get('onchain_summary', {}).get('average_score', 0.5) or 0.5):.2f}
+- Strongest bullish: {(stats.get('onchain_summary', {}).get('strongest_bullish') or {}).get('symbol', 'N/A')}
+- Strongest bearish: {(stats.get('onchain_summary', {}).get('strongest_bearish') or {}).get('symbol', 'N/A')}
 
 Συμπερίλαβε: τι πήγε καλά, τι να βελτιωθεί,
 μία σύσταση για επόμενη εβδομάδα.
@@ -119,10 +141,16 @@ def _fallback_report_text(stats: Dict) -> str:
     pnl = float(stats.get("pnl_pct", 0.0) or 0.0)
     wr = float(stats.get("win_rate", 0.0) or 0.0)
     direction = "θετική" if pnl >= 0 else "αρνητική"
+    onchain_summary = stats.get("onchain_summary", {}) or {}
+    market_sentiment = str(onchain_summary.get("market_sentiment", "neutral") or "neutral")
     suggestion = "Πειθαρχία στα φίλτρα confidence." if wr < 50 else "Διατήρησε τη συνέπεια στο risk management."
+    if market_sentiment == "bearish":
+        suggestion = "Πρόσεξε το risk, γιατί το on-chain momentum έδειξε αδυναμία."
+    elif market_sentiment == "bullish":
+        suggestion = "Υπήρχε θετικό on-chain υπόβαθρο, αλλά κράτα πειθαρχημένα entries."
     text_out = (
         f"Η εβδομάδα ήταν {direction} με P/L {pnl:+.2f}% και win rate {wr:.1f}%. "
-        f"Καλύτερο: {stats.get('best_trade', 'N/A')}. {suggestion}"
+        f"On-chain: {market_sentiment}. Καλύτερο: {stats.get('best_trade', 'N/A')}. {suggestion}"
     )
     return text_out[:200]
 
@@ -134,9 +162,9 @@ def save_weekly_report(user_id: int, week_start, stats: Dict, report_text: str) 
             text(
                 """
                 INSERT INTO weekly_reports
-                    (user_id, week_start, pnl_pct, total_trades, win_rate, best_trade, worst_trade, ai_accuracy, report_text)
+                    (user_id, week_start, pnl_pct, total_trades, win_rate, best_trade, worst_trade, ai_accuracy, onchain_summary_json, report_text)
                 VALUES
-                    (:user_id, :week_start, :pnl_pct, :total_trades, :win_rate, :best_trade, :worst_trade, :ai_accuracy, :report_text)
+                    (:user_id, :week_start, :pnl_pct, :total_trades, :win_rate, :best_trade, :worst_trade, :ai_accuracy, :onchain_summary_json, :report_text)
                 """
             ),
             {
@@ -148,6 +176,7 @@ def save_weekly_report(user_id: int, week_start, stats: Dict, report_text: str) 
                 "best_trade": str(stats.get("best_trade", "N/A")),
                 "worst_trade": str(stats.get("worst_trade", "N/A")),
                 "ai_accuracy": float(stats.get("ai_accuracy", 0.0) or 0.0),
+                "onchain_summary_json": json.dumps(stats.get("onchain_summary") or {}),
                 "report_text": str(report_text or ""),
             },
         )
@@ -181,6 +210,7 @@ def generate_weekly_report(user_id: int) -> Optional[Dict]:
         "best_trade": _best_trade(trades),
         "worst_trade": _worst_trade(trades),
         "ai_accuracy": _get_predictions_accuracy(),
+        "onchain_summary": _get_onchain_summary(days=7),
     }
 
     report_text = _generate_report_text(stats)
@@ -238,7 +268,8 @@ def get_weekly_reports(user_id: int, limit: int = 4) -> Dict:
         rows = db.execute(
             text(
                 """
-                SELECT week_start, pnl_pct, total_trades, win_rate, best_trade, worst_trade, ai_accuracy, report_text, created_at
+                  SELECT week_start, pnl_pct, total_trades, win_rate, best_trade, worst_trade, ai_accuracy,
+                      onchain_summary_json, report_text, created_at
                 FROM weekly_reports
                 WHERE user_id = :user_id
                 ORDER BY week_start DESC, created_at DESC
@@ -260,6 +291,7 @@ def get_weekly_reports(user_id: int, limit: int = 4) -> Dict:
                         "best_trade": r["best_trade"] or "N/A",
                         "worst_trade": r["worst_trade"] or "N/A",
                         "ai_accuracy": float(r["ai_accuracy"] or 0.0),
+                        "onchain_summary": json.loads(r["onchain_summary_json"] or "{}") if isinstance(r["onchain_summary_json"], str) else (r["onchain_summary_json"] or {}),
                     },
                     "report_text": r["report_text"] or "",
                     "created_at": r["created_at"].isoformat() if r["created_at"] else None,

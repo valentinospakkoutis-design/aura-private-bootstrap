@@ -1,7 +1,7 @@
 """Prediction tracking and evaluation service."""
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
@@ -19,6 +19,8 @@ class PredictionOutcomesService:
                     action VARCHAR NOT NULL,
                     confidence FLOAT NOT NULL,
                     price_at_prediction FLOAT NOT NULL,
+                    onchain_score FLOAT,
+                    onchain_sentiment VARCHAR,
                     price_7d_later FLOAT,
                     price_30d_later FLOAT,
                     was_correct_7d BOOLEAN,
@@ -31,6 +33,8 @@ class PredictionOutcomesService:
             db.execute(text("CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_symbol ON prediction_outcomes (symbol)"))
             db.execute(text("CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_created_at ON prediction_outcomes (created_at DESC)"))
             db.execute(text("CREATE INDEX IF NOT EXISTS ix_prediction_outcomes_eval_7d ON prediction_outcomes (was_correct_7d, created_at)"))
+            db.execute(text("ALTER TABLE prediction_outcomes ADD COLUMN IF NOT EXISTS onchain_score FLOAT"))
+            db.execute(text("ALTER TABLE prediction_outcomes ADD COLUMN IF NOT EXISTS onchain_sentiment VARCHAR"))
             db.commit()
         except Exception:
             db.rollback()
@@ -50,15 +54,26 @@ class PredictionOutcomesService:
         except Exception:
             return 0.0
 
-    def track_prediction(self, symbol: str, action: str, confidence: float, price_at_prediction: float):
+    def track_prediction(
+        self,
+        symbol: str,
+        action: str,
+        confidence: float,
+        price_at_prediction: float,
+        onchain: Optional[Dict[str, Any]] = None,
+    ):
         self._ensure_table()
         db = SessionLocal()
         try:
             db.execute(
                 text(
                     """
-                    INSERT INTO prediction_outcomes (symbol, action, confidence, price_at_prediction)
-                    VALUES (:symbol, :action, :confidence, :price_at_prediction)
+                    INSERT INTO prediction_outcomes (
+                        symbol, action, confidence, price_at_prediction, onchain_score, onchain_sentiment
+                    )
+                    VALUES (
+                        :symbol, :action, :confidence, :price_at_prediction, :onchain_score, :onchain_sentiment
+                    )
                     """
                 ),
                 {
@@ -66,6 +81,8 @@ class PredictionOutcomesService:
                     "action": str(action or "HOLD").upper(),
                     "confidence": float(confidence or 0.0),
                     "price_at_prediction": float(price_at_prediction or 0.0),
+                    "onchain_score": float((onchain or {}).get("score") or 0.0) if onchain else None,
+                    "onchain_sentiment": str((onchain or {}).get("sentiment") or "") if onchain else None,
                 },
             )
             db.commit()

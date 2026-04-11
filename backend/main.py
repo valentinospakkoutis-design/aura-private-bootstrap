@@ -1659,6 +1659,7 @@ def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[st
                 action=rec,
                 confidence=confidence,
                 price_at_prediction=float(current_price or 0.0),
+                onchain=p.get("onchain"),
             )
         except Exception:
             pass
@@ -1768,13 +1769,33 @@ def get_market_movers():
     }
 
 
+@app.get("/api/market/onchain/summary")
+def get_market_onchain_summary(days: int = 7):
+    """Return aggregate on-chain summary across tracked crypto assets."""
+    from services.onchain_service import get_recent_onchain_summary
+
+    return sanitize_floats(get_recent_onchain_summary(days=max(1, min(days, 90))))
+
+
+@app.get("/api/market/onchain/{symbol}/history")
+def get_market_onchain_history(symbol: str, days: int = 30, limit: int = 120):
+    """Return persistent on-chain snapshot history for a symbol."""
+    from services.onchain_service import get_onchain_history, is_onchain_supported
+
+    sym = symbol.upper()
+    if not is_onchain_supported(sym):
+        raise HTTPException(status_code=404, detail=f"On-chain signals not supported for {sym}")
+
+    return sanitize_floats(get_onchain_history(sym, days=max(1, min(days, 365)), limit=max(1, min(limit, 500))))
+
+
 @app.get("/api/market/onchain/{symbol}")
 def get_market_onchain(symbol: str):
     """Return full on-chain signal bundle for supported crypto symbols."""
-    from services.onchain_service import ONCHAIN_SYMBOLS, get_onchain_signals
+    from services.onchain_service import get_onchain_signals, is_onchain_supported
 
     sym = symbol.upper()
-    if sym not in ONCHAIN_SYMBOLS:
+    if not is_onchain_supported(sym):
         raise HTTPException(status_code=404, detail=f"On-chain signals not supported for {sym}")
 
     return sanitize_floats(get_onchain_signals(sym))

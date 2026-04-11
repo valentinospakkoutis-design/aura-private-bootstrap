@@ -13,6 +13,19 @@ interface WeeklyStats {
   ai_accuracy: number;
   best_trade: string;
   worst_trade: string;
+  onchain_summary?: {
+    market_sentiment?: 'bullish' | 'bearish' | 'neutral' | string;
+    average_score?: number;
+    tracked_assets?: number;
+    strongest_bullish?: {
+      symbol?: string;
+      average_score?: number;
+    } | null;
+    strongest_bearish?: {
+      symbol?: string;
+      average_score?: number;
+    } | null;
+  } | null;
 }
 
 interface WeeklyReportItem {
@@ -75,6 +88,12 @@ export default function WeeklyReportScreen() {
 
   const stats = latest?.stats;
   const pnlColor = (stats?.pnl_pct || 0) >= 0 ? theme.colors.market.bullish : theme.colors.market.bearish;
+
+  const onchainSentimentLabel = useCallback((sentiment?: string | null) => {
+    if (sentiment === 'bullish') return t('onchainBullish');
+    if (sentiment === 'bearish') return t('onchainBearish');
+    return t('onchainNeutral');
+  }, [t]);
 
   const shareText = useMemo(() => {
     if (!stats) return '';
@@ -140,6 +159,30 @@ export default function WeeklyReportScreen() {
             <Text style={styles.cardTitle}>{t('weeklyAiReport')}</Text>
             <Text style={styles.cardText}>{latest.report_text || t('weeklyReportEmpty')}</Text>
           </View>
+
+          {!!stats?.onchain_summary && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>{t('weeklyOnchainOverview')}</Text>
+              <View style={styles.historyRow}>
+                <Text style={styles.historyDate}>{t('onchainMarketSentiment')}</Text>
+                <Text style={styles.historyPnl}>{onchainSentimentLabel(stats.onchain_summary.market_sentiment)}</Text>
+              </View>
+              <View style={styles.historyRow}>
+                <Text style={styles.historyDate}>{t('onchainAverageScore')}</Text>
+                <Text style={styles.historyPnl}>{(((stats.onchain_summary.average_score ?? 0.5) * 100)).toFixed(0)}%</Text>
+              </View>
+              <View style={styles.historyRow}>
+                <Text style={styles.historyDate}>{t('onchainTrackedAssets')}</Text>
+                <Text style={styles.historyPnl}>{stats.onchain_summary.tracked_assets ?? 0}</Text>
+              </View>
+              <Text style={styles.cardText}>
+                {t('onchainStrongestBullish')}: {stats.onchain_summary.strongest_bullish?.symbol || 'N/A'}
+              </Text>
+              <Text style={styles.cardText}>
+                {t('onchainStrongestBearish')}: {stats.onchain_summary.strongest_bearish?.symbol || 'N/A'}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t('bestWorstTrades')}</Text>

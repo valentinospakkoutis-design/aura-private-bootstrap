@@ -269,7 +269,32 @@ class WeeklyReport(Base):
     best_trade = Column(String(120))
     worst_trade = Column(String(120))
     ai_accuracy = Column(Float)
+    onchain_summary_json = Column(JSON)
     report_text = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class OnchainSignalSnapshot(Base):
+    """Persistent on-chain proxy snapshot history per symbol."""
+    __tablename__ = "onchain_signal_history"
+    __table_args__ = (
+        Index("ix_onchain_history_symbol_ts", "symbol", "created_at"),
+        Index("ix_onchain_history_sentiment_ts", "onchain_sentiment", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    futures_symbol = Column(String(20), nullable=False)
+    onchain_score = Column(Float, nullable=False)
+    onchain_sentiment = Column(String(12), nullable=False)
+    funding_rate = Column(Float)
+    open_interest = Column(Float)
+    long_short_ratio = Column(Float)
+    fear_greed = Column(Integer)
+    funding_bearish = Column(Boolean, default=False)
+    extreme_fear = Column(Boolean, default=False)
+    extreme_greed = Column(Boolean, default=False)
+    overleveraged_longs = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
