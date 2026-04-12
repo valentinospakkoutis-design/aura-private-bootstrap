@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
@@ -9,6 +10,9 @@ import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoData } from '../mobile/src/components/NoData';
 import { theme } from '../mobile/src/constants/theme';
 import { NumberFormatter } from '../mobile/src/utils/NumberFormatter';
+import { useLanguage } from '../mobile/src/hooks/useLanguage';
+import { useAppStore } from '../mobile/src/stores/appStore';
+import { getToken } from '../mobile/src/utils/tokenStorage';
 
 interface AnalyticsData {
   totalValue: number;
@@ -40,6 +44,9 @@ interface AnalyticsData {
 }
 
 export default function AnalyticsScreen() {
+  const router = useRouter();
+  const { t } = useLanguage();
+  const { showToast } = useAppStore();
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
@@ -50,12 +57,28 @@ export default function AnalyticsScreen() {
     execute: fetchAnalytics,
   } = useApi(() => api.getAnalyticsSummary(timeRange), { showLoading: false, showToast: false });
 
-  useEffect(() => {
-    loadAnalytics();
-  }, [timeRange]);
+  const isAuthError = useCallback((err: any) => {
+    const detail = String(err?.response?.data?.detail || err?.message || '').toLowerCase();
+    return err?.response?.status === 401
+      || err?.statusCode === 401
+      || detail.includes('missing authorization token')
+      || detail.includes('authorization token')
+      || detail.includes('not authenticated');
+  }, []);
 
-  const loadAnalytics = async () => {
+  const handleAuthRequired = useCallback(async () => {
+    showToast(t('sessionExpired'), 'error');
+    router.replace('/login');
+  }, [router, showToast, t]);
+
+  const loadAnalytics = useCallback(async () => {
     try {
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
+
       const data = await fetchAnalytics();
       if (data && typeof data === 'object') {
         const totalProfit = (data.final_capital || data.total_value || 0)
@@ -79,9 +102,17 @@ export default function AnalyticsScreen() {
         });
       }
     } catch (err) {
+      if (isAuthError(err)) {
+        await handleAuthRequired();
+        return;
+      }
       console.error('Failed to load analytics:', err);
     }
-  };
+  }, [fetchAnalytics, handleAuthRequired, isAuthError]);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [timeRange]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

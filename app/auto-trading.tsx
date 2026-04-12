@@ -208,6 +208,15 @@ export default function AutoTradingScreen() {
     router.replace('/login');
   }, [router, showToast, t]);
 
+  const isAuthError = useCallback((err: any) => {
+    const detail = String(err?.response?.data?.detail || err?.message || '').toLowerCase();
+    return err?.response?.status === 401
+      || err?.statusCode === 401
+      || detail.includes('missing authorization token')
+      || detail.includes('authorization token')
+      || detail.includes('not authenticated');
+  }, []);
+
   const loadStatus = useCallback(async () => {
     try {
       const token = await getToken();
@@ -230,7 +239,7 @@ export default function AutoTradingScreen() {
         setAutopilotMode(normalizeBackendMode(backendMode));
       }
     } catch (err: any) {
-      if (err?.response?.status === 401 || err?.statusCode === 401) {
+      if (isAuthError(err)) {
         await handleAuthRequired();
         return;
       }
@@ -238,7 +247,7 @@ export default function AutoTradingScreen() {
     } finally {
       setLoading(false);
     }
-  }, [handleAuthRequired]);
+  }, [handleAuthRequired, isAuthError]);
 
   useEffect(() => {
     loadStatus();
@@ -255,10 +264,19 @@ export default function AutoTradingScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              const token = await getToken();
+              if (!token) {
+                await handleAuthRequired();
+                return;
+              }
               await api.resetAutoTradingCircuitBreaker();
               showToast(t('circuitBreakerResetSuccess'), 'success');
               await loadStatus();
             } catch (err: any) {
+              if (isAuthError(err)) {
+                await handleAuthRequired();
+                return;
+              }
               const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
               showToast(msg, 'error');
             }
@@ -266,7 +284,7 @@ export default function AutoTradingScreen() {
         },
       ]
     );
-  }, [loadStatus, showToast, t]);
+  }, [handleAuthRequired, isAuthError, loadStatus, showToast, t]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -303,7 +321,7 @@ export default function AutoTradingScreen() {
       }
       await loadStatus();
     } catch (err: any) {
-      if (err?.response?.status === 401 || err?.statusCode === 401) {
+      if (isAuthError(err)) {
         await handleAuthRequired();
         return;
       }
@@ -315,7 +333,7 @@ export default function AutoTradingScreen() {
     } finally {
       setToggling(false);
     }
-  }, [handleAuthRequired, showToast, loadStatus, t, showAchievementToasts, handlePaywallError]);
+  }, [handleAuthRequired, showToast, loadStatus, t, showAchievementToasts, handlePaywallError, isAuthError]);
 
   const handleToggle = useCallback((value: boolean) => {
     if (value) {
@@ -334,6 +352,12 @@ export default function AutoTradingScreen() {
 
   const toggleDcaMode = useCallback(async (enabled: boolean) => {
     try {
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
+
       if (enabled) {
         await api.enableDcaMode();
       } else {
@@ -358,24 +382,37 @@ export default function AutoTradingScreen() {
 
       await loadStatus();
     } catch (err: any) {
+      if (isAuthError(err)) {
+        await handleAuthRequired();
+        return;
+      }
       if (handlePaywallError(err)) {
         return;
       }
       const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
       showToast(msg, 'error');
     }
-  }, [loadStatus, showToast, status?.config?.fixed_order_value_usd, t, handlePaywallError]);
+  }, [handleAuthRequired, handlePaywallError, isAuthError, loadStatus, showToast, status?.config?.fixed_order_value_usd, t]);
 
   const cancelDcaOrder = useCallback(async (orderId: number) => {
     try {
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
       await api.cancelDcaOrder(orderId);
       showToast(t('dcaCancelSuccess'), 'success');
       await loadStatus();
     } catch (err: any) {
+      if (isAuthError(err)) {
+        await handleAuthRequired();
+        return;
+      }
       const msg = err?.response?.data?.detail || err?.message || t('autopilotActionFailed');
       showToast(msg, 'error');
     }
-  }, [loadStatus, showToast, t]);
+  }, [handleAuthRequired, isAuthError, loadStatus, showToast, t]);
 
   useEffect(() => {
     const logs = status?.recent_log || [];
@@ -446,7 +483,7 @@ export default function AutoTradingScreen() {
               showToast(`${t('modeChanged')}: ${localizedMode}`, 'success');
               await loadStatus();
             } catch (err: any) {
-              if (err?.response?.status === 401 || err?.statusCode === 401) {
+              if (isAuthError(err)) {
                 await handleAuthRequired();
                 return;
               }
@@ -459,7 +496,7 @@ export default function AutoTradingScreen() {
         },
       ]
     );
-  }, [autopilotMode, changingMode, handleAuthRequired, showToast, loadStatus, t]);
+  }, [autopilotMode, changingMode, handleAuthRequired, showToast, loadStatus, t, isAuthError]);
 
   if (loading) {
     return (

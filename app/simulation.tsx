@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -9,9 +9,12 @@ import {
   View,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
+import { useRouter } from 'expo-router';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { theme } from '../mobile/src/constants/theme';
 import { api } from '../mobile/src/services/apiClient';
+import { getToken } from '../mobile/src/utils/tokenStorage';
+import { useAppStore } from '../mobile/src/stores/appStore';
 
 type StrategyKey = 'ai_follow' | 'conservative_ai' | 'buy_and_hold';
 
@@ -47,7 +50,9 @@ const AVAILABLE_SYMBOLS = ['BTCUSDC', 'ETHUSDC', 'BNBUSDC', 'SOLUSDC', 'ADAUSDC'
 const TIMEFRAMES = [7, 14, 30, 90];
 
 export default function SimulationScreen() {
+  const router = useRouter();
   const { t } = useLanguage();
+  const { showToast } = useAppStore();
 
   const [strategy, setStrategy] = useState<StrategyKey>('ai_follow');
   const [symbols, setSymbols] = useState<string[]>(['BTCUSDC', 'ETHUSDC']);
@@ -69,6 +74,21 @@ export default function SimulationScreen() {
     const parsedCapital = Number(capital);
     return Number.isFinite(parsedCapital) && parsedCapital > 0 && symbols.length > 0;
   }, [capital, symbols.length]);
+
+  const isAuthError = useCallback((err: any) => {
+    const detail = String(err?.response?.data?.detail || err?.message || '').toLowerCase();
+    return err?.response?.status === 401
+      || err?.statusCode === 401
+      || detail.includes('missing authorization token')
+      || detail.includes('authorization token')
+      || detail.includes('not authenticated');
+  }, []);
+
+  const handleAuthRequired = useCallback(async () => {
+    setError(null);
+    showToast(t('sessionExpired'), 'error');
+    router.replace('/login');
+  }, [router, showToast, t]);
 
   const toggleSymbol = (symbol: string) => {
     setSymbols((prev) => {
@@ -117,6 +137,12 @@ export default function SimulationScreen() {
     setError(null);
 
     try {
+      const token = await getToken();
+      if (!token) {
+        await handleAuthRequired();
+        return;
+      }
+
       const payload = {
         strategy,
         symbols,
@@ -131,6 +157,10 @@ export default function SimulationScreen() {
       setMetrics(normalizeMetrics(response));
       setTrades(normalizeTrades(response));
     } catch (e: any) {
+      if (isAuthError(e)) {
+        await handleAuthRequired();
+        return;
+      }
       const message = e?.response?.data?.detail || e?.message || t('simulationRunError');
       setError(message);
       setMetrics(null);
