@@ -15,6 +15,23 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+THRESHOLD = 0.01  # 1% move required to label as UP or DOWN
+
+
+def compute_threshold_labels(df: pd.DataFrame, forward_days: int = 1) -> pd.Series:
+    """
+    Returns labels: 1 (UP >1%), -1 (DOWN >1%), 0 (SIDEWAYS <1%).
+    Reduces noise by ignoring tiny moves.
+    """
+    if df is None or df.empty or "close" not in df.columns:
+        return pd.Series(dtype=int)
+
+    future_return = df["close"].shift(-forward_days) / df["close"] - 1
+    labels = pd.Series(0, index=df.index, dtype=int)
+    labels[future_return > THRESHOLD] = 1
+    labels[future_return < -THRESHOLD] = -1
+    return labels
+
 
 def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
@@ -241,6 +258,10 @@ def engineer_features_for_symbol(db_session, symbol: str, job_id: str = "manual"
     } for p in prices])
     df = df.set_index("date").sort_index()
 
+    # Legacy binary-like direction label (up/down) plus threshold label.
+    df["label"] = np.where((df["close"].shift(-1) / df["close"] - 1) > 0, 1, -1)
+    df["label_threshold"] = compute_threshold_labels(df, forward_days=1)
+
     count = 0
     dates = df.index[64:]  # start after 60-day lookback window
 
@@ -273,6 +294,12 @@ def engineer_features_for_symbol(db_session, symbol: str, job_id: str = "manual"
 
         target_return = (next_close - curr_close) / curr_close
         target_direction = "up" if target_return > 0 else "down"
+
+        # Keep both labels for backward compatibility.
+        raw_label = int(df.loc[target_date, "label"]) if target_date in df.index else (1 if target_return > 0 else -1)
+        threshold_label = int(df.loc[target_date, "label_threshold"]) if target_date in df.index else (1 if target_return > THRESHOLD else (-1 if target_return < -THRESHOLD else 0))
+        all_features["label"] = raw_label
+        all_features["label_threshold"] = threshold_label
 
         # Upsert
         existing = db_session.query(TrainingFeature).filter(

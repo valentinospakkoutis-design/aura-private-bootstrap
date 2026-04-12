@@ -22,6 +22,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 logger = logging.getLogger(__name__)
 
+LABEL_THRESHOLD = 0.01  # 1% threshold for UP/DOWN vs SIDEWAYS
+
 BINANCE_BASE = "https://api.binance.com"
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 
@@ -510,16 +512,29 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         return None
 
     # Separate features and target
-    exclude_cols = ["target", "open", "high", "low", "close", "volume",
+    exclude_cols = ["target", "label_threshold", "open", "high", "low", "close", "volume",
                     "quote_volume", "trades"]
+
+    # 3-class threshold labels for classification sidecar:
+    # -1 (down), 0 (sideways), 1 (up).
+    future_return = (feat["target"] / feat["close"]) - 1
+    feat["label_threshold"] = np.where(
+        future_return > LABEL_THRESHOLD,
+        1,
+        np.where(future_return < -LABEL_THRESHOLD, -1, 0),
+    )
+
     feature_cols = [c for c in feat.columns if c not in exclude_cols]
     X = feat[feature_cols].values
     y = feat["target"].values
+    y_threshold = feat["label_threshold"].values
 
     # Train/test split (chronological, not random)
     split_idx = int(len(X) * 0.8)
     X_train, X_test = X[:split_idx], X[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
+    y_train_threshold = y_threshold[:split_idx]
+    y_test_threshold = y_threshold[split_idx:]
 
     # Scale features
     scaler = StandardScaler()
@@ -544,6 +559,75 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         eval_set=[(X_test_scaled, y_test)],
         verbose=False,
     )
+
+    threshold_metrics = None
+    threshold_model_filename = None
+
+    # Train 3-class threshold sidecar model (keeps regression model untouched).
+    try:
+        logger.info(f"[TRAINER] Using threshold labels — 3-class model for {symbol}")
+        y_train_encoded = (y_train_threshold + 1).astype(int)  # -1,0,1 -> 0,1,2
+        y_test_encoded = (y_test_threshold + 1).astype(int)
+
+        threshold_model = xgb.XGBClassifier(
+            objective="multi:softprob",
+            num_class=3,
+            n_estimators=250,
+            max_depth=5,
+            learning_rate=0.05,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            random_state=42,
+            n_jobs=-1,
+            verbosity=0,
+            eval_metric="mlogloss",
+        )
+        threshold_model.fit(
+            X_train_scaled,
+            y_train_encoded,
+            eval_set=[(X_test_scaled, y_test_encoded)],
+            verbose=False,
+        )
+
+        cls_pred_test = threshold_model.predict(X_test_scaled)
+        cls_pred_labels = cls_pred_test.astype(int) - 1  # 0,1,2 -> -1,0,1
+        threshold_acc = float((cls_pred_labels == y_test_threshold).mean() * 100)
+        threshold_metrics = {
+            "test_threshold_accuracy": threshold_acc,
+            "class_distribution_train": {
+                "down": int((y_train_threshold == -1).sum()),
+                "sideways": int((y_train_threshold == 0).sum()),
+                "up": int((y_train_threshold == 1).sum()),
+            },
+            "class_mapping": {"0": "DOWN", "1": "SIDEWAYS", "2": "UP"},
+        }
+
+        threshold_model_filename = f"{symbol}_xgboost_threshold_v{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pkl"
+        threshold_model_path = os.path.join(MODELS_DIR, threshold_model_filename)
+        threshold_model_data = {
+            "model": threshold_model,
+            "scaler": scaler,
+            "feature_cols": feature_cols,
+            "symbol": symbol,
+            "model_type": "xgboost_threshold_classifier",
+            "label_col": "label_threshold",
+            "threshold": LABEL_THRESHOLD,
+            "trained_at": datetime.utcnow().isoformat(),
+            "metrics": threshold_metrics,
+        }
+
+        with open(threshold_model_path, "wb") as f:
+            pickle.dump(threshold_model_data, f)
+
+        threshold_latest_path = os.path.join(MODELS_DIR, f"{symbol}_xgboost_threshold_latest.pkl")
+        with open(threshold_latest_path, "wb") as f:
+            pickle.dump(threshold_model_data, f)
+    except Exception as threshold_err:
+        logger.warning(
+            "[TRAINER] Threshold 3-class training failed for %s, keeping legacy model only: %s",
+            symbol,
+            threshold_err,
+        )
 
     # Evaluate
     y_pred_train = model.predict(X_train_scaled)
@@ -602,7 +686,9 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     return {
         "symbol": symbol,
         "model_path": model_filename,
+        "threshold_model_path": threshold_model_filename,
         "metrics": metrics,
+        "threshold_metrics": threshold_metrics,
         "trained_at": datetime.utcnow().isoformat(),
     }
 

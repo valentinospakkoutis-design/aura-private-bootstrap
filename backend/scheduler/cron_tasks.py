@@ -549,6 +549,9 @@ async def task_fear_greed_update():
     """Fetch Fear & Greed index and cache in Redis for one hour."""
     run_id = _start_run("fear_greed")
     try:
+        from cache.connection import get_redis
+        from ml.regime_detector import fetch_and_cache_vix
+
         async with httpx.AsyncClient(timeout=12.0) as client:
             resp = await client.get("https://api.alternative.me/fng/?limit=1")
             resp.raise_for_status()
@@ -565,7 +568,13 @@ async def task_fear_greed_update():
         }
         cache_set("fear_greed:latest", cache_payload, expire=3600)
 
+        # Also update VIX-based market regime.
+        redis_client = get_redis()
+        regime = await fetch_and_cache_vix(redis_client)
+        cache_payload["regime"] = regime
+
         logger.info("[CRON_FG] Fear & Greed = %s (%s)", value, classification)
+        logger.info("[CRON_REGIME] regime=%s vix=%.2f", regime.get("regime", "unknown"), float(regime.get("vix", 20.0)))
         _finish_run(run_id, "success", json.dumps(cache_payload))
         return {"status": "success", **cache_payload}
     except Exception as e:

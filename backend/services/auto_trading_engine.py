@@ -44,6 +44,43 @@ def save_trade_feedback(symbol, action, entry, exit_price, confidence, features)
         pass
 
 
+def calculate_half_kelly_size(
+    confidence: float,
+    win_rate: float,
+    avg_win: float,
+    avg_loss: float,
+    account_balance: float,
+    regime_multiplier: float = 1.0,
+    max_position_usd: float = 500.0,
+) -> float:
+    """
+    Half-Kelly Criterion for position sizing.
+
+    Kelly formula: f* = (p*b - q) / b
+    where p=win_rate, q=1-p, b=avg_win/avg_loss ratio.
+    """
+    if account_balance <= 0:
+        return 0.0
+
+    if avg_loss <= 0 or avg_win <= 0:
+        return round(min(50.0, max_position_usd * 0.05), 2)
+
+    b = avg_win / avg_loss
+    p = max(0.0, min(1.0, win_rate))
+    q = 1 - p
+
+    kelly = (p * b - q) / b if b > 0 else 0.0
+    half_kelly = kelly / 2
+
+    adjusted = half_kelly * max(0.0, confidence) * max(0.0, regime_multiplier)
+
+    min_size = account_balance * 0.01
+    max_size = min(account_balance * 0.10, max_position_usd)
+    position_usd = account_balance * max(0.0, adjusted)
+
+    return round(max(min_size, min(position_usd, max_size)), 2)
+
+
 class AutoTradingEngine:
     def __init__(self):
         self.is_running = False
@@ -181,13 +218,70 @@ class AutoTradingEngine:
             logger.error(f"[auto-trader] Failed to get balance: {e}")
             return 0.0
 
+    def _get_symbol_backtest_stats(self, symbol: Optional[str]) -> Dict[str, float]:
+        """Get backtest-derived win-rate and payoff stats with safe defaults."""
+        defaults = {"win_rate": 0.52, "avg_win": 0.02, "avg_loss": 0.015}
+        if not symbol:
+            return defaults
+
+        try:
+            from database.connection import SessionLocal
+            from database.models import BacktestResult
+
+            db = SessionLocal()
+            try:
+                row = db.query(BacktestResult).filter(
+                    BacktestResult.symbol == symbol.upper()
+                ).order_by(BacktestResult.backtest_date.desc()).first()
+            finally:
+                db.close()
+
+            if not row:
+                return defaults
+
+            win_rate_raw = float(row.win_rate_pct or defaults["win_rate"])
+            win_rate = win_rate_raw / 100.0 if win_rate_raw > 1.0 else win_rate_raw
+            win_rate = max(0.0, min(1.0, win_rate))
+
+            metrics = row.metrics_json if isinstance(row.metrics_json, dict) else {}
+            avg_win = metrics.get("avg_win_pct", metrics.get("average_win_pct", metrics.get("avg_win", metrics.get("average_win", defaults["avg_win"]))))
+            avg_loss = metrics.get("avg_loss_pct", metrics.get("average_loss_pct", metrics.get("avg_loss", metrics.get("average_loss", defaults["avg_loss"]))))
+
+            avg_win = abs(float(avg_win or defaults["avg_win"]))
+            avg_loss = abs(float(avg_loss or defaults["avg_loss"]))
+
+            if avg_win > 1.0:
+                avg_win /= 100.0
+            if avg_loss > 1.0:
+                avg_loss /= 100.0
+
+            return {
+                "win_rate": win_rate,
+                "avg_win": max(avg_win, 0.001),
+                "avg_loss": max(avg_loss, 0.001),
+            }
+        except Exception as e:
+            logger.debug(f"[auto-trader] backtest stats fallback for {symbol}: {e}")
+            return defaults
+
+    def _get_regime_position_multiplier(self) -> float:
+        """Get current regime-based position multiplier from Redis cache."""
+        try:
+            from cache.connection import get_redis
+            from ml.regime_detector import get_current_regime
+
+            regime = get_current_regime(get_redis())
+            return float(regime.get("position_size_multiplier", 1.0) or 1.0)
+        except Exception:
+            return 1.0
+
     def get_trading_symbol(self, asset_symbol: str) -> str:
         """Ensure symbol uses USDC pair."""
         if asset_symbol.endswith("USDT"):
             return asset_symbol[:-4] + "USDC"
         return asset_symbol
 
-    def _calculate_position_size(self, price: float, confidence: float = 0.5, volatility: float = 0.3) -> float:
+    def _calculate_position_size(self, price: float, confidence: float = 0.5, volatility: float = 0.3, symbol: Optional[str] = None) -> float:
         """Calculate risk-adjusted quantity using the position sizing engine."""
         if price <= 0:
             return 0.0
@@ -215,9 +309,30 @@ class AutoTradingEngine:
 
             # Respect the fixed order value cap from config
             max_notional = self.config["fixed_order_value_usd"]
-            notional = min(result.recommended_notional, max_notional)
+            base_notional = min(result.recommended_notional, max_notional)
+
+            # Additive Half-Kelly cap based on symbol backtest quality + market regime.
+            bt = self._get_symbol_backtest_stats(symbol)
+            regime_multiplier = self._get_regime_position_multiplier()
+            kelly_notional = calculate_half_kelly_size(
+                confidence=confidence,
+                win_rate=bt["win_rate"],
+                avg_win=bt["avg_win"],
+                avg_loss=bt["avg_loss"],
+                account_balance=balance,
+                regime_multiplier=regime_multiplier,
+                max_position_usd=max_notional,
+            )
+
+            notional = min(base_notional, kelly_notional)
             quantity = notional / price if price > 0 else 0
-            self._log_event("SIZING", f"Sized: ${notional:.2f} ({result.reasoning})")
+            self._log_event(
+                "SIZING",
+                (
+                    f"Sized: ${notional:.2f} (engine=${base_notional:.2f}, "
+                    f"half_kelly=${kelly_notional:.2f}, regime={regime_multiplier:.2f})"
+                ),
+            )
             return round(quantity, 6)
         except Exception as e:
             # Fallback to fixed sizing
@@ -547,7 +662,7 @@ class AutoTradingEngine:
                 logger.warning(f"[Claude] Integration error (non-fatal): {e}")
 
         vol = abs(prediction.get("trend_score", 0.3)) if "trend_score" in prediction else 0.3
-        quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol)
+        quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol, symbol=symbol)
         quantity *= claude_size_multiplier
 
         if quantity <= 0:

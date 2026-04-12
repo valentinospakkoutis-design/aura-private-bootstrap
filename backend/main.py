@@ -4689,6 +4689,21 @@ async def get_sentiment_momentum_endpoint(symbol: str):
         raise HTTPException(status_code=500, detail=f"Failed to fetch sentiment momentum: {e}")
 
 
+@app.get("/api/v1/regime/current")
+async def get_current_regime_endpoint():
+    """Get current market regime based on VIX."""
+    try:
+        from ml.regime_detector import get_current_regime, fetch_and_cache_vix
+
+        redis_client = get_redis()
+        regime = get_current_regime(redis_client)
+        if (not regime) or regime.get("regime") == "unknown":
+            regime = await fetch_and_cache_vix(redis_client)
+        return regime
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch regime: {e}")
+
+
 # ── Accuracy Tracking Endpoints ─────────────────────────────
 
 @app.get("/api/accuracy")
