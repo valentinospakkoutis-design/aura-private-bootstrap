@@ -12,6 +12,7 @@ import os
 import secrets
 import asyncio
 from urllib.parse import quote
+from sqlalchemy import text
 from brokers.binance import BinanceAPI
 from services.paper_trading import paper_trading_service
 from ai.precious_metals import precious_metals_predictor
@@ -26,6 +27,7 @@ from services.analytics import analytics_service
 from services.scheduler import scheduler_service
 from services.notifications import notifications_service
 from ml.annotation_api import router as annotation_router
+from scheduler.cron_tasks import TASK_MAP as CRON_TASK_MAP, run_named_task as run_cron_named_task
 
 # Database and Cache imports
 from database.connection import init_db, check_db_connection, close_db, SessionLocal
@@ -282,6 +284,28 @@ async def startup_event():
     try:
         if check_db_connection():
             init_db()
+            db = SessionLocal()
+            try:
+                db.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS cron_runs (
+                            id SERIAL PRIMARY KEY,
+                            task_name VARCHAR(50) NOT NULL,
+                            status VARCHAR(20) NOT NULL,
+                            started_at TIMESTAMP DEFAULT NOW(),
+                            finished_at TIMESTAMP,
+                            details TEXT
+                        )
+                        """
+                    )
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                print("[!] Failed to ensure cron_runs table")
+            finally:
+                db.close()
             print("[+] Database initialized")
             _restore_broker_connections()
             # Seed default user right after tables are created
@@ -419,6 +443,75 @@ app.include_router(annotation_router)
 from api.mettal_endpoints import router as mettal_router
 app.include_router(mettal_router)
 print(f"[+] Loaded mettal endpoints: {len(mettal_router.routes)} routes")
+
+
+def _run_cron_task_sync(task_name: str):
+    """Run cron task in a background thread with an isolated asyncio loop."""
+    try:
+        asyncio.run(run_cron_named_task(task_name))
+    except Exception as e:
+        print(f"[CRON] task {task_name} failed: {e}")
+
+
+@app.post("/api/v1/cron/trigger/{task_name}", tags=["cron"])
+async def trigger_cron_task(task_name: str, background_tasks: BackgroundTasks):
+    """Manually trigger a cron task (for testing)."""
+    if task_name not in CRON_TASK_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": f"Unknown task: {task_name}",
+                "available": list(CRON_TASK_MAP.keys()),
+            },
+        )
+
+    background_tasks.add_task(_run_cron_task_sync, task_name)
+    return {"status": "started", "task": task_name}
+
+
+@app.get("/api/v1/cron/last-run", tags=["cron"])
+async def get_cron_last_run():
+    """Return last run time of each cron task from cron_runs table."""
+    if SessionLocal is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT task_name, status, started_at, finished_at, details
+                FROM (
+                    SELECT
+                        task_name,
+                        status,
+                        started_at,
+                        finished_at,
+                        details,
+                        ROW_NUMBER() OVER (PARTITION BY task_name ORDER BY started_at DESC) AS rn
+                    FROM cron_runs
+                ) t
+                WHERE rn = 1
+                ORDER BY task_name ASC
+                """
+            )
+        ).mappings().all()
+
+        data = [
+            {
+                "task_name": row["task_name"],
+                "status": row["status"],
+                "started_at": row["started_at"].isoformat() if row["started_at"] else None,
+                "finished_at": row["finished_at"].isoformat() if row["finished_at"] else None,
+                "details": row["details"],
+            }
+            for row in rows
+        ]
+        return {"tasks": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load cron runs: {e}")
+    finally:
+        db.close()
 
 # Templates Configuration
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
