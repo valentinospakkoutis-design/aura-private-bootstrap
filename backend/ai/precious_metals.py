@@ -9,10 +9,17 @@ from datetime import datetime, timedelta
 import os
 import pickle
 import glob
+import sys
 import numpy as np
 import pandas as pd
 import random
 import math
+
+try:
+    import numpy.core.numeric as _np_core_numeric
+    sys.modules.setdefault("numpy._core.numeric", _np_core_numeric)
+except Exception:
+    pass
 
 
 class PreciousMetalsPredictor:

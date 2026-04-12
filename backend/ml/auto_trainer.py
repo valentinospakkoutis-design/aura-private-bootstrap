@@ -429,7 +429,7 @@ def fetch_onchain_history(symbol: str, days: int = 730) -> Optional[pd.DataFrame
                     END) as onchain_sentiment_numeric,
                     AVG(funding_rate) as funding_rate,
                     AVG(long_short_ratio) as long_short_ratio,
-                    AVG(fear_greed_index) as fear_greed_index
+                    AVG(fear_greed) as fear_greed
                 FROM onchain_signal_history
                 WHERE symbol = :symbol
                   AND created_at >= NOW() - INTERVAL '{days} days'
@@ -454,7 +454,7 @@ def fetch_onchain_history(symbol: str, days: int = 730) -> Optional[pd.DataFrame
                 'onchain_sentiment_numeric': 'onchain_sentiment',
                 'funding_rate': 'funding_rate_pct',
                 'long_short_ratio': 'ls_ratio',
-                'fear_greed_index': 'fear_greed',
+                'fear_greed': 'fear_greed',
             })
             
             logger.info(f"[trainer] Fetched {len(df)} on-chain records for {symbol}")
