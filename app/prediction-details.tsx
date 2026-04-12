@@ -6,6 +6,7 @@ import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBa
 import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { Button } from '../mobile/src/components/Button';
+import { OnchainScoreChart } from '../mobile/src/components/OnchainScoreChart';
 import { theme } from '../mobile/src/constants/theme';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
 
@@ -293,6 +294,11 @@ export default function PredictionDetailsScreen() {
               <Text style={styles.trendValue}>{onchainSentimentLabel(prediction.onchain.sentiment)}</Text>
             </View>
           </View>
+        )}
+
+        {/* On-chain Score History Chart */}
+        {prediction.onchain && (
+          <OnchainScoreChart symbol={prediction.symbol} days={30} />
         )}
 
         {/* Trend Card */}

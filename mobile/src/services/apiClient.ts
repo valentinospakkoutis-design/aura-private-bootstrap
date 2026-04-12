@@ -294,6 +294,26 @@ class ApiClient {
     return response.data;
   }
 
+  async getAccuracyByOnchainBucket(symbol?: string, days: number = 30) {
+    const params = new URLSearchParams();
+    if (symbol) params.append('symbol', symbol);
+    params.append('days', days.toString());
+    const query = params.toString();
+    const url = query ? `/api/ai/accuracy/by-onchain-bucket?${query}` : '/api/ai/accuracy/by-onchain-bucket';
+    const response = await this.client.get(url);
+    return response.data;
+  }
+
+  async getOnchainHistory(symbol: string, days: number = 30, limit: number = 120) {
+    const response = await this.client.get(`/api/market/onchain/${symbol}/history?days=${days}&limit=${limit}`);
+    return response.data;
+  }
+
+  async getOnchainSummary(days: number = 7) {
+    const response = await this.client.get(`/api/market/onchain/summary?days=${days}`);
+    return response.data;
+  }
+
   async getAIModelHealth() {
     const response = await this.client.get('/api/ai/model-health');
     return response.data;

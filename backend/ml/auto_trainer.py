@@ -192,9 +192,10 @@ def fetch_yfinance_ohlcv(symbol: str, days: int = 1095) -> Optional[pd.DataFrame
         return None
 
 
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+def engineer_features(df: pd.DataFrame, onchain_data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
     Engineer 50+ features from OHLCV data.
+    Optionally adds on-chain features (score, sentiment, funding_rate, long_short_ratio).
     Returns DataFrame with feature columns and a 'target' column
     (next-day close price).
     """
@@ -285,6 +286,33 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         feat[f"close_lag_{lag}"] = close.shift(lag)
         feat[f"return_lag_{lag}"] = feat["return_1d"].shift(lag)
 
+    # ── On-Chain Features (if available) ──────────────────────
+    if onchain_data is not None and not onchain_data.empty:
+        # Merge on-chain data (must be indexed by date and sorted)
+        try:
+            # Shift on-chain data by 1 day to avoid lookahead bias
+            # (use previous day's on-chain data to predict current day's close)
+            onchain_data = onchain_data.shift(1)
+            
+            # Forward fill NaNs to handle gaps in on-chain updates
+            onchain_cols = onchain_data.columns.tolist()
+            for col in onchain_cols:
+                if col in onchain_data.columns:
+                    onchain_data[col] = onchain_data[col].fillna(method='ffill')
+            
+            # Merge on index (date)
+            feat = feat.join(onchain_data, how='left')
+            
+            # Fill any remaining NaNs with mean of on-chain features
+            onchain_numeric_cols = [c for c in onchain_cols if c in feat.columns]
+            for col in onchain_numeric_cols:
+                if col in feat.columns:
+                    feat[col].fillna(feat[col].mean(), inplace=True)
+            
+            logger.info(f"[trainer] Added {len(onchain_cols)} on-chain features")
+        except Exception as e:
+            logger.warning(f"[trainer] Failed to add on-chain features: {e}")
+
     # ── Target: next-day close ───────────────────────────────
     feat["target"] = close.shift(-1)
 
@@ -373,6 +401,71 @@ def fetch_mtf_features(symbol: str, is_crypto: bool = True) -> Dict:
     }
 
 
+def fetch_onchain_history(symbol: str, days: int = 730) -> Optional[pd.DataFrame]:
+    """
+    Fetch on-chain signal history from database for a crypto symbol.
+    Returns DataFrame indexed by date with on-chain features or None.
+    """
+    try:
+        from database.connection import SessionLocal
+        from sqlalchemy import text
+
+        # Only available for crypto symbols (Binance USDT perpetuals)
+        if symbol not in CRYPTO_SYMBOLS:
+            return None
+
+        db = SessionLocal()
+        try:
+            # Query on-chain_signal_history table
+            # We want: onchain_score, onchain_sentiment (as numeric), funding_rate, long_short_ratio, fear_greed
+            query = f"""
+                SELECT 
+                    DATE(created_at) as date,
+                    AVG(onchain_score) as onchain_score,
+                    MAX(CASE 
+                        WHEN onchain_sentiment = 'bullish' THEN 1
+                        WHEN onchain_sentiment = 'bearish' THEN -1
+                        ELSE 0 
+                    END) as onchain_sentiment_numeric,
+                    AVG(funding_rate) as funding_rate,
+                    AVG(long_short_ratio) as long_short_ratio,
+                    AVG(fear_greed_index) as fear_greed_index
+                FROM onchain_signal_history
+                WHERE symbol = :symbol
+                  AND created_at >= NOW() - INTERVAL '{days} days'
+                GROUP BY DATE(created_at)
+                ORDER BY date ASC
+            """
+            
+            result = db.execute(text(query), {"symbol": symbol}).mappings().all()
+            
+            if not result:
+                return None
+            
+            # Convert to DataFrame
+            records = [dict(r) for r in result]
+            df = pd.DataFrame(records)
+            df.set_index('date', inplace=True)
+            df.index = pd.to_datetime(df.index)
+            
+            # Rename columns for clarity
+            df = df.rename(columns={
+                'onchain_score': 'onchain_score',
+                'onchain_sentiment_numeric': 'onchain_sentiment',
+                'funding_rate': 'funding_rate_pct',
+                'long_short_ratio': 'ls_ratio',
+                'fear_greed_index': 'fear_greed',
+            })
+            
+            logger.info(f"[trainer] Fetched {len(df)} on-chain records for {symbol}")
+            return df
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[trainer] Failed to fetch on-chain data for {symbol}: {e}")
+        return None
+
+
 def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     """
     Train an XGBoost model for a single symbol using real Binance data.
@@ -402,8 +495,11 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         logger.warning(f"[trainer] Not enough data for {symbol}: {row_count} rows")
         return None
 
+    # Fetch on-chain features (if available for crypto symbols)
+    onchain_df = fetch_onchain_history(symbol, days=days)
+
     # Engineer features on daily
-    feat = engineer_features(df)
+    feat = engineer_features(df, onchain_data=onchain_df)
 
     # Add 4h aggregated features if available
     if df_4h is not None and len(df_4h) > 50:

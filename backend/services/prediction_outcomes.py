@@ -317,4 +317,107 @@ class PredictionOutcomesService:
             db.close()
 
 
+    def get_accuracy_by_onchain_bucket(self, symbol: Optional[str] = None, days: int = 30) -> Dict:
+        """Get accuracy analytics bucketed by on-chain score ranges."""
+        self._ensure_table()
+        db = SessionLocal()
+        try:
+            params = {"days": days}
+            where = f"""
+                WHERE was_correct_7d IS NOT NULL
+                  AND onchain_score IS NOT NULL
+                  AND created_at >= NOW() - INTERVAL '{days} days'
+            """
+            if symbol:
+                where += " AND symbol = :symbol"
+                params["symbol"] = str(symbol or "").upper()
+
+            rows = db.execute(
+                text(
+                    f"""
+                    SELECT 
+                        onchain_score, 
+                        onchain_sentiment, 
+                        was_correct_7d, 
+                        symbol,
+                        action
+                    FROM prediction_outcomes
+                    {where}
+                    ORDER BY onchain_score DESC
+                    """
+                ),
+                params,
+            ).mappings().all()
+
+            # Define buckets: 0-0.25, 0.25-0.5, 0.5-0.75, 0.75-1.0
+            buckets = {
+                "0.00-0.25": {"count": 0, "hits": 0, "sentiments": {}},
+                "0.25-0.50": {"count": 0, "hits": 0, "sentiments": {}},
+                "0.50-0.75": {"count": 0, "hits": 0, "sentiments": {}},
+                "0.75-1.00": {"count": 0, "hits": 0, "sentiments": {}},
+            }
+
+            for row in rows:
+                score = float(row["onchain_score"] or 0.0)
+                sentiment = str(row["onchain_sentiment"] or "unknown").lower()
+                is_correct = bool(row["was_correct_7d"])
+
+                # Assign to bucket
+                if score < 0.25:
+                    bucket_key = "0.00-0.25"
+                elif score < 0.5:
+                    bucket_key = "0.25-0.50"
+                elif score < 0.75:
+                    bucket_key = "0.50-0.75"
+                else:
+                    bucket_key = "0.75-1.00"
+
+                buckets[bucket_key]["count"] += 1
+                if is_correct:
+                    buckets[bucket_key]["hits"] += 1
+
+                # Track sentiment distribution in bucket
+                if sentiment not in buckets[bucket_key]["sentiments"]:
+                    buckets[bucket_key]["sentiments"][sentiment] = 0
+                buckets[bucket_key]["sentiments"][sentiment] += 1
+
+            # Calculate hit rates and correlations
+            total_predictions = len(rows)
+            total_hits = sum(1 for r in rows if bool(r["was_correct_7d"]))
+            overall_correlation = round((total_hits / total_predictions) * 100.0, 2) if total_predictions else 0.0
+
+            bucket_results = []
+            for bucket_key in ["0.00-0.25", "0.25-0.50", "0.50-0.75", "0.75-1.00"]:
+                b = buckets[bucket_key]
+                hit_rate = round((b["hits"] / b["count"]) * 100.0, 2) if b["count"] else 0.0
+                bucket_results.append({
+                    "range": bucket_key,
+                    "hit_rate": hit_rate,
+                    "count": b["count"],
+                    "hits": b["hits"],
+                    "sentiment_distribution": b["sentiments"],
+                })
+
+            response = {
+                "symbol": symbol.upper() if symbol else "ALL",
+                "days": days,
+                "total_predictions": total_predictions,
+                "overall_correlation": overall_correlation,
+                "buckets": bucket_results,
+                "best_bucket": max(bucket_results, key=lambda x: x["hit_rate"]) if bucket_results else {},
+                "worst_bucket": min(bucket_results, key=lambda x: x["hit_rate"]) if bucket_results else {},
+            }
+            return response
+        except Exception as e:
+            return {
+                "error": str(e),
+                "symbol": symbol.upper() if symbol else "ALL",
+                "days": days,
+                "buckets": [],
+                "overall_correlation": 0.0,
+            }
+        finally:
+            db.close()
+
+
 prediction_outcomes_service = PredictionOutcomesService()
