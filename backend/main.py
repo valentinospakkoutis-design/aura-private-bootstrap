@@ -1759,6 +1759,90 @@ async def get_rl_online_performance():
         "timestamp": datetime.utcnow().isoformat(),
     }
 
+
+@app.get("/api/v1/rl/outcomes/debug")
+async def get_rl_trade_outcomes_debug(
+    symbol: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    _user=Depends(require_auth),
+):
+    """Debug endpoint for latest RL trade outcomes with pagination."""
+    if SessionLocal is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    offset = (page - 1) * page_size
+    symbol_u = symbol.upper() if symbol else None
+
+    db = SessionLocal()
+    try:
+        if symbol_u:
+            total_row = db.execute(
+                text("SELECT COUNT(*) AS cnt FROM rl_trade_outcomes WHERE symbol = :symbol"),
+                {"symbol": symbol_u},
+            ).mappings().first()
+            rows = db.execute(
+                text(
+                    """
+                    SELECT id, symbol, action, entry_price, exit_price, pnl_pct, reward, confidence, recorded_at
+                    FROM rl_trade_outcomes
+                    WHERE symbol = :symbol
+                    ORDER BY recorded_at DESC, id DESC
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                {"symbol": symbol_u, "limit": page_size, "offset": offset},
+            ).mappings().all()
+        else:
+            total_row = db.execute(
+                text("SELECT COUNT(*) AS cnt FROM rl_trade_outcomes")
+            ).mappings().first()
+            rows = db.execute(
+                text(
+                    """
+                    SELECT id, symbol, action, entry_price, exit_price, pnl_pct, reward, confidence, recorded_at
+                    FROM rl_trade_outcomes
+                    ORDER BY recorded_at DESC, id DESC
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                {"limit": page_size, "offset": offset},
+            ).mappings().all()
+
+        total = int((total_row or {}).get("cnt") or 0)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+
+        items = [
+            {
+                "id": int(r["id"]),
+                "symbol": str(r["symbol"]),
+                "action": str(r["action"]),
+                "entry_price": float(r["entry_price"]),
+                "exit_price": float(r["exit_price"]),
+                "pnl_pct": float(r["pnl_pct"]),
+                "reward": float(r["reward"]),
+                "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+                "recorded_at": r["recorded_at"].isoformat() if r["recorded_at"] else None,
+            }
+            for r in rows
+        ]
+
+        return {
+            "symbol": symbol_u,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+            "items": items,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch rl_trade_outcomes: {e}")
+    finally:
+        db.close()
+
 @app.get("/api/ai/predictions")
 def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[str] = None):
     """Επιστρέφει predictions για όλα τα assets ή filtered by type"""
