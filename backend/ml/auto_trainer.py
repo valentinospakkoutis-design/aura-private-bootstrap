@@ -824,6 +824,32 @@ def _daily_leaderboard_snapshot():
         logger.error(f"[scheduler] Daily leaderboard snapshot failed: {e}")
 
 
+def _fear_greed_update_job():
+    """Daily Fear & Greed Index update job (00:30 UTC)."""
+    logger.info("[scheduler] Starting Fear & Greed update...")
+    try:
+        import asyncio
+        from scheduler.cron_tasks import task_fear_greed_update
+        
+        asyncio.run(task_fear_greed_update())
+        logger.info("[scheduler] Fear & Greed update done")
+    except Exception as e:
+        logger.error(f"[scheduler] Fear & Greed update failed: {e}")
+
+
+def _news_fetch_job():
+    """Daily news sentiment fetch job (06:00 UTC)."""
+    logger.info("[scheduler] Starting news sentiment fetch...")
+    try:
+        import asyncio
+        from scheduler.cron_tasks import task_fetch_news
+        
+        asyncio.run(task_fetch_news())
+        logger.info("[scheduler] News sentiment fetch done")
+    except Exception as e:
+        logger.error(f"[scheduler] News sentiment fetch failed: {e}")
+
+
 def setup_weekly_retraining():
     """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
@@ -850,12 +876,30 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+        # Fear & Greed Index update — 00:30 UTC
+        scheduler.add_job(
+            _fear_greed_update_job,
+            trigger=CronTrigger(hour=0, minute=30),
+            id="fear_greed_update",
+            name="Daily Fear & Greed Index update",
+            replace_existing=True,
+        )
+
         # Daily XGBoost retraining — 06:00 UTC (09:00 Cyprus)
         scheduler.add_job(
             _daily_xgboost_retrain,
             trigger=CronTrigger(hour=6, minute=0),
             id="daily_xgboost_retrain",
             name="Daily XGBoost retraining",
+            replace_existing=True,
+        )
+
+        # Daily news sentiment fetch — 06:00 UTC (09:00 Cyprus)
+        scheduler.add_job(
+            _news_fetch_job,
+            trigger=CronTrigger(hour=6, minute=0),
+            id="news_fetch",
+            name="Daily news sentiment fetch",
             replace_existing=True,
         )
 
@@ -921,7 +965,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
