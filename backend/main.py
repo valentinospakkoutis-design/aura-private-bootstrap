@@ -4704,6 +4704,88 @@ async def get_current_regime_endpoint():
         raise HTTPException(status_code=500, detail=f"Failed to fetch regime: {e}")
 
 
+@app.get("/api/v1/position-sizing/validate/{symbol}")
+async def validate_position_sizing_endpoint(
+    symbol: str,
+    confidence: float = Query(0.7, ge=0.0, le=1.0),
+    account_balance: float = Query(1000.0, gt=0.0),
+    max_position_usd: float = Query(500.0, gt=0.0),
+):
+    """Quick live validation for regime-adjusted Half-Kelly sizing."""
+    try:
+        from database.models import BacktestResult
+        from ml.regime_detector import get_current_regime, fetch_and_cache_vix
+        from services.auto_trading_engine import calculate_half_kelly_size
+
+        symbol_u = symbol.upper()
+
+        # Load latest backtest stats for symbol with safe fallbacks.
+        defaults = {"win_rate": 0.52, "avg_win": 0.02, "avg_loss": 0.015}
+        win_rate = defaults["win_rate"]
+        avg_win = defaults["avg_win"]
+        avg_loss = defaults["avg_loss"]
+
+        db = SessionLocal()
+        try:
+            row = db.query(BacktestResult).filter(
+                BacktestResult.symbol == symbol_u
+            ).order_by(BacktestResult.backtest_date.desc()).first()
+        finally:
+            db.close()
+
+        if row:
+            wr_raw = float(row.win_rate_pct or defaults["win_rate"])
+            win_rate = wr_raw / 100.0 if wr_raw > 1.0 else wr_raw
+            win_rate = max(0.0, min(1.0, win_rate))
+
+            metrics = row.metrics_json if isinstance(row.metrics_json, dict) else {}
+            avg_win = abs(float(metrics.get("avg_win_pct", metrics.get("average_win_pct", metrics.get("avg_win", metrics.get("average_win", defaults["avg_win"])))) or defaults["avg_win"]))
+            avg_loss = abs(float(metrics.get("avg_loss_pct", metrics.get("average_loss_pct", metrics.get("avg_loss", metrics.get("average_loss", defaults["avg_loss"])))) or defaults["avg_loss"]))
+
+            if avg_win > 1.0:
+                avg_win /= 100.0
+            if avg_loss > 1.0:
+                avg_loss /= 100.0
+
+            avg_win = max(avg_win, 0.001)
+            avg_loss = max(avg_loss, 0.001)
+
+        redis_client = get_redis()
+        regime = get_current_regime(redis_client)
+        if (not regime) or regime.get("regime") == "unknown":
+            regime = await fetch_and_cache_vix(redis_client)
+
+        confidence_multiplier = float(regime.get("confidence_multiplier", 0.5) or 0.5)
+        position_size_multiplier = float(regime.get("position_size_multiplier", 0.5) or 0.5)
+
+        suggested_kelly_notional = calculate_half_kelly_size(
+            confidence=confidence,
+            win_rate=win_rate,
+            avg_win=avg_win,
+            avg_loss=avg_loss,
+            account_balance=account_balance,
+            regime_multiplier=position_size_multiplier,
+            max_position_usd=max_position_usd,
+        )
+
+        return {
+            "symbol": symbol_u,
+            "confidence_input": confidence,
+            "account_balance_input": account_balance,
+            "max_position_usd": max_position_usd,
+            "win_rate": round(win_rate, 4),
+            "avg_win": round(avg_win, 4),
+            "avg_loss": round(avg_loss, 4),
+            "regime": regime.get("regime", "normal"),
+            "vix": regime.get("vix", 20.0),
+            "confidence_multiplier": confidence_multiplier,
+            "position_size_multiplier": position_size_multiplier,
+            "suggested_kelly_notional": suggested_kelly_notional,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to validate position sizing: {e}")
+
+
 # ── Accuracy Tracking Endpoints ─────────────────────────────
 
 @app.get("/api/accuracy")
