@@ -33,9 +33,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # No-op: this revision represents the pre-Alembic state.
-    # Tables were created by init_db() / Base.metadata.create_all().
-    pass
+   # Widen alembic_version.version_num column to accommodate revision IDs
+   # longer than the Alembic default of VARCHAR(32).
+   # This must run as the very first migration so that subsequent revision
+   # IDs (which can be up to ~40 chars) are not truncated on insert.
+   op.execute(
+      "ALTER TABLE alembic_version "
+      "ALTER COLUMN version_num TYPE VARCHAR(255);"
+   )
 
 
 def downgrade() -> None:
