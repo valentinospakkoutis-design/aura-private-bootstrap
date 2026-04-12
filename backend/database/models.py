@@ -429,6 +429,7 @@ class RLPrediction(Base):
     date = Column(Date, nullable=False, index=True)
     action = Column(String(10))
     confidence = Column(Float)
+    agent_version = Column(String(20), default="v1.0")
     predicted_at = Column(DateTime, default=datetime.utcnow)
 
 

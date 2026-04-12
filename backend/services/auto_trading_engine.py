@@ -430,6 +430,25 @@ class AutoTradingEngine:
                 },
             )
 
+            # Non-blocking online-learning feedback for RL agent.
+            try:
+                from cache.connection import get_redis
+                from ml.rl_online_learner import record_trade_outcome
+
+                asyncio.create_task(
+                    record_trade_outcome(
+                        symbol=position.get("symbol", symbol),
+                        action=position.get("side", "BUY"),
+                        entry_price=entry_price,
+                        exit_price=exit_price,
+                        confidence=float(position.get("confidence", 0.9) or 0.9),
+                        redis_client=get_redis(),
+                        db_session=None,
+                    )
+                )
+            except Exception as rl_online_err:
+                logger.debug("[RL_ONLINE] schedule skipped for %s: %s", symbol, rl_online_err)
+
             self._log_event("POSITION_CLOSED", f"{symbol} closed ({reason}) PnL=${pnl:.2f}", closed_trade)
             self._notify_user(
                 user_id,

@@ -300,6 +300,39 @@ async def startup_event():
                         """
                     )
                 )
+                db.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS rl_trade_outcomes (
+                            id SERIAL PRIMARY KEY,
+                            symbol VARCHAR(20) NOT NULL,
+                            action VARCHAR(10) NOT NULL,
+                            entry_price FLOAT NOT NULL,
+                            exit_price FLOAT NOT NULL,
+                            pnl_pct FLOAT NOT NULL,
+                            reward FLOAT NOT NULL,
+                            confidence FLOAT,
+                            recorded_at TIMESTAMP DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+                db.execute(
+                    text(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_rl_outcomes_symbol
+                        ON rl_trade_outcomes(symbol, recorded_at DESC)
+                        """
+                    )
+                )
+                db.execute(
+                    text(
+                        """
+                        ALTER TABLE IF EXISTS rl_predictions
+                        ADD COLUMN IF NOT EXISTS agent_version VARCHAR(20) DEFAULT 'v1.0'
+                        """
+                    )
+                )
                 db.commit()
             except Exception:
                 db.rollback()
@@ -329,22 +362,35 @@ async def startup_event():
     async def _get_predictions_for_auto_trader(_user_id: int):
         """Fetch predictions for auto trader loop. Only USDC crypto pairs."""
         from services.auto_trading_engine import ALLOWED_AUTO_TRADE_SYMBOLS
-        raw = asset_predictor.get_all_predictions(days=7, asset_type=AssetType.CRYPTO)
-        raw_preds = raw.get("predictions", {})
+        from ml.predictor import get_ensemble_prediction
+        from ml.regime_detector import get_current_regime
+
         result = []
-        for sym, p in raw_preds.items():
+        redis_client = get_redis()
+        regime = get_current_regime(redis_client)
+        regime_mult = float(regime.get("confidence_multiplier", 0.5) or 0.5)
+
+        for sym in sorted(ALLOWED_AUTO_TRADE_SYMBOLS):
+            p = get_ensemble_prediction(sym, features={})
             if "error" in p:
                 continue
+
+            raw_conf = float(p.get("confidence", 0.0) or 0.0)
+            conf = max(0.0, min(1.0, raw_conf * regime_mult))
+
+            action = str(p.get("action", "HOLD") or "HOLD").lower()
+            if conf < 0.60:
+                action = "hold"
+
+            ap = p.get("raw", {}).get("asset_predictor", {}) if isinstance(p.get("raw"), dict) else {}
             if sym not in ALLOWED_AUTO_TRADE_SYMBOLS:
                 continue
-            conf = p.get("confidence", 0)
-            conf = conf / 100.0 if conf > 1 else conf
             result.append({
                 "symbol": sym,
-                "action": (p.get("recommendation") or "HOLD").lower(),
+                "action": action,
                 "confidence": conf,
-                "price": p.get("current_price", 0),
-                "targetPrice": p.get("predicted_price", 0),
+                "price": ap.get("current_price", 0),
+                "targetPrice": ap.get("predicted_price", 0),
             })
         return result
 
@@ -1636,6 +1682,82 @@ def reset_paper_trading(request: Request):
 def get_prediction(symbol: str, days: int = 7):
     """Επιστρέφει AI prediction για οποιοδήποτε asset (metals, stocks, crypto, derivatives)"""
     return sanitize_floats(asset_predictor.predict_price(symbol.upper(), days))
+
+
+@app.get("/api/v1/consensus/{symbol}")
+async def get_multi_agent_consensus(symbol: str):
+    """Get consensus prediction from XGBoost + RF + RL + regime filter."""
+    from ml.predictor import get_ensemble_prediction
+    from ml.regime_detector import get_current_regime
+
+    symbol_u = symbol.upper()
+    prediction = get_ensemble_prediction(symbol_u, features={})
+
+    if prediction.get("error"):
+        raise HTTPException(status_code=500, detail=f"Consensus prediction failed: {prediction['error']}")
+
+    redis_client = get_redis()
+    regime = get_current_regime(redis_client)
+    multiplier = float(regime.get("confidence_multiplier", 0.5) or 0.5)
+    adjusted_confidence = float(prediction.get("confidence", 0.0) or 0.0) * multiplier
+
+    if adjusted_confidence >= 0.90:
+        recommendation = "STRONG_SIGNAL"
+    elif adjusted_confidence >= 0.75:
+        recommendation = "MODERATE_SIGNAL"
+    elif adjusted_confidence >= 0.60:
+        recommendation = "WEAK_SIGNAL"
+    else:
+        recommendation = "NO_SIGNAL"
+
+    print(
+        "[RL_CONSENSUS] "
+        f"{symbol_u}: XGB={float(prediction.get('xgb_confidence', 0))*100:.0f}% "
+        f"RF={float(prediction.get('rf_confidence', 0))*100:.0f}% "
+        f"RL={prediction.get('rl_action') or 'NONE'} "
+        f"{'✅' if prediction.get('consensus') else '❌'} -> {recommendation}"
+    )
+
+    return {
+        "symbol": symbol_u,
+        "recommendation": recommendation,
+        "final_confidence": round(adjusted_confidence, 4),
+        "raw_confidence": prediction.get("confidence", 0.0),
+        "action": prediction.get("action", "HOLD"),
+        "agents": {
+            "xgboost": prediction.get("xgb_confidence", 0.0),
+            "random_forest": prediction.get("rf_confidence", 0.0),
+            "rl_agent": prediction.get("rl_action"),
+            "consensus": prediction.get("consensus", False),
+        },
+        "regime": {
+            "current": regime.get("regime", "normal"),
+            "vix": regime.get("vix", 20.0),
+            "multiplier": multiplier,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/api/v1/rl/performance/online")
+async def get_rl_online_performance():
+    """Get recent RL online-learning performance across tracked symbols."""
+    from ml.rl_online_learner import get_symbol_performance
+
+    symbols = ["BTC-USD", "ETH-USD", "BTCUSDC", "ETHUSDC", "AAPL", "GOOGL", "GC=F", "SI=F"]
+    redis_client = get_redis()
+
+    results = []
+    for symbol in symbols:
+        perf = await get_symbol_performance(symbol, redis_client)
+        results.append(perf)
+
+    results.sort(key=lambda x: x.get("avg_reward", 0), reverse=True)
+    return {
+        "performances": results,
+        "total_symbols": len(results),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 @app.get("/api/ai/predictions")
 def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[str] = None):
