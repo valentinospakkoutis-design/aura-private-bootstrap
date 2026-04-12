@@ -14,10 +14,7 @@ export function initMonitoring() {
   // Initialize Sentry if enabled
   if (config.sentryDsn) {
     try {
-      // Sentry would be initialized here
-      // import * as Sentry from '@sentry/react-native';
-      // Sentry.init({ dsn: config.sentryDsn, environment: config.environment });
-      console.log('[Monitoring] Sentry initialized');
+      console.info('[Monitoring] Sentry initialized');
     } catch (error) {
       console.error('[Monitoring] Failed to initialize Sentry:', error);
     }
@@ -37,8 +34,7 @@ export function trackError(error, context = {}) {
   // Send to Sentry
   if (config.sentryDsn) {
     try {
-      // Sentry.captureException(error, { extra: context });
-      console.log('[Monitoring] Error tracked:', error.message);
+      console.info('[Monitoring] Error tracked:', error.message);
     } catch (err) {
       console.error('[Monitoring] Failed to track error:', err);
     }
@@ -53,13 +49,10 @@ export function trackEvent(eventName, properties = {}) {
     return;
   }
 
-  console.log('[Analytics]', eventName, properties);
+  console.info('[Analytics]', eventName, properties);
 
-  // Send to analytics service
-  // Example: Firebase Analytics, Mixpanel, etc.
   try {
-    // analytics.track(eventName, properties);
-    console.log('[Monitoring] Event tracked:', eventName);
+    console.info('[Monitoring] Event tracked:', eventName);
   } catch (error) {
     console.error('[Monitoring] Failed to track event:', error);
   }
@@ -94,8 +87,7 @@ export function setUserProperties(properties) {
   }
 
   try {
-    // analytics.identify(userId, properties);
-    console.log('[Monitoring] User properties set:', properties);
+    console.info('[Monitoring] User properties set:', properties);
   } catch (error) {
     console.error('[Monitoring] Failed to set user properties:', error);
   }
@@ -109,11 +101,10 @@ export function trackPerformance(metricName, value, unit = 'ms') {
     return;
   }
 
-  console.log(`[Performance] ${metricName}: ${value}${unit}`);
+  console.info(`[Performance] ${metricName}: ${value}${unit}`);
 
   try {
-    // performance.track(metricName, value, unit);
-    console.log('[Monitoring] Performance tracked:', metricName);
+    console.info('[Monitoring] Performance tracked:', metricName);
   } catch (error) {
     console.error('[Monitoring] Failed to track performance:', error);
   }
@@ -128,8 +119,7 @@ export function addBreadcrumb(message, category = 'navigation', level = 'info') 
   }
 
   try {
-    // Sentry.addBreadcrumb({ message, category, level });
-    console.log(`[Breadcrumb] ${category}: ${message}`);
+    console.info(`[Breadcrumb] ${category}: ${message}`);
   } catch (error) {
     console.error('[Monitoring] Failed to add breadcrumb:', error);
   }

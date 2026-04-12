@@ -13,7 +13,7 @@ class Logger {
 
     switch (level) {
       case 'debug':
-        console.log(prefix, message, ...args);
+        console.info(prefix, message, ...args);
         break;
       case 'info':
         console.info(prefix, message, ...args);
@@ -23,7 +23,6 @@ class Logger {
         break;
       case 'error':
         console.error(prefix, message, ...args);
-        // TODO: Send to error tracking service in production
         break;
     }
   }

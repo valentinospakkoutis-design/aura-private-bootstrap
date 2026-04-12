@@ -21,7 +21,7 @@ type RiskProfile = 'conservative' | 'moderate' | 'aggressive';
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, setUser, showToast, showModal } = useAppStore();
-  const { theme, themeMode, setThemeMode, isDark } = useTheme();
+  const { theme, themeMode, setThemeMode } = useTheme();
   const { language, setLanguage, t } = useLanguage();
 
   // Create styles with current theme
@@ -45,12 +45,7 @@ export default function SettingsScreen() {
   } = useBiometrics();
 
   // Offline mode hook
-  const { isOfflineMode, isOnline, cacheStats, cacheSize, clearCache } = useOfflineMode();
-
-  const {
-    loading: updatingProfile,
-    execute: updateProfile,
-  } = useApi((data: { name: string; email: string; phone: string; avatar?: string }) => api.updateProfile(data), { showLoading: false, showToast: false });
+  const { isOnline, cacheStats, cacheSize, clearCache } = useOfflineMode();
 
   const {
     loading: updatingRisk,
@@ -229,7 +224,7 @@ export default function SettingsScreen() {
         },
       ]
     );
-  }, [showToast, router]);
+  }, [showToast]);
 
   const handleClearCache = useCallback(() => {
     showModal(

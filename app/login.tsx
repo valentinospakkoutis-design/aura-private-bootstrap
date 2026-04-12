@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAppStore } from '../mobile/src/stores/appStore';
+import { type User, useAppStore } from '../mobile/src/stores/appStore';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedButton } from '../mobile/src/components/AnimatedButton';
 import { theme } from '../mobile/src/constants/theme';
@@ -13,6 +13,13 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const normalizeRiskProfile = (riskProfile?: string): User['riskProfile'] => {
+    if (riskProfile === 'conservative' || riskProfile === 'aggressive') {
+      return riskProfile;
+    }
+    return 'moderate';
+  };
+
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       showToast('Συμπλήρωσε email και κωδικό', 'error');
@@ -22,9 +29,10 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const user = await api.login(email.trim().toLowerCase(), password);
-      console.log('[Login] Success, user:', user?.email);
-      console.log('[Login] Token saved:', typeof localStorage !== 'undefined' ? (localStorage.getItem('auth_token') ? 'yes' : 'no') : 'N/A (mobile)');
-      setUser(user as any);
+      setUser({
+        ...user,
+        riskProfile: normalizeRiskProfile(user?.riskProfile),
+      });
       router.replace('/(tabs)');
     } catch (err: any) {
       const msg = err?.response?.data?.detail || 'Λάθος email ή κωδικός';

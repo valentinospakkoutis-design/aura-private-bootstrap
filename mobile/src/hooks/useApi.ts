@@ -7,8 +7,8 @@ interface UseApiOptions {
   showLoading?: boolean;
 }
 
-export function useApi<T = any>(
-  apiFunction: (...args: any[]) => Promise<T>,
+export function useApi<T = unknown, TArgs extends unknown[] = unknown[]>(
+  apiFunction: (...args: TArgs) => Promise<T>,
   options: UseApiOptions = {}
 ) {
   const { showToast = true, showLoading = true } = options;
@@ -19,7 +19,7 @@ export function useApi<T = any>(
   const { showToast: showToastGlobal, setIsLoading } = useAppStore();
 
   const execute = useCallback(
-    async (...args: any[]) => {
+    async (...args: TArgs) => {
       try {
         setLoading(true);
         if (showLoading) setIsLoading(true);
@@ -62,9 +62,9 @@ export function useApi<T = any>(
 
 // Legacy hook used by DailyQuote component (auto-fetches on mount)
 export function useQuoteOfDay() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     const { getApiBaseUrl } = require('../config/environment');

@@ -70,7 +70,6 @@ export const getStaggerDelay = (index: number, baseDelay: number = 100): number 
 // Interpolation helpers
 export const interpolateColor = (
   progress: number,
-  inputRange: number[],
   outputRange: string[]
 ): string => {
   // Simple color interpolation (you can enhance this)

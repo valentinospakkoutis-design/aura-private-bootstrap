@@ -45,13 +45,12 @@ interface LiveStats {
 
 export default function LiveTradingScreen() {
   const router = useRouter();
-  const { user, brokers, setBrokers, showToast, showModal } = useAppStore();
+  const { setBrokers, showToast, showModal } = useAppStore();
   const { t, language } = useLanguage();
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [tradingMode, setTradingMode] = useState<string>('paper');
   const [livePortfolio, setLivePortfolio] = useState<any>(null);
   const [brokerConnected, setBrokerConnected] = useState(false);
   const [liveHistory, setLiveHistory] = useState<any[]>([]);
@@ -86,7 +85,6 @@ export default function LiveTradingScreen() {
   }, [showToast, language]);
 
   const {
-    loading: closingTrade,
     execute: closeTrade,
   } = useApi((data: { symbol: string; quantity: number }) => {
     return api.closeLiveTrade(data);
@@ -530,7 +528,7 @@ export default function LiveTradingScreen() {
             </Text>
             {trades
               .filter(trade => trade.status === 'open')
-              .map((trade, index) => {
+              .map((trade) => {
             const tradeProfit = trade.profit || 0;
             const tradeProfitPercentage = trade.profitPercentage || 0;
             const isProfit = tradeProfit >= 0;

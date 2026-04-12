@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { theme } from '../constants/theme';
 import { Button } from './Button';
 
@@ -32,7 +32,6 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     
     // TODO: Send to error tracking service (Sentry, Bugsnag, etc.)
-    // logErrorToService(error, errorInfo);
   }
 
   handleReset = () => {

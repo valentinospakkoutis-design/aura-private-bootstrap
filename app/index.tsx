@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Href, useRouter } from 'expo-router';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { theme } from '../mobile/src/constants/theme';
-import { DateFormatter } from '../mobile/src/utils/DateFormatter';
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import { api } from '../mobile/src/services/apiClient';
@@ -17,7 +16,11 @@ interface QuickAction {
   id: string;
   title: string;
   icon: string;
-  route: string;
+  route: Href;
+}
+
+interface NotificationSummary {
+  read?: boolean;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
@@ -102,8 +105,7 @@ export default function HomeScreen() {
       } else {
         setPortfolio(null);
       }
-    } catch (err) {
-      console.log('[Home] Portfolio load failed:', err);
+    } catch {
       setPortfolio(null);
     } finally {
       setPortfolioLoading(false);
@@ -114,7 +116,7 @@ export default function HomeScreen() {
     try {
       const notifications = await api.getNotifications();
       const unread = Array.isArray(notifications) 
-        ? notifications.filter((n: any) => !n.read).length 
+        ? notifications.filter((notification: NotificationSummary) => !notification.read).length 
         : 0;
       setUnreadCount(unread);
     } catch (err) {
@@ -152,9 +154,9 @@ export default function HomeScreen() {
 
   const initials = (user?.name || 'AU').split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
 
-  const handleQuickAction = (route: string) => {
+  const handleQuickAction = (route: Href) => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({ pathname: route } as any);
+    router.push(route);
   };
 
   const hasNewWeeklyReport = (() => {
@@ -186,7 +188,7 @@ export default function HomeScreen() {
           </View>
           <TouchableOpacity
             style={styles.notificationButton}
-            onPress={() => router.push({ pathname: '/notifications' } as any)}
+            onPress={() => router.push('/notifications')}
           >
             <Text style={styles.avatarText}>{initials}</Text>
             {unreadCount > 0 && (
@@ -261,7 +263,7 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={styles.weeklyBanner}
             activeOpacity={0.85}
-            onPress={() => router.push({ pathname: '/weekly-report' } as any)}
+            onPress={() => router.push('/weekly-report')}
           >
             <Text style={styles.weeklyBannerText}>{t('weeklyReportReadyBanner')}</Text>
           </TouchableOpacity>
@@ -293,7 +295,7 @@ export default function HomeScreen() {
         <AnimatedCard delay={500} animationType="slideUp">
           <View style={styles.activityHeader}>
             <Text style={styles.sectionTitle}>Πρόσφατη Δραστηριότητα</Text>
-            <TouchableOpacity onPress={() => router.push({ pathname: '/notifications' } as any)}>
+            <TouchableOpacity onPress={() => router.push('/notifications')}>
               <Text style={styles.viewAllButton}>Όλες →</Text>
             </TouchableOpacity>
           </View>
@@ -478,7 +480,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.brand.primary + '20',
   },
   portfolioEmptyButtonText: {

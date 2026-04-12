@@ -85,7 +85,7 @@ class ApiClient {
               throw new Error('No refresh token available');
             }
 
-            console.log('[apiClient] Refreshing access token...');
+            console.info('[apiClient] Refreshing access token...');
             const response = await this.client.post('/api/v1/auth/refresh', {
               refresh_token: refreshToken,
             });
@@ -96,7 +96,7 @@ class ApiClient {
               await saveRefreshToken(newRefreshToken);
             }
 
-            console.log('[apiClient] Token refreshed successfully');
+            console.info('[apiClient] Token refreshed successfully');
 
             // Retry queued requests with new token
             this.refreshQueue.forEach((pending) => pending.resolve(access_token));
@@ -106,7 +106,7 @@ class ApiClient {
             originalRequest.headers.Authorization = `Bearer ${access_token}`;
             return this.client(originalRequest);
           } catch (refreshError) {
-            console.log('[apiClient] Token refresh failed, logging out');
+            console.info('[apiClient] Token refresh failed, logging out');
             // Reject all queued requests
             this.refreshQueue.forEach((pending) => pending.reject(refreshError));
             this.refreshQueue = [];
@@ -371,7 +371,7 @@ class ApiClient {
   }
 
   // Trades
-  async getTrades(limit: number = 50) {
+  async getTrades(_limit: number = 50) {
     const response = await this.client.get(`/api/trading/positions`);
     return response.data;
   }

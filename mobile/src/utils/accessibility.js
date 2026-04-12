@@ -95,10 +95,8 @@ export function getA11yImageProps(label, decorative = false) {
  * Screen reader announcements
  */
 export function announce(message, priority = 'polite') {
-  // This would integrate with screen reader APIs
-  // For React Native, you might use AccessibilityInfo
   if (__DEV__) {
-    console.log(`[A11y Announcement] ${message}`);
+    console.info(`[A11y Announcement] ${message}`);
   }
 }
 

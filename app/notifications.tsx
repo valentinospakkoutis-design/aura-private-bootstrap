@@ -37,12 +37,10 @@ export default function NotificationsScreen() {
   } = useApi((useCache?: boolean) => api.getNotifications(useCache), { showLoading: false, showToast: false });
 
   const {
-    loading: markingRead,
     execute: markAsRead,
   } = useApi((id: string) => api.markNotificationAsRead(id), { showLoading: false, showToast: false });
 
   const {
-    loading: deleting,
     execute: deleteNotification,
   } = useApi((id: string) => api.deleteNotification(id), { showLoading: false, showToast: false });
 

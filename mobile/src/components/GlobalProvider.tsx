@@ -1,6 +1,6 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { useAppStore } from '../stores/appStore';
+import { type ModalState, type ToastState, useAppStore } from '../stores/appStore';
 import { Toast } from './Toast';
 import { Modal } from './Modal';
 
@@ -9,7 +9,7 @@ interface GlobalProviderProps {
 }
 
 // Stable Toast wrapper — prevents re-renders from affecting sibling TextInputs
-const StableToast = React.memo(({ toast, onHide }: { toast: any; onHide: () => void }) => {
+const StableToast = React.memo(({ toast, onHide }: { toast: ToastState | null; onHide: () => void }) => {
   if (!toast) return null;
   return (
     <Toast
@@ -21,7 +21,7 @@ const StableToast = React.memo(({ toast, onHide }: { toast: any; onHide: () => v
 });
 
 // Stable Modal wrapper
-const StableModal = React.memo(({ modal, onHide }: { modal: any; onHide: () => void }) => {
+const StableModal = React.memo(({ modal, onHide }: { modal: ModalState | null; onHide: () => void }) => {
   if (!modal) return null;
   return (
     <Modal

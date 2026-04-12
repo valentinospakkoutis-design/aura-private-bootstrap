@@ -1,14 +1,20 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { Href, useRouter } from 'expo-router';
 import { theme } from '../../mobile/src/constants/theme';
 import { useLanguage } from '../../mobile/src/hooks/useLanguage';
+
+type MoreItem = {
+  icon: string;
+  title: string;
+  href: Href;
+};
 
 export default function MoreScreen() {
   const router = useRouter();
   const { t } = useLanguage();
 
-  const MORE_ITEMS = [
+  const MORE_ITEMS: MoreItem[] = [
     { icon: '🏆', title: t('leaderboard'), href: '/leaderboard' },
     { icon: '👥', title: t('referFriends'), href: '/referral' },
     { icon: '📊', title: t('analytics'), href: '/analytics' },
@@ -33,9 +39,9 @@ export default function MoreScreen() {
       <Text style={styles.title}>More</Text>
       {MORE_ITEMS.map((item) => (
         <TouchableOpacity
-          key={item.href}
+          key={item.title}
           style={styles.item}
-          onPress={() => router.push({ pathname: item.href } as any)}
+          onPress={() => router.push(item.href)}
           activeOpacity={0.7}
         >
           <Text style={styles.icon}>{item.icon}</Text>

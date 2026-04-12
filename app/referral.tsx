@@ -14,6 +14,15 @@ interface ReferralStats {
   share_url: string;
 }
 
+interface ReferralError {
+  message?: string;
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+}
+
 export default function ReferralScreen() {
   const { t } = useLanguage();
   const { showToast } = useAppStore();
@@ -27,8 +36,9 @@ export default function ReferralScreen() {
     try {
       const data = await api.getReferralStats();
       setStats(data || null);
-    } catch (err: any) {
-      showToast(err?.message || t('error'), 'error');
+    } catch (err) {
+      const error = err as ReferralError;
+      showToast(error.message || t('error'), 'error');
       setStats(null);
     } finally {
       setLoading(false);
@@ -78,8 +88,9 @@ export default function ReferralScreen() {
       showToast(result?.message || 'Referral applied!', 'success');
       setInputCode('');
       await loadStats();
-    } catch (err: any) {
-      showToast(err?.response?.data?.detail || err?.message || 'Failed to apply referral code', 'error');
+    } catch (err) {
+      const error = err as ReferralError;
+      showToast(error.response?.data?.detail || error.message || 'Failed to apply referral code', 'error');
     } finally {
       setApplying(false);
     }

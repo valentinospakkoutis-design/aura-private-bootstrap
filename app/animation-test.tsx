@@ -4,7 +4,7 @@ import { AnimatedButton } from '../mobile/src/components/AnimatedButton';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
 import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
-import { SkeletonLoader, SkeletonCard } from '../mobile/src/components/SkeletonLoader';
+import { SkeletonLoader } from '../mobile/src/components/SkeletonLoader';
 import { SwipeableCard } from '../mobile/src/components/SwipeableCard';
 import { AnimatedListItem } from '../mobile/src/components/AnimatedListItem';
 import { PageTransition } from '../mobile/src/components/PageTransition';
@@ -133,7 +133,7 @@ export default function AnimationTestScreen() {
 
         {/* Swipeable Cards */}
         <Text style={styles.sectionTitle}>Swipeable Cards (Swipe Left)</Text>
-        {[1, 2, 3].map((item, index) => (
+        {[1, 2, 3].map((item) => (
           <SwipeableCard
             key={item}
             onDelete={() => showToast(`Card ${item} deleted!`, 'success')}

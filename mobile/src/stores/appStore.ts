@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-interface User {
+export interface User {
   id: string;
   name: string;
   email: string;
@@ -10,92 +10,108 @@ interface User {
   riskProfile: 'conservative' | 'moderate' | 'aggressive';
 }
 
-interface Broker {
+export interface Broker {
   id: string;
   name: string;
   connected: boolean;
   apiKey?: string;
 }
 
-interface Prediction {
+export interface Prediction {
   id: string;
   asset: string;
+  symbol?: string;
+  category?: string;
   action: 'buy' | 'sell' | 'hold';
   confidence: number;
   price: number;
+  targetPrice?: number;
   timestamp: string;
+  reasoning?: string;
+  mtf_confluence?: boolean | null;
+  trend_1h?: 'bullish' | 'bearish' | 'neutral' | null;
+  trend_4h?: 'bullish' | 'bearish' | 'neutral' | null;
+  trend_1d?: 'bullish' | 'bearish' | 'neutral' | null;
+  rsi_1h?: number | null;
+  ensemble?: {
+    xgboost?: number | null;
+    random_forest?: number | null;
+    lstm?: number | null;
+    method?: '3-model' | '2-model' | string;
+  } | null;
+  onchain?: {
+    score?: number | null;
+    sentiment?: 'bullish' | 'bearish' | 'neutral' | string;
+    funding_rate?: number | null;
+    long_short_ratio?: number | null;
+    fear_greed?: number | null;
+  } | null;
+}
+
+export type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+export interface ToastState {
+  message: string;
+  type: ToastType;
+}
+
+export interface ModalState {
+  visible: boolean;
+  title: string;
+  message: string;
+  onConfirm?: () => void;
 }
 
 interface AppState {
-  // User
   user: User | null;
   setUser: (user: User | null) => void;
 
-  // Brokers
   brokers: Broker[];
   setBrokers: (brokers: Broker[]) => void;
   addBroker: (broker: Broker) => void;
   removeBroker: (brokerId: string) => void;
 
-  // Predictions
   predictions: Prediction[];
   setPredictions: (predictions: Prediction[]) => void;
 
-  // UI State
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   error: string | null;
   setError: (error: string | null) => void;
 
-  // Toast
-  toast: { message: string; type: 'success' | 'error' | 'warning' | 'info' } | null;
-  showToast: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  toast: ToastState | null;
+  showToast: (message: string, type: ToastType) => void;
   hideToast: () => void;
 
-  // Modal
-  modal: { visible: boolean; title: string; message: string; onConfirm?: () => void } | null;
+  modal: ModalState | null;
   showModal: (title: string, message: string, onConfirm?: () => void) => void;
   hideModal: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  // User
   user: null,
-  setUser: (user) => {
-    if (!user) {
-      console.warn('[Store] setUser(null) called — stack:', new Error().stack);
-    } else {
-      console.log('[Store] setUser:', user.email);
-    }
-    set({ user });
-  },
+  setUser: (user) => set({ user }),
 
-  // Brokers
   brokers: [],
   setBrokers: (brokers) => set({ brokers }),
   addBroker: (broker) => set((state) => ({ brokers: [...state.brokers, broker] })),
   removeBroker: (brokerId) =>
-    set((state) => ({ brokers: state.brokers.filter((b) => b.id !== brokerId) })),
+    set((state) => ({ brokers: state.brokers.filter((broker) => broker.id !== brokerId) })),
 
-  // Predictions
   predictions: [],
   setPredictions: (predictions) => set({ predictions }),
 
-  // UI State
   isLoading: false,
-  setIsLoading: (loading) => set({ isLoading: loading }),
+  setIsLoading: (isLoading) => set({ isLoading }),
   error: null,
   setError: (error) => set({ error }),
 
-  // Toast
   toast: null,
   showToast: (message, type) => set({ toast: { message, type } }),
   hideToast: () => set({ toast: null }),
 
-  // Modal
   modal: null,
   showModal: (title, message, onConfirm) =>
     set({ modal: { visible: true, title, message, onConfirm } }),
   hideModal: () => set({ modal: null }),
 }));
-

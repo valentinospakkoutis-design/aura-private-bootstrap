@@ -19,7 +19,7 @@ export function useNotifications() {
     const receivedSubscription = notificationService.addNotificationReceivedListener(
       (notification) => {
         logger.info('Notification received:', notification);
-        const { title, body } = notification.request.content;
+        const { title } = notification.request.content;
         showToast(title || 'New notification', 'info');
       }
     );

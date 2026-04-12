@@ -3,9 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
   withSpring,
-  Easing,
 } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
 

@@ -11,10 +11,7 @@ export const NoPredictions: React.FC = () => {
       title="Το AI Σκέφτεται..."
       description="Το AURA αναλύει τώρα τις αγορές και θα σου δώσει προβλέψεις σύντομα. Συνήθως χρειάζεται λίγα λεπτά."
       actionLabel="Ανανέωση"
-      onAction={() => {
-        // Refresh predictions logic
-        console.log('Refreshing predictions...');
-      }}
+      onAction={() => {}}
       secondaryActionLabel="Ρυθμίσεις AI"
       onSecondaryAction={() => router.push('/settings')}
     />

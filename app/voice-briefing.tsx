@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
@@ -33,7 +33,6 @@ export default function VoiceBriefingScreen() {
   } = useApi(() => api.getVoiceBriefing(), { showLoading: false, showToast: false });
 
   const {
-    loading: uploadingVoice,
     execute: uploadVoice,
   } = useApi((audioUri: string) => api.uploadVoiceSample(audioUri), { showLoading: false, showToast: false });
 
@@ -84,7 +83,6 @@ export default function VoiceBriefingScreen() {
     try {
       const data = await fetchBriefing();
       if (data) {
-        console.log('Briefing loaded:', data.briefing_id || 'briefing');
         setBriefingUrl(data.audio_url || null);
         setBriefingText(data.text || data.full_text || null);
       }

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { Text, StyleSheet, Animated, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 

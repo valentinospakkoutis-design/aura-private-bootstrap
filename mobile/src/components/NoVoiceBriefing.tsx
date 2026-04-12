@@ -13,10 +13,7 @@ export const NoVoiceBriefing: React.FC = () => {
       actionLabel="Ηχογράφηση Φωνής"
       onAction={() => router.push('/voice-briefing')}
       secondaryActionLabel="Μάθε Περισσότερα"
-      onSecondaryAction={() => {
-        // Open info modal or help screen
-        console.log('Show voice cloning info...');
-      }}
+      onSecondaryAction={() => {}}
     />
   );
 };

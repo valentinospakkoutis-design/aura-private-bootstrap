@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { LoadingSpinner } from '../mobile/src/components/LoadingSpinner';
-import { NoBrokerConnected } from '../mobile/src/components/NoBrokerConnected';
 import { Button } from '../mobile/src/components/Button';
 import { Modal } from '../mobile/src/components/Modal';
 import { theme } from '../mobile/src/constants/theme';
@@ -82,7 +81,6 @@ export default function BrokersScreen() {
   } = useApi((useCache?: boolean) => api.getBrokers(useCache), { showLoading: false, showToast: false });
 
   const {
-    loading: connecting,
     execute: connectBrokerApi,
   } = useApi(
     (brokerName: string, apiKeyValue: string, apiSecretValue: string, testnet: boolean = false) =>
@@ -228,16 +226,6 @@ export default function BrokersScreen() {
   }, [showModal, removeBroker, showToast, loadBrokers]);
 
   // Merge store brokers with available brokers
-  const getBrokersWithStatus = useCallback((): Broker[] => {
-    return AVAILABLE_BROKERS.map(broker => {
-      const connectedBroker = brokers.find(b => b.id === broker.id || b.name === broker.name);
-      return {
-        ...broker,
-        connected: connectedBroker?.connected || false,
-      };
-    });
-  }, [brokers]);
-
   if (loadingBrokers) {
     return <LoadingSpinner fullScreen message="Φόρτωση brokers..." />;
   }

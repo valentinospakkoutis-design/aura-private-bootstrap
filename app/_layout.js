@@ -30,10 +30,8 @@ function AuthGuard({ children }) {
       } = require('../mobile/src/utils/tokenStorage');
       try {
         const [token, refreshToken] = await Promise.all([getToken(), getRefreshToken()]);
-        console.log('[AuthGuard] Token from storage:', token ? `found (${token.substring(0, 20)}...)` : 'not found');
 
         if (token && !refreshToken) {
-          console.log('[AuthGuard] Missing refresh token, clearing incomplete session');
           await deleteToken();
           await deleteRefreshToken();
           setUser(null);
@@ -49,7 +47,6 @@ function AuthGuard({ children }) {
             timeout: 10000,
           });
           const me = meResponse.data;
-          console.log('[AuthGuard] Session restored for:', me.email);
           setUser({
             id: String(me.id || '1'),
             name: me.full_name || me.email.split('@')[0],
@@ -59,7 +56,6 @@ function AuthGuard({ children }) {
           });
         }
       } catch (err) {
-        console.log('[AuthGuard] Token restore failed:', err?.response?.status || err?.message);
         await deleteToken();
         await deleteRefreshToken();
         setUser(null);
@@ -357,6 +353,38 @@ function AppContent() {
           name="bybit-trading"
           options={{
             title: '🟡 Bybit',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
+          name="ai-accuracy"
+          options={{
+            title: 'ðŸŽ¯ AI Accuracy',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
+          name="terms"
+          options={{
+            title: 'Terms',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
+          name="privacy"
+          options={{
+            title: 'Privacy',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
+          name="help"
+          options={{
+            title: 'Help',
             headerShown: true,
           }}
         />

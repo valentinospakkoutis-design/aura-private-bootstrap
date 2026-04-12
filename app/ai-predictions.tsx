@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
-import { useAppStore } from '../mobile/src/stores/appStore';
+import { type Prediction, useAppStore } from '../mobile/src/stores/appStore';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
@@ -11,37 +11,6 @@ import { useRouter } from 'expo-router';
 import { usePriceUpdates } from '../mobile/src/hooks/useWebSocket';
 import { useOfflineMode } from '../mobile/src/hooks/useOfflineMode';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
-
-interface Prediction {
-  id: string;
-  asset: string;
-  symbol?: string;
-  category?: string;
-  action: 'buy' | 'sell' | 'hold';
-  confidence: number;
-  price: number;
-  targetPrice?: number;
-  timestamp: string;
-  reasoning?: string;
-  mtf_confluence?: boolean | null;
-  trend_1h?: 'bullish' | 'bearish' | 'neutral' | null;
-  trend_4h?: 'bullish' | 'bearish' | 'neutral' | null;
-  trend_1d?: 'bullish' | 'bearish' | 'neutral' | null;
-  rsi_1h?: number | null;
-  ensemble?: {
-    xgboost?: number | null;
-    random_forest?: number | null;
-    lstm?: number | null;
-    method?: '3-model' | '2-model' | string;
-  } | null;
-  onchain?: {
-    score?: number | null;
-    sentiment?: 'bullish' | 'bearish' | 'neutral' | string;
-    funding_rate?: number | null;
-    long_short_ratio?: number | null;
-    fear_greed?: number | null;
-  } | null;
-}
 
 interface Mover {
   symbol: string;
@@ -61,6 +30,33 @@ interface ModelHealth {
   feedback_trades?: number;
 }
 
+interface PredictionAccuracyResponse {
+  overall_accuracy_7d?: number;
+  per_symbol_accuracy?: Record<string, number>;
+}
+
+interface ModelPerformanceEntry {
+  symbol?: string;
+  accuracy?: number | null;
+}
+
+interface ModelPerformanceResponse {
+  models?: ModelPerformanceEntry[];
+}
+
+interface ModelHealthResponse {
+  models?: ModelHealth[];
+}
+
+interface RLPrediction {
+  action?: 'BUY' | 'SELL' | 'HOLD';
+  val_sharpe?: number;
+}
+
+interface RLPredictionResponse {
+  predictions?: Record<string, RLPrediction>;
+}
+
 const CATEGORIES = [
   { key: 'all', label: 'Όλα' },
   { key: 'crypto', label: 'Crypto' },
@@ -77,7 +73,7 @@ export default function AIPredictionsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [movers, setMovers] = useState<{ top_gainers: Mover[]; top_losers: Mover[]; top_volume: Mover[] } | null>(null);
   const [modelAccuracy, setModelAccuracy] = useState<Record<string, number>>({});
-  const [rlData, setRlData] = useState<any>(null);
+  const [rlData, setRlData] = useState<RLPredictionResponse | null>(null);
   const [historicalAccuracy, setHistoricalAccuracy] = useState<number | null>(null);
   const [symbolHistoricalAccuracy, setSymbolHistoricalAccuracy] = useState<Record<string, number>>({});
   const [modelHealthBySymbol, setModelHealthBySymbol] = useState<Record<string, ModelHealth>>({});
@@ -87,7 +83,7 @@ export default function AIPredictionsScreen() {
     error,
     loading,
     execute: fetchPredictions,
-  } = useApi((...args: any[]) => api.getPredictions(...args), { showLoading: false, showToast: false });
+  } = useApi<Prediction[], [boolean?]>((useCache?: boolean) => api.getPredictions(useCache), { showLoading: false, showToast: false });
 
   const assets = predictions?.map((p) => p.asset) || [];
   const { prices, isConnected } = usePriceUpdates(assets);
@@ -119,20 +115,20 @@ export default function AIPredictionsScreen() {
         fetchPredictions(isOfflineMode),
         api.getMarketMovers().then(setMovers).catch(() => {}),
         api.getRLBatchPredictions().then(setRlData).catch(() => {}),
-        api.getAIPredictionAccuracy().then((data: any) => {
+        api.getAIPredictionAccuracy().then((data: PredictionAccuracyResponse) => {
           if (typeof data?.overall_accuracy_7d === 'number') {
             setHistoricalAccuracy(data.overall_accuracy_7d);
           }
           setSymbolHistoricalAccuracy(data?.per_symbol_accuracy || {});
         }).catch(() => {}),
-        api.getModelPerformance().then((data: any) => {
+        api.getModelPerformance().then((data: ModelPerformanceResponse) => {
           const map: Record<string, number> = {};
           for (const m of data?.models || []) {
             if (m.symbol && m.accuracy != null) map[m.symbol] = m.accuracy;
           }
           setModelAccuracy(map);
         }).catch(() => {}),
-        api.getAIModelHealth().then((data: any) => {
+        api.getAIModelHealth().then((data: ModelHealthResponse) => {
           const map: Record<string, ModelHealth> = {};
           for (const m of data?.models || []) {
             if (m.symbol) map[m.symbol] = m;
@@ -239,7 +235,7 @@ export default function AIPredictionsScreen() {
   };
 
   // ── Prediction Card ───────────────────────────────────────
-  const renderPredictionCard = ({ item, index }: { item: Prediction; index: number }) => {
+  const renderPredictionCard = ({ item }: { item: Prediction }) => {
     const accModel = modelAccuracy[item.symbol || ''] ?? null;
     const accHist = (item.symbol && symbolHistoricalAccuracy[item.symbol] != null)
       ? symbolHistoricalAccuracy[item.symbol]

@@ -1,19 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useAppStore } from '../mobile/src/stores/appStore';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
 import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
 import { AnimatedProgressBar } from '../mobile/src/components/AnimatedProgressBar';
-import { SkeletonCard } from '../mobile/src/components/SkeletonLoader';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { NoData } from '../mobile/src/components/NoData';
 import { theme } from '../mobile/src/constants/theme';
 import { NumberFormatter } from '../mobile/src/utils/NumberFormatter';
-import { DateFormatter } from '../mobile/src/utils/DateFormatter';
-
-const { width } = Dimensions.get('window');
 
 interface AnalyticsData {
   totalValue: number;
@@ -45,7 +40,6 @@ interface AnalyticsData {
 }
 
 export default function AnalyticsScreen() {
-  const { showToast } = useAppStore();
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
@@ -259,7 +253,7 @@ export default function AnalyticsScreen() {
         <AnimatedCard delay={300} animationType="slideUp">
           <Text style={styles.cardTitle}>💼 Asset Allocation</Text>
           
-          {analytics.assetAllocation.map((asset, index) => (
+          {analytics.assetAllocation.map((asset) => (
             <View key={asset.asset} style={styles.assetItem}>
               <View style={styles.assetHeader}>
                 <Text style={styles.assetName}>{asset.asset}</Text>

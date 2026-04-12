@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PageTransition } from '../mobile/src/components/PageTransition';
 import { useLanguage } from '../mobile/src/hooks/useLanguage';
 import { theme } from '../mobile/src/constants/theme';

@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TextInput, TouchableOpacity } from 'react-native';
-import { useApi } from '../mobile/src/hooks/useApi';
 import { api } from '../mobile/src/services/apiClient';
 import { AnimatedCard } from '../mobile/src/components/AnimatedCard';
 import { AnimatedCounter } from '../mobile/src/components/AnimatedCounter';
@@ -139,10 +138,6 @@ export default function PaperTradingScreen() {
       }
     );
   }, [showModal, showToast, loadData, t, showAchievementToasts]);
-
-  const handleStartPaperTrading = useCallback(() => {
-    router.push({ pathname: '/brokers' } as any);
-  }, [router]);
 
   // Loading state
   if (loading && !refreshing && !trades.length) {

@@ -57,7 +57,7 @@ export default function FuturesTradingScreen() {
 
     try {
       setSubmitting(true);
-      const result = await api.placeFuturesOrder(symbol.toUpperCase().trim(), side, qty, leverage);
+      await api.placeFuturesOrder(symbol.toUpperCase().trim(), side, qty, leverage);
       showToast(`${side} ${qty} ${symbol} @ ${leverage}x executed!`, 'success');
       setQuantity('0.001');
       await loadData();

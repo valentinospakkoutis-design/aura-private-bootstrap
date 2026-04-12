@@ -5,17 +5,6 @@ import { useQuoteOfDay } from '../hooks/useApi';
 export default function DailyQuote({ style }) {
   const { data, loading, error } = useQuoteOfDay();
 
-  // Debug logging (only in development)
-  const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV !== 'production';
-  if (isDev) {
-    if (error) {
-      console.log('DailyQuote Error:', error);
-    }
-    if (data) {
-      console.log('DailyQuote Data:', data);
-    }
-  }
-
   if (loading) {
     return (
       <View style={[styles.card, style, styles.loadingContainer]}>
