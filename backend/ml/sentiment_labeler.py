@@ -123,7 +123,7 @@ def analyze_sentiment(text: str) -> tuple:
 
 
 def store_sentiment_snapshot(redis_client, symbol: str, score: float):
-    """Store hourly sentiment snapshot for momentum calculation."""
+    """Store hourly sentiment snapshot for momentum calculation using sync Redis client."""
     if redis_client is None or not symbol:
         return
 

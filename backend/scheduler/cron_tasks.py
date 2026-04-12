@@ -473,10 +473,32 @@ async def task_fetch_news():
     failures = 0
     try:
         _ensure_aux_tables()
+
+        redis_client = None
+        try:
+            from cache.connection import get_redis
+            redis_client = get_redis()
+        except Exception as redis_err:
+            logger.debug("[CRON_NEWS] Redis unavailable for snapshots: %s", redis_err)
+
+        try:
+            from ml.sentiment_labeler import store_sentiment_snapshot
+        except Exception as import_err:
+            store_sentiment_snapshot = None
+            logger.debug("[CRON_NEWS] snapshot importer unavailable: %s", import_err)
+
         for symbol in NEWS_SYMBOLS:
             try:
                 sentiment = await asyncio.to_thread(news_fetcher.get_symbol_sentiment, symbol)
                 await asyncio.to_thread(_upsert_sentiment_score, symbol, sentiment)
+
+                sentiment_score = float(sentiment.get("score", 50.0) or 50.0)
+                if store_sentiment_snapshot is not None and redis_client is not None:
+                    try:
+                        store_sentiment_snapshot(redis_client, symbol, sentiment_score)
+                    except Exception as e:
+                        print(f"[SNAPSHOT] Failed to store snapshot for {symbol}: {e}")
+
                 processed += 1
             except Exception as e:
                 failures += 1

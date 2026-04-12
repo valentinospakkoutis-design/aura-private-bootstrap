@@ -936,6 +936,19 @@ def _news_fetch_job():
         logger.error(f"[scheduler] News sentiment fetch failed: {e}")
 
 
+def _monthly_rl_retrain_job():
+    """Monthly RL agent retrain - runs on 1st of each month at 02:00 UTC."""
+    import asyncio
+
+    try:
+        from scheduler.cron_tasks import task_monthly_rl_retrain
+
+        asyncio.run(task_monthly_rl_retrain())
+        print("[CRON] Monthly RL retrain completed")
+    except Exception as e:
+        print(f"[CRON] Monthly RL retrain failed: {e}")
+
+
 def setup_weekly_retraining():
     """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
@@ -959,6 +972,15 @@ def setup_weekly_retraining():
             trigger=CronTrigger(day_of_week="sun", hour=1, minute=0),
             id="weekly_lstm_retrain",
             name="Weekly LSTM sidecar retraining",
+            replace_existing=True,
+        )
+
+        # Monthly RL retraining - first day of month at 02:00 UTC
+        scheduler.add_job(
+            _monthly_rl_retrain_job,
+            trigger=CronTrigger(day=1, hour=2, minute=0),
+            id="monthly_rl_retrain",
+            name="Monthly RL agent retraining",
             replace_existing=True,
         )
 
@@ -1051,7 +1073,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
