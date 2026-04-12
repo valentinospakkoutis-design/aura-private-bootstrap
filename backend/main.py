@@ -1714,14 +1714,6 @@ def get_ai_accuracy_summary():
     return sanitize_floats(prediction_outcomes_service.get_accuracy(symbol=None))
 
 
-@app.get("/api/ai/accuracy/{symbol}")
-def get_ai_accuracy_for_symbol(symbol: str):
-    """Prediction direction accuracy for a specific asset symbol."""
-    from services.prediction_outcomes import prediction_outcomes_service
-
-    return sanitize_floats(prediction_outcomes_service.get_accuracy(symbol=symbol.upper()))
-
-
 @app.get("/api/ai/accuracy/by-onchain-bucket")
 def get_accuracy_by_onchain_bucket(symbol: Optional[str] = None, days: int = 30):
     """Prediction accuracy analytics bucketed by on-chain score ranges (0-0.25, 0.25-0.5, 0.5-0.75, 0.75-1.0)."""
@@ -1729,6 +1721,14 @@ def get_accuracy_by_onchain_bucket(symbol: Optional[str] = None, days: int = 30)
 
     result = prediction_outcomes_service.get_accuracy_by_onchain_bucket(symbol=symbol, days=days)
     return sanitize_floats(result)
+
+
+@app.get("/api/ai/accuracy/{symbol}")
+def get_ai_accuracy_for_symbol(symbol: str):
+    """Prediction direction accuracy for a specific asset symbol."""
+    from services.prediction_outcomes import prediction_outcomes_service
+
+    return sanitize_floats(prediction_outcomes_service.get_accuracy(symbol=symbol.upper()))
 
 
 @app.get("/api/ai/model-health")

@@ -10,6 +10,8 @@ from database.connection import SessionLocal
 
 class PredictionOutcomesService:
     def _ensure_table(self):
+        if not callable(SessionLocal):
+            return
         db = SessionLocal()
         try:
             db.execute(text("""
@@ -216,6 +218,21 @@ class PredictionOutcomesService:
             db.close()
 
     def get_accuracy(self, symbol: Optional[str] = None) -> Dict:
+        if not callable(SessionLocal):
+            return {
+                "overall_accuracy_7d": 0.0,
+                "total_evaluated": 0,
+                "by_confidence_band": {
+                    "90-100": {"accuracy": 0.0, "count": 0},
+                    "80-90": {"accuracy": 0.0, "count": 0},
+                    "70-80": {"accuracy": 0.0, "count": 0},
+                },
+                "best_assets": [],
+                "worst_assets": [],
+                "per_symbol_accuracy": {},
+                "symbol": symbol.upper() if symbol else None,
+                "database_available": False,
+            }
         self._ensure_table()
         db = SessionLocal()
         try:
@@ -319,6 +336,22 @@ class PredictionOutcomesService:
 
     def get_accuracy_by_onchain_bucket(self, symbol: Optional[str] = None, days: int = 30) -> Dict:
         """Get accuracy analytics bucketed by on-chain score ranges."""
+        if not callable(SessionLocal):
+            return {
+                "symbol": symbol.upper() if symbol else "ALL",
+                "days": days,
+                "total_predictions": 0,
+                "overall_correlation": 0.0,
+                "buckets": [
+                    {"range": "0.00-0.25", "hit_rate": 0.0, "count": 0, "hits": 0, "sentiment_distribution": {}},
+                    {"range": "0.25-0.50", "hit_rate": 0.0, "count": 0, "hits": 0, "sentiment_distribution": {}},
+                    {"range": "0.50-0.75", "hit_rate": 0.0, "count": 0, "hits": 0, "sentiment_distribution": {}},
+                    {"range": "0.75-1.00", "hit_rate": 0.0, "count": 0, "hits": 0, "sentiment_distribution": {}},
+                ],
+                "best_bucket": {},
+                "worst_bucket": {},
+                "database_available": False,
+            }
         self._ensure_table()
         db = SessionLocal()
         try:
