@@ -812,6 +812,18 @@ def _weekly_performance_reports():
         logger.error(f"[scheduler] Weekly performance reports push failed: {e}")
 
 
+def _daily_leaderboard_snapshot():
+    """Daily social leaderboard snapshot job (00:00 UTC)."""
+    logger.info("[scheduler] Starting daily leaderboard snapshot...")
+    try:
+        from services.social_service import social_service
+
+        result = social_service.update_leaderboard()
+        logger.info("[scheduler] Daily leaderboard snapshot done: %s", result)
+    except Exception as e:
+        logger.error(f"[scheduler] Daily leaderboard snapshot failed: {e}")
+
+
 def setup_weekly_retraining():
     """Schedule all recurring training and prediction jobs using APScheduler."""
     try:
@@ -865,6 +877,15 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+        # Daily leaderboard snapshots — 00:00 UTC
+        scheduler.add_job(
+            _daily_leaderboard_snapshot,
+            trigger=CronTrigger(hour=0, minute=0),
+            id="daily_leaderboard_snapshot",
+            name="Daily leaderboard snapshots",
+            replace_existing=True,
+        )
+
         # Daily predictions refresh — 06:05 UTC (09:05 Cyprus)
         scheduler.add_job(
             _daily_predictions_refresh,
@@ -900,7 +921,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")

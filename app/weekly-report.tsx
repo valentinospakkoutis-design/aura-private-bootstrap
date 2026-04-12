@@ -100,8 +100,9 @@ export default function WeeklyReportScreen() {
     return (
       `📈 AURA Performance:\n` +
       `${stats.pnl_pct >= 0 ? '+' : ''}${stats.pnl_pct.toFixed(1)}% ${t('thisWeek')}\n` +
-      `Win Rate: ${stats.win_rate.toFixed(0)}% | Trades: ${stats.total_trades}\n` +
-      `#AURA #AITrading`
+      `Win Rate: ${stats.win_rate.toFixed(0)}% | AI Accuracy: ${stats.ai_accuracy.toFixed(0)}%\n` +
+      `#AURA #AITrading\n` +
+      `Κατέβασε: aura-app.com`
     );
   }, [stats, t]);
 

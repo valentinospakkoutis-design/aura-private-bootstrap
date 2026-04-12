@@ -3564,6 +3564,10 @@ class SubscriptionUpgradeRequest(BaseModel):
     tier: str
 
 
+class ReferralApplyRequest(BaseModel):
+    referral_code: str
+
+
 @app.get("/api/subscription/status")
 def get_subscription_status_endpoint(payload=Depends(require_auth)):
     """Return current user's subscription tier and feature access."""
@@ -3586,6 +3590,50 @@ def upgrade_subscription_endpoint(data: SubscriptionUpgradeRequest, payload=Depe
     from services.subscription_service import upgrade_subscription
 
     return sanitize_floats(upgrade_subscription(user_id, data.tier))
+
+
+@app.get("/api/leaderboard")
+def get_leaderboard_endpoint(
+    period: str = Query("weekly", pattern="^(weekly|monthly|alltime)$"),
+    limit: int = Query(50, ge=1, le=200),
+    payload=Depends(require_auth),
+):
+    """Leaderboard rankings for paper trading performance (anonymized display names only)."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.social_service import social_service
+
+    return sanitize_floats(social_service.get_leaderboard(user_id=user_id, period=period, limit=limit))
+
+
+@app.get("/api/referral/stats")
+def get_referral_stats_endpoint(payload=Depends(require_auth)):
+    """Get current user's referral stats and share URL."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.social_service import social_service
+
+    return sanitize_floats(social_service.get_referral_stats(user_id=user_id))
+
+
+@app.post("/api/referral/apply")
+def apply_referral_endpoint(data: ReferralApplyRequest, payload=Depends(require_auth)):
+    """Apply a referral code for the current user and reward referrer."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.social_service import social_service
+
+    result = social_service.apply_referral(referral_code=data.referral_code, new_user_id=user_id)
+    status = 200 if result.get("success") else 400
+    if status != 200:
+        raise HTTPException(status_code=status, detail=result.get("message", "Failed to apply referral code."))
+    return sanitize_floats(result)
 
 
 # ── Live Trading Endpoints ───────────────────────────────────────────

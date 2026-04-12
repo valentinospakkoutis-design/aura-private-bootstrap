@@ -319,6 +319,23 @@ class ApiClient {
     return response.data;
   }
 
+  async getLeaderboard(period: 'weekly' | 'monthly' | 'alltime' = 'weekly', limit: number = 50) {
+    const response = await this.client.get(`/api/leaderboard?period=${period}&limit=${limit}`);
+    return response.data;
+  }
+
+  async getReferralStats() {
+    const response = await this.client.get('/api/referral/stats');
+    return response.data;
+  }
+
+  async applyReferralCode(referralCode: string) {
+    const response = await this.client.post('/api/referral/apply', {
+      referral_code: referralCode,
+    });
+    return response.data;
+  }
+
   // Brokers
   async getBrokers(useCache: boolean = true) {
     if (useCache) {

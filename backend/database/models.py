@@ -6,7 +6,7 @@ import os
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY, LargeBinary, Numeric, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, date
 
 Base = declarative_base()
 
@@ -19,6 +19,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
+    referral_code = Column(String(32), unique=True, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     token_version = Column(Integer, nullable=False, default=0, server_default="0")
@@ -295,6 +296,39 @@ class OnchainSignalSnapshot(Base):
     extreme_fear = Column(Boolean, default=False)
     extreme_greed = Column(Boolean, default=False)
     overleveraged_longs = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LeaderboardSnapshot(Base):
+    """Daily leaderboard snapshot for paper trading performance."""
+    __tablename__ = "leaderboard_snapshots"
+    __table_args__ = (
+        UniqueConstraint("user_id", "period", "snapshot_date", name="uq_leaderboard_user_period_date"),
+        Index("ix_leaderboard_period_date", "period", "snapshot_date"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    display_name = Column(String(64), nullable=False)
+    paper_pnl_pct = Column(Float, default=0.0)
+    paper_trades = Column(Integer, default=0)
+    win_rate = Column(Float, default=0.0)
+    period = Column(String(20), nullable=False, index=True)  # weekly|monthly|alltime
+    snapshot_date = Column(Date, nullable=False, default=date.today)
+
+
+class Referral(Base):
+    """Referral relationships and rewards."""
+    __tablename__ = "referrals"
+    __table_args__ = (
+        UniqueConstraint("referred_id", name="uq_referrals_referred_user"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    referred_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    referral_code = Column(String(32), unique=True, nullable=False, index=True)
+    reward_given = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

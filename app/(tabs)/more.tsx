@@ -9,6 +9,8 @@ export default function MoreScreen() {
   const { t } = useLanguage();
 
   const MORE_ITEMS = [
+    { icon: '🏆', title: t('leaderboard'), href: '/leaderboard' },
+    { icon: '👥', title: t('referFriends'), href: '/referral' },
     { icon: '📊', title: t('analytics'), href: '/analytics' },
     { icon: '🎯', title: t('aiAccuracyTitle'), href: '/ai-accuracy' },
     { icon: '🧪', title: t('simulationTitle'), href: '/simulation' },

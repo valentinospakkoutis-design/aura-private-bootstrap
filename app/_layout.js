@@ -225,6 +225,22 @@ function AppContent() {
             headerShown: true,
           }}
         />
+
+        <Stack.Screen
+          name="leaderboard"
+          options={{
+            title: '🏆 Leaderboard',
+            headerShown: true,
+          }}
+        />
+
+        <Stack.Screen
+          name="referral"
+          options={{
+            title: '👥 Invite Friends',
+            headerShown: true,
+          }}
+        />
         
         <Stack.Screen 
           name="analytics" 
