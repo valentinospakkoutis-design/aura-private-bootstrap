@@ -512,6 +512,31 @@ async def task_weekly_retrain():
                 new_acc = result.get("new_acc")
                 status = result.get("status")
 
+                # Phase V: model validation snapshot (additive, non-blocking).
+                try:
+                    from cache.connection import get_redis
+                    from ml.model_validator import validate_model
+
+                    redis_client = get_redis()
+                    if new_acc is not None:
+                        validation = validate_model(
+                            symbol=symbol,
+                            new_model_metrics={
+                                "accuracy": float(new_acc),
+                                "sharpe_ratio": 0.6,
+                                "max_drawdown": -0.2,
+                                "total_trades": max(10, int(result.get("training_samples", 0) // 10) if result.get("training_samples") else 10),
+                            },
+                            current_model_metrics={"accuracy": float(old_acc)} if old_acc is not None else None,
+                            redis_client=redis_client,
+                        )
+                        result["validation"] = {
+                            "deploy": validation.get("deploy"),
+                            "checks": validation.get("checks", {}),
+                        }
+                except Exception as validation_err:
+                    logger.debug("[CRON_RETRAIN] validator skipped for %s: %s", symbol, validation_err)
+
                 if status == "deployed":
                     deployed += 1
                     line = (

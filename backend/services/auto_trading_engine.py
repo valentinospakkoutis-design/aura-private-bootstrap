@@ -552,6 +552,26 @@ class AutoTradingEngine:
             return None
         symbol = trading_symbol
 
+        # Phase V safety layer: anomaly detection before other decision gates.
+        try:
+            from cache.connection import get_redis
+            from ml.anomaly_detector import detect_price_anomaly, is_trading_paused
+
+            redis_client = get_redis()
+
+            if is_trading_paused(symbol, redis_client):
+                self._log_event("SKIP", f"{symbol}: active anomaly detected")
+                print(f"[AUTO_TRADE] {symbol}: SKIPPED - active anomaly detected")
+                return None
+
+            anomaly = detect_price_anomaly(symbol, float(price or 0.0), redis_client)
+            if anomaly.get("anomaly"):
+                self._log_event("SKIP", f"{symbol}: anomaly spike {anomaly.get('price_change_pct')}")
+                print(f"[AUTO_TRADE] {symbol}: SKIPPED - anomaly_detected")
+                return None
+        except Exception as anomaly_err:
+            logger.debug("[AUTO_TRADE] anomaly check failed for %s: %s", symbol, anomaly_err)
+
         if not self.broker or not self.broker.connected:
             self._log_event("SKIP", f"{symbol}: broker not connected")
             return None
@@ -612,6 +632,43 @@ class AutoTradingEngine:
             return None
 
         side = "BUY" if action == "buy" else "SELL"
+
+        # Phase V safety layer: correlation exposure guard.
+        correlation_cap_usd: Optional[float] = None
+        try:
+            from ml.correlation_engine import check_correlation_risk
+
+            proposed_size_usd = float(self.config.get("fixed_order_value_usd", 10.0) or 10.0)
+            total_portfolio_usd = float(self._estimate_equity_reference() or 0.0)
+            open_positions = []
+            for pos in self.open_positions.values():
+                qty = float(pos.get("quantity") or 0.0)
+                if qty <= 0:
+                    continue
+                sym = str(pos.get("symbol") or "")
+                px = self._get_market_price(sym) if sym else 0.0
+                if px <= 0:
+                    px = float(pos.get("entry_price") or 0.0)
+                open_positions.append({
+                    "symbol": sym,
+                    "value_usd": float(qty * px),
+                })
+
+            corr_check = check_correlation_risk(
+                symbol=symbol,
+                proposed_size_usd=proposed_size_usd,
+                open_positions=open_positions,
+                total_portfolio_usd=total_portfolio_usd,
+            )
+
+            if not corr_check.get("allowed", True):
+                self._log_event("SKIP", f"{symbol}: {corr_check.get('reason', 'correlation_risk')}")
+                print(f"[AUTO_TRADE] {symbol}: SKIPPED - {corr_check.get('reason', 'correlation_risk')}")
+                return None
+
+            correlation_cap_usd = float(corr_check.get("max_allowed_usd", proposed_size_usd) or proposed_size_usd)
+        except Exception as corr_err:
+            logger.debug("[AUTO_TRADE] correlation check failed for %s: %s", symbol, corr_err)
 
         # ── Claude AI validation (only for high-confidence ELITE signals) ──
         claude_size_multiplier = 1.0
@@ -683,6 +740,10 @@ class AutoTradingEngine:
         vol = abs(prediction.get("trend_score", 0.3)) if "trend_score" in prediction else 0.3
         quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol, symbol=symbol)
         quantity *= claude_size_multiplier
+
+        if correlation_cap_usd is not None and price > 0:
+            max_corr_qty = max(0.0, float(correlation_cap_usd) / float(price))
+            quantity = min(quantity, max_corr_qty)
 
         if quantity <= 0:
             self._log_event("SKIP", f"{symbol}: insufficient balance for position")

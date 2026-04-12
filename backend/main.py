@@ -5419,6 +5419,135 @@ def get_rl_batch_predictions():
                 "trained_count": 0, "total_count": 34, "is_training": False, "error": str(e)}
 
 
+@app.get("/api/v1/anomalies/active")
+def get_active_market_anomalies():
+    """Get currently active anomaly flags across auto-trade symbols."""
+    try:
+        from services.auto_trading_engine import ALLOWED_AUTO_TRADE_SYMBOLS
+        from ml.anomaly_detector import get_active_anomalies
+
+        redis_client = get_redis()
+        symbols = sorted(list(ALLOWED_AUTO_TRADE_SYMBOLS))
+        active = get_active_anomalies(redis_client, symbols)
+
+        return sanitize_floats({
+            "active_count": len(active),
+            "symbols_checked": len(symbols),
+            "active": active,
+        })
+    except Exception as e:
+        return {"active_count": 0, "symbols_checked": 0, "active": [], "error": str(e)}
+
+
+@app.get("/api/v1/correlation/check/{symbol}")
+def get_correlation_risk_check(
+    symbol: str,
+    proposed_size_usd: float = Query(50.0, ge=0.0),
+    total_portfolio_usd: float = Query(1000.0, gt=0.0),
+):
+    """Run correlation risk guard for a proposed order size."""
+    try:
+        from services.auto_trading_engine import auto_trader
+        from ml.correlation_engine import check_correlation_risk
+
+        open_positions = []
+        for pos in (auto_trader.open_positions or {}).values():
+            qty = float(pos.get("quantity") or 0.0)
+            if qty <= 0:
+                continue
+            entry_price = float(pos.get("entry_price") or 0.0)
+            value_usd = qty * entry_price if entry_price > 0 else 0.0
+            open_positions.append({
+                "symbol": str(pos.get("symbol") or "").upper(),
+                "value_usd": float(value_usd),
+            })
+
+        result = check_correlation_risk(
+            symbol=symbol.upper(),
+            proposed_size_usd=float(proposed_size_usd or 0.0),
+            open_positions=open_positions,
+            total_portfolio_usd=float(total_portfolio_usd or 0.0),
+        )
+
+        return sanitize_floats({
+            "symbol": symbol.upper(),
+            "proposed_size_usd": float(proposed_size_usd),
+            "total_portfolio_usd": float(total_portfolio_usd),
+            "open_positions_count": len(open_positions),
+            "result": result,
+        })
+    except Exception as e:
+        return {
+            "symbol": symbol.upper(),
+            "proposed_size_usd": float(proposed_size_usd),
+            "total_portfolio_usd": float(total_portfolio_usd),
+            "result": {"allowed": True, "reason": "correlation endpoint failed-open"},
+            "error": str(e),
+        }
+
+
+@app.get("/api/v1/model/validation/{symbol}")
+def get_model_validation(symbol: str):
+    """Get latest model validation snapshot from cache."""
+    try:
+        from ml.model_validator import get_validation_history
+
+        redis_client = get_redis()
+        result = get_validation_history(symbol.upper(), redis_client)
+        return sanitize_floats(result)
+    except Exception as e:
+        return {"symbol": symbol.upper(), "deploy": None, "error": str(e)}
+
+
+@app.get("/api/v1/system/intelligence")
+def get_system_intelligence_overview():
+    """Aggregate autonomous intelligence safety status."""
+    try:
+        from services.auto_trading_engine import auto_trader, ALLOWED_AUTO_TRADE_SYMBOLS
+        from ml.anomaly_detector import get_active_anomalies
+        from ml.model_validator import get_validation_history
+        from ml.correlation_engine import MAX_GROUP_EXPOSURE
+
+        redis_client = get_redis()
+        symbols = sorted(list(ALLOWED_AUTO_TRADE_SYMBOLS))
+        active_anomalies = get_active_anomalies(redis_client, symbols)
+
+        recent_validation = {}
+        for sym in symbols[:10]:
+            v = get_validation_history(sym, redis_client)
+            if isinstance(v, dict) and ("deploy" in v or v.get("message")):
+                recent_validation[sym] = {
+                    "deploy": v.get("deploy"),
+                    "validated_at": v.get("validated_at"),
+                    "message": v.get("message"),
+                }
+
+        return sanitize_floats({
+            "timestamp": datetime.utcnow().isoformat(),
+            "auto_trading_enabled": bool(auto_trader.config.get("enabled", False)),
+            "open_positions": len(auto_trader.open_positions),
+            "anomaly": {
+                "active_count": len(active_anomalies),
+                "paused_symbols": [a.get("symbol") for a in active_anomalies],
+            },
+            "correlation": {
+                "max_group_exposure_pct": float(MAX_GROUP_EXPOSURE),
+                "status": "active",
+            },
+            "model_validation": {
+                "sample_size": len(recent_validation),
+                "recent": recent_validation,
+            },
+            "intelligence_layer": "phase_v_active",
+        })
+    except Exception as e:
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "intelligence_layer": "degraded",
+            "error": str(e),
+        }
+
+
 # ── Sentiment Endpoints (gated behind feature flags) ────────
 
 @app.get("/api/v1/sentiment/{symbol}")
