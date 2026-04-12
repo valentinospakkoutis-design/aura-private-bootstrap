@@ -33,8 +33,11 @@ def fetch_and_persist_sentiment():
 
     from services.news_fetcher import news_fetcher
     from cache.connection import cache_set
+    from cache.connection import get_redis
+    from ml.sentiment_labeler import store_sentiment_snapshot
 
     results = {}
+    redis_client = get_redis()
     for symbol in SENTIMENT_SYMBOLS:
         try:
             sentiment = news_fetcher.get_symbol_sentiment(symbol)
@@ -42,6 +45,11 @@ def fetch_and_persist_sentiment():
 
             # Cache in Redis with 20-min TTL
             cache_set(f"sentiment:{symbol}", sentiment, expire=1200)
+
+            # Snapshot score normalized to -1..1 for 24h momentum.
+            score_0_100 = float(sentiment.get("score", 50.0))
+            normalized = max(-1.0, min(1.0, (score_0_100 - 50.0) / 50.0))
+            store_sentiment_snapshot(redis_client, symbol, normalized)
 
         except Exception as e:
             logger.error(f"[sentiment] Failed for {symbol}: {e}")

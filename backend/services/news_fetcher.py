@@ -7,10 +7,13 @@ produces per-symbol sentiment scores updated every 15 minutes.
 import logging
 import time
 import re
+import asyncio
 from typing import Dict, List, Optional
 from datetime import datetime
 
 import httpx
+
+from ml.news_fetcher import fetch_cryptopanic_news
 
 logger = logging.getLogger(__name__)
 
@@ -64,28 +67,22 @@ class NewsFetcher:
 
     # ── Source 1: CryptoPanic ────────────────────────────────
 
-    def _fetch_cryptopanic(self, base_symbol: str) -> List[dict]:
+    def _fetch_cryptopanic(self, symbol: str, base_symbol: str) -> List[dict]:
         """Fetch articles from CryptoPanic free public API."""
         try:
-            params = {"currencies": base_symbol, "filter": "important", "public": "true"}
-            with httpx.Client(timeout=10.0) as client:
-                resp = client.get("https://cryptopanic.com/api/free/v1/posts/", params=params)
-                resp.raise_for_status()
-                data = resp.json()
-
-            articles = []
-            for post in data.get("results", [])[:10]:
-                articles.append({
-                    "title": post.get("title", ""),
-                    "source": post.get("source", {}).get("title", "CryptoPanic"),
-                    "url": post.get("url", ""),
-                    "published_at": post.get("published_at", ""),
-                    "votes_positive": post.get("votes", {}).get("positive", 0),
-                    "votes_negative": post.get("votes", {}).get("negative", 0),
-                })
-            return articles
+            # Primary path: new async helper in ml/news_fetcher.py
+            target = symbol if symbol else f"{base_symbol}USDC"
+            try:
+                return asyncio.run(fetch_cryptopanic_news(target))
+            except RuntimeError:
+                # Fallback for environments with existing running loop.
+                loop = asyncio.new_event_loop()
+                try:
+                    return loop.run_until_complete(fetch_cryptopanic_news(target))
+                finally:
+                    loop.close()
         except Exception as e:
-            logger.debug(f"CryptoPanic failed for {base_symbol}: {e}")
+            logger.debug(f"CryptoPanic failed for {symbol}/{base_symbol}: {e}")
             return []
 
     # ── Source 2: CoinDesk RSS ───────────────────────────────
@@ -172,7 +169,7 @@ class NewsFetcher:
         analyzer = self._get_analyzer()
 
         # Fetch from all 3 sources
-        cryptopanic_articles = self._fetch_cryptopanic(base)
+        cryptopanic_articles = self._fetch_cryptopanic(symbol, base)
         coindesk_articles = self._fetch_coindesk_rss()
         cointelegraph_articles = self._fetch_cointelegraph_rss()
 
@@ -201,26 +198,21 @@ class NewsFetcher:
             sentiments.append(result["compound"])
 
         # Also factor in CryptoPanic vote data
-        vote_scores = []
+        vote_adjustments = []
         for article in cryptopanic_articles:
-            pos = article.get("votes_positive", 0)
-            neg = article.get("votes_negative", 0)
-            if pos + neg > 0:
-                vote_scores.append(pos / (pos + neg))
+            pos = int(article.get("bullish_votes", article.get("votes_positive", 0)) or 0)
+            neg = int(article.get("bearish_votes", article.get("votes_negative", 0)) or 0)
 
-        # Combine VADER + votes
+            pos_adj = min(0.3, 0.05 * pos)
+            neg_adj = min(0.3, 0.05 * neg)
+            vote_adjustments.append(pos_adj - neg_adj)
+
+        # Combine VADER + vote adjustments
         avg_vader = sum(sentiments) / len(sentiments) if sentiments else 0
-        avg_votes = sum(vote_scores) / len(vote_scores) if vote_scores else 0.5
+        avg_vote_adj = sum(vote_adjustments) / len(vote_adjustments) if vote_adjustments else 0.0
 
-        # VADER compound is -1 to 1, convert to 0-100
-        vader_score = (avg_vader + 1) * 50  # maps -1..1 to 0..100
-        vote_score = avg_votes * 100  # maps 0..1 to 0..100
-
-        # Blend: 60% VADER (NLP), 40% votes (crowd wisdom)
-        if vote_scores:
-            final_score = vader_score * 0.6 + vote_score * 0.4
-        else:
-            final_score = vader_score
+        adjusted_vader = max(-1.0, min(1.0, avg_vader + avg_vote_adj))
+        final_score = (adjusted_vader + 1) * 50
 
         final_score = max(0.0, min(100.0, final_score))
 
@@ -237,6 +229,7 @@ class NewsFetcher:
             "label": label,
             "article_count": len(all_articles),
             "vader_avg": round(avg_vader, 3),
+            "vote_adjustment": round(avg_vote_adj, 3),
             "sources": {
                 "cryptopanic": len(cryptopanic_articles),
                 "coindesk": len(coindesk_matched),

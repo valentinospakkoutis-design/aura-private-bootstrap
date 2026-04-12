@@ -1,30 +1,33 @@
 """
 Phase 2: Sentiment Labeling
-Analyzes financial news headlines using TextBlob + financial keyword dictionary.
+Analyzes financial news headlines using VADER + financial keyword dictionary,
+with TextBlob kept as fallback for compatibility.
 Updates sentiment_score and sentiment_label in financial_news table.
 """
 
 import os
 import sys
+import json
 import logging
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # Financial-domain keyword boosts
-BEARISH_KEYWORDS = [
-    "crash", "recession", "rate hike", "inflation", "sell-off", "bankruptcy",
-    "layoffs", "sanctions", "war", "crisis", "downgrade", "default", "plunge",
-    "decline", "bear market", "correction", "warning", "tariff", "debt ceiling",
-    "shutdown", "panic", "dump", "liquidation", "loss", "miss", "weak",
+BULLISH_KEYWORDS = [
+    "surge", "rally", "breakout", "bullish", "buy", "upgrade", "beat",
+    "record", "growth", "adoption", "approval", "launch", "partnership",
+    "outperform", "strong", "positive", "recovery", "all-time high",
+    "accumulate", "undervalued", "moon", "pump", "gains", "profit",
+    "institutional",
 ]
 
-BULLISH_KEYWORDS = [
-    "rally", "surge", "earnings beat", "rate cut", "acquisition", "partnership",
-    "record high", "growth", "recovery", "stimulus", "upgrade", "breakout",
-    "bull market", "all-time high", "ipo", "expansion", "profit", "beat",
-    "strong", "momentum", "buy", "outperform", "dividend", "innovation",
+BEARISH_KEYWORDS = [
+    "crash", "dump", "bearish", "sell", "downgrade", "miss", "hack",
+    "ban", "regulation", "lawsuit", "bubble", "collapse", "fraud",
+    "liquidation", "fear", "panic", "loss", "decline", "warning",
+    "overvalued", "short", "plunge", "drop", "risk", "concern",
 ]
 
 # Category-to-symbol mapping for news that doesn't mention specific tickers
@@ -46,30 +49,67 @@ CATEGORY_MAP = {
 }
 
 
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    _vader = SentimentIntensityAnalyzer()
+except Exception:
+    _vader = None
+
+
+def analyze_sentiment_vader(text: str, keywords: Optional[List[str]] = None) -> float:
+    """Returns sentiment score -1.0 to +1.0 using VADER + keyword boost."""
+    if not text:
+        return 0.0
+
+    if _vader is None:
+        raise RuntimeError("VADER is not available")
+
+    score = float(_vader.polarity_scores(text).get("compound", 0.0))
+
+    text_lower = text.lower()
+    keyword_boost = 0.0
+    for kw in BULLISH_KEYWORDS:
+        if kw in text_lower:
+            keyword_boost += 0.10
+    for kw in BEARISH_KEYWORDS:
+        if kw in text_lower:
+            keyword_boost -= 0.10
+
+    return max(-1.0, min(1.0, score + keyword_boost))
+
+
+def _analyze_sentiment_textblob(text: str) -> float:
+    """TextBlob fallback sentiment scoring."""
+    from textblob import TextBlob
+
+    if not text:
+        return 0.0
+
+    text_lower = text.lower()
+    blob = TextBlob(text)
+    base_score = float(blob.sentiment.polarity)
+    bullish_hits = sum(1 for kw in BULLISH_KEYWORDS if kw in text_lower)
+    bearish_hits = sum(1 for kw in BEARISH_KEYWORDS if kw in text_lower)
+    keyword_boost = (bullish_hits - bearish_hits) * 0.15
+    return max(-1.0, min(1.0, base_score + keyword_boost))
+
+
 def analyze_sentiment(text: str) -> tuple:
     """
     Analyze sentiment of financial text.
     Returns (score: -1.0 to 1.0, label: str).
-    Uses TextBlob + financial keyword boosting.
+    Uses VADER + financial keyword boosting with TextBlob fallback.
     """
-    from textblob import TextBlob
-
     if not text:
         return 0.0, "neutral"
 
-    text_lower = text.lower()
-
-    # Base sentiment from TextBlob
-    blob = TextBlob(text)
-    base_score = blob.sentiment.polarity  # -1.0 to 1.0
-
-    # Financial keyword boost
-    bullish_hits = sum(1 for kw in BULLISH_KEYWORDS if kw in text_lower)
-    bearish_hits = sum(1 for kw in BEARISH_KEYWORDS if kw in text_lower)
-    keyword_boost = (bullish_hits - bearish_hits) * 0.15
-
-    # Combined score
-    score = max(-1.0, min(1.0, base_score + keyword_boost))
+    try:
+        score = analyze_sentiment_vader(text)
+        logger.info("[VADER] score=%.4f", score)
+    except Exception as e:
+        logger.warning("[VADER] failed, falling back to TextBlob: %s", e)
+        score = _analyze_sentiment_textblob(text)
+        logger.info("[TEXTBLOB] score=%.4f", score)
 
     # Label
     if score >= 0.1:
@@ -80,6 +120,55 @@ def analyze_sentiment(text: str) -> tuple:
         label = "neutral"
 
     return round(score, 4), label
+
+
+def store_sentiment_snapshot(redis_client, symbol: str, score: float):
+    """Store hourly sentiment snapshot for momentum calculation."""
+    if redis_client is None or not symbol:
+        return
+
+    key = f"sentiment_history:{symbol.upper()}"
+    snapshot = {"score": float(score), "ts": datetime.utcnow().isoformat()}
+
+    redis_client.lpush(key, json.dumps(snapshot))
+    redis_client.ltrim(key, 0, 23)
+    redis_client.expire(key, 86400)
+
+
+def get_sentiment_momentum(redis_client, symbol: str) -> dict:
+    """
+    Returns sentiment momentum for a symbol.
+    momentum > 0 = bullish acceleration
+    momentum < 0 = bearish acceleration
+    """
+    if redis_client is None or not symbol:
+        return {"momentum": 0.0, "trend": "neutral", "snapshots": 0}
+
+    key = f"sentiment_history:{symbol.upper()}"
+    raw = redis_client.lrange(key, 0, -1)
+    if len(raw) < 2:
+        return {"momentum": 0.0, "trend": "neutral", "snapshots": len(raw)}
+
+    snapshots = []
+    for item in raw:
+        try:
+            if isinstance(item, bytes):
+                item = item.decode("utf-8")
+            snapshots.append(json.loads(item))
+        except Exception:
+            continue
+
+    if len(snapshots) < 2:
+        return {"momentum": 0.0, "trend": "neutral", "snapshots": len(snapshots)}
+
+    scores = [float(s.get("score", 0.0)) for s in snapshots]
+    recent_window = min(4, len(scores))
+    recent = sum(scores[:recent_window]) / max(1, recent_window)
+    older = sum(scores[recent_window:]) / max(1, len(scores) - recent_window)
+    momentum = recent - older
+
+    trend = "bullish" if momentum > 0.1 else "bearish" if momentum < -0.1 else "neutral"
+    return {"momentum": round(momentum, 3), "trend": trend, "snapshots": len(snapshots)}
 
 
 def map_news_to_symbols(headline: str, summary: str = "") -> str:
@@ -126,6 +215,9 @@ def label_all_news(job_id: str = "manual"):
         ))
         db.commit()
 
+        from cache.connection import get_redis
+        redis_client = get_redis()
+
         for i, news in enumerate(unlabeled):
             text = f"{news.headline} {news.summary or ''}"
             score, label = analyze_sentiment(text)
@@ -135,6 +227,14 @@ def label_all_news(job_id: str = "manual"):
             # Map to symbols if not already set
             if not news.symbols:
                 news.symbols = map_news_to_symbols(news.headline, news.summary or "")
+
+            # Store sentiment momentum snapshots per mapped symbol
+            if news.symbols:
+                for sym in [s.strip() for s in news.symbols.split(",") if s.strip()]:
+                    try:
+                        store_sentiment_snapshot(redis_client, sym, score)
+                    except Exception as snap_err:
+                        logger.debug("[sentiment] snapshot store failed for %s: %s", sym, snap_err)
 
             if (i + 1) % 100 == 0:
                 db.commit()

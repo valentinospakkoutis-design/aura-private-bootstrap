@@ -99,7 +99,34 @@ def build_sentiment_features(db_session, symbol: str, target_date, lookback_days
     """Build sentiment features from financial_news table."""
     from database.models import FinancialNews
 
-    features = {"sentiment_daily": 0.0, "sentiment_3d": 0.0, "sentiment_count": 0.0, "sentiment_momentum": 0.0}
+    features = {
+        "sentiment_daily": 0.0,
+        "sentiment_3d": 0.0,
+        "sentiment_count": 0.0,
+        "sentiment_momentum": 0.0,
+        "sentiment_score": 0.0,
+        "sentiment_trend": 0.0,
+    }
+
+    # Live sentiment context from Redis (used during retrain/prediction refresh flows).
+    try:
+        from cache.connection import cache_get, get_redis
+        from ml.sentiment_labeler import get_sentiment_momentum as _get_sentiment_momentum
+
+        cached = cache_get(f"sentiment:{symbol}", default=None)
+        if isinstance(cached, dict):
+            cached_score = float(cached.get("score", 50.0))
+            # Cache score is 0..100; normalize to -1..1
+            features["sentiment_score"] = max(-1.0, min(1.0, (cached_score - 50.0) / 50.0))
+
+        redis_client = get_redis()
+        momentum_data = _get_sentiment_momentum(redis_client, symbol)
+        features["sentiment_momentum"] = float(momentum_data.get("momentum", 0.0))
+
+        trend_raw = str(momentum_data.get("trend", "neutral")).lower()
+        features["sentiment_trend"] = 1.0 if trend_raw == "bullish" else -1.0 if trend_raw == "bearish" else 0.0
+    except Exception as e:
+        logger.debug(f"Redis sentiment features unavailable for {symbol}: {e}")
 
     try:
         start_date = target_date - timedelta(days=lookback_days)
@@ -133,7 +160,20 @@ def build_sentiment_features(db_session, symbol: str, target_date, lookback_days
         all_scores = [n.sentiment_score for n in news]
         avg_5d = np.mean(all_scores)
         if today_news:
-            features["sentiment_momentum"] = features["sentiment_daily"] - avg_5d
+            # Keep DB-based momentum as fallback only if Redis momentum is missing.
+            if abs(features["sentiment_momentum"]) < 1e-9:
+                features["sentiment_momentum"] = features["sentiment_daily"] - avg_5d
+
+        # Keep score/trend aligned with DB aggregates when Redis cache is absent.
+        if abs(features["sentiment_score"]) < 1e-9 and recent_news:
+            db_score = float(np.mean([n.sentiment_score for n in recent_news]))
+            features["sentiment_score"] = max(-1.0, min(1.0, db_score))
+
+        if abs(features["sentiment_trend"]) < 1e-9:
+            if features["sentiment_momentum"] > 0.1:
+                features["sentiment_trend"] = 1.0
+            elif features["sentiment_momentum"] < -0.1:
+                features["sentiment_trend"] = -1.0
 
     except Exception as e:
         logger.debug(f"Sentiment features error for {symbol}: {e}")

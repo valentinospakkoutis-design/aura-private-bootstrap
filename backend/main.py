@@ -4676,6 +4676,19 @@ def get_news_sentiment(symbol: str):
     return news_fetcher.get_symbol_sentiment(symbol.upper())
 
 
+@app.get("/api/v1/sentiment/momentum/{symbol}")
+async def get_sentiment_momentum_endpoint(symbol: str):
+    """Get 24h sentiment momentum for a symbol."""
+    try:
+        from ml.sentiment_labeler import get_sentiment_momentum
+
+        redis_client = get_redis()
+        momentum = get_sentiment_momentum(redis_client, symbol.upper())
+        return {"symbol": symbol.upper(), **momentum}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch sentiment momentum: {e}")
+
+
 # ── Accuracy Tracking Endpoints ─────────────────────────────
 
 @app.get("/api/accuracy")
