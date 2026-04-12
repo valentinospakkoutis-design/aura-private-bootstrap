@@ -51,6 +51,24 @@ def sanitize_floats(obj):
         return [sanitize_floats(i) for i in obj]
     return obj
 
+
+SYMBOL_ALIASES = {
+    "BTC-USD": "BTCUSDC",
+    "ETH-USD": "ETHUSDC",
+    "SOL-USD": "SOLUSDC",
+    "ADA-USD": "ADAUSDC",
+    "BNB-USD": "BNBUSDC",
+    "AVAX-USD": "AVAXUSDC",
+    "DOT-USD": "DOTUSDC",
+    "MATIC-USD": "MATICUSDC",
+}
+
+
+def normalize_symbol_alias(symbol: str) -> str:
+    """Normalize known aliases (e.g. BTC-USD -> BTCUSDC) for Redis/model lookups."""
+    symbol_u = (symbol or "").upper()
+    return SYMBOL_ALIASES.get(symbol_u, symbol_u)
+
 app = FastAPI(
     title="AURA Backend API",
     description="Backend για το AURA - AI Trading Assistant",
@@ -1690,7 +1708,7 @@ async def get_multi_agent_consensus(symbol: str):
     from ml.predictor import get_ensemble_prediction
     from ml.regime_detector import get_current_regime
 
-    symbol_u = symbol.upper()
+    symbol_u = normalize_symbol_alias(symbol)
     prediction = get_ensemble_prediction(symbol_u, features={})
 
     if prediction.get("error"):
@@ -4888,9 +4906,10 @@ async def get_sentiment_momentum_endpoint(symbol: str):
     try:
         from ml.sentiment_labeler import get_sentiment_momentum
 
+        normalized = normalize_symbol_alias(symbol)
         redis_client = get_redis()
-        momentum = get_sentiment_momentum(redis_client, symbol.upper())
-        return {"symbol": symbol.upper(), **momentum}
+        momentum = get_sentiment_momentum(redis_client, normalized)
+        return {"symbol": normalized, **momentum}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch sentiment momentum: {e}")
 
