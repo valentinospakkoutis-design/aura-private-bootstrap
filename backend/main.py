@@ -504,7 +504,8 @@ async def shutdown_event():
 app.include_router(annotation_router)
 
 # Include mettal-app endpoints
-from api.mettal_endpoints import router as mettal_router
+from api.mettal_endpoints import router as mettal_router, health_router
+app.include_router(health_router)
 app.include_router(mettal_router)
 print(f"[+] Loaded mettal endpoints: {len(mettal_router.routes)} routes")
 
@@ -806,15 +807,13 @@ def logout(request: Request):
     response.delete_cookie(key="session_id")
     return response
 
-@app.get("/health")
-def health_check():
-    """Health check endpoint"""
+@app.get("/debug/users")
+def debug_users():
+    """Debug endpoint - Shows registered users (remove in production!)"""
     return {
-        "status": "healthy",
-        "backend": "operational",
-        "ai_engine": "standby",
-        "database": "ready",
-        "timestamp": datetime.now().isoformat()
+        "total_users": len(users_db),
+        "users": {email: {"name": data["name"], "password_length": len(data["password"])} 
+                  for email, data in users_db.items()}
     }
 
 # Authentication Models

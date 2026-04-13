@@ -3,6 +3,8 @@ API Endpoints από mettal-app
 Προσθήκη όλων των endpoints από το mettal-app στο AURA
 """
 
+import os
+
 from fastapi import APIRouter, HTTPException, Depends, Query, status, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from typing import List, Optional
@@ -10,6 +12,8 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr
 # yfinance is now available via market_data module
 from market_data.yfinance_client import get_price as yf_get_price, get_historical_prices as yf_get_historical_prices
+from cache.connection import check_redis_connection
+from database.connection import check_db_connection
 # Error handling and security
 from utils.error_handler import handle_error, ValidationError, NotFoundError, AuthenticationError, get_error_message
 from utils.security import security_manager
@@ -19,6 +23,7 @@ from auth.jwt_handler import create_access_token, create_refresh_token, verify_t
 from auth.two_factor import generate_2fa_secret, generate_qr_code, generate_backup_codes, verify_2fa_token, verify_backup_code
 
 router = APIRouter(prefix="/api/v1", tags=["Mettal App APIs"])
+health_router = APIRouter(tags=["Health"])
 
 # ============================================
 # AUTHENTICATION ENDPOINTS (JWT)
@@ -841,17 +846,27 @@ async def get_csrf_token(request: Request):
 # HEALTH CHECK
 # ============================================
 
-@router.get("/health")
+def _get_service_status(env_var_name: str, checker) -> str:
+    """Report whether a dependency is configured and reachable."""
+    if not os.getenv(env_var_name):
+        return "not_configured"
+    return "connected" if checker() else "error"
+
+
+@health_router.get("/health")
 async def health_check():
     """
     Comprehensive health check endpoint
     """
+    database_status = _get_service_status("DATABASE_URL", check_db_connection)
+    redis_status = _get_service_status("REDIS_URL", check_redis_connection)
+
     return {
-        "status": "healthy",
+        "status": "degraded" if "error" in {database_status, redis_status} else "healthy",
         "services": {
             "api": {"status": "online", "version": "1.0.0"},
-            "database": {"status": "not_configured"},
-            "redis": {"status": "not_configured"},
+            "database": {"status": database_status},
+            "redis": {"status": redis_status},
             "yfinance": {"status": "available"}
         },
         "timestamp": datetime.now().isoformat()
