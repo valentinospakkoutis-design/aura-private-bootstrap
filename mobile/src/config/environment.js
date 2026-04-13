@@ -24,7 +24,7 @@ const getEnvironment = () => {
 // Environment configuration
 const ENVIRONMENTS = {
   development: {
-    apiUrl: 'https://aura-private-bootstrap-production.up.railway.app', // Railway (was local dev IP)
+    apiUrl: 'http://116.203.75.114:8080', // Backend endpoint
     apiTimeout: 10000,
     enableLogging: true,
     enableCache: true,
@@ -45,7 +45,7 @@ const ENVIRONMENTS = {
     // The value is passed through app.config.js -> Constants.expoConfig.extra.apiUrl
     // See: APK_FIX_GUIDE.md for detailed instructions
     apiUrl: Constants.expoConfig?.extra?.apiUrl || 
-            'https://aura-private-bootstrap-production.up.railway.app', // Railway production URL
+            'http://116.203.75.114:8080', // Backend endpoint
     apiTimeout: 20000,
     enableLogging: false,
     enableCache: true,
@@ -86,7 +86,7 @@ export const getApiBaseUrl = () => {
   // Priority 4: Development fallback
   // Check if running on web (browser) - use Railway URL
   if (typeof window !== 'undefined' && window.location) {
-    return 'https://aura-private-bootstrap-production.up.railway.app';
+    return 'http://116.203.75.114:8080';
   }
   
   // Priority 5: Mobile development (only if in development mode)
@@ -96,11 +96,11 @@ export const getApiBaseUrl = () => {
   
   // Priority 6: Production fallback (for standalone builds)
   if (config.isProduction || config.isStaging) {
-    return 'https://aura-private-bootstrap-production.up.railway.app'; // Railway production URL
+    return 'http://116.203.75.114:8080'; // Backend endpoint
   }
   
   // Final fallback: Railway URL (should not reach here)
-  return 'https://aura-private-bootstrap-production.up.railway.app';
+  return 'http://116.203.75.114:8080';
 };
 
 // Export API base URL
