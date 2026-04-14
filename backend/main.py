@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 import json
@@ -36,7 +39,6 @@ from cache.connection import get_redis, check_redis_connection
 
 # Security and Error Handling
 from utils.error_handler import handle_error, AuraError, get_error_message
-from utils.rate_limiter import rate_limit_middleware, get_client_identifier
 from utils.security import security_manager
 
 def sanitize_floats(obj):
@@ -69,11 +71,15 @@ def normalize_symbol_alias(symbol: str) -> str:
     symbol_u = (symbol or "").upper()
     return SYMBOL_ALIASES.get(symbol_u, symbol_u)
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="AURA Backend API",
     description="Backend για το AURA - AI Trading Assistant",
     version="1.0.0"
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Global exception handler for AuraError ───────────────────────
 from starlette.responses import JSONResponse
@@ -605,15 +611,6 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
-
-# Rate Limiting Middleware
-@app.middleware("http")
-async def rate_limit_middleware_wrapper(request: Request, call_next):
-    """Rate limiting middleware wrapper"""
-    try:
-        return await rate_limit_middleware(request, call_next)
-    except Exception:
-        return await call_next(request)
 
 # WebSocket endpoint for real-time price updates
 @app.websocket("/ws")

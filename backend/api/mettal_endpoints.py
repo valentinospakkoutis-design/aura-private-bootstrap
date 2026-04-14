@@ -24,6 +24,7 @@ from auth.two_factor import generate_2fa_secret, generate_qr_code, generate_back
 
 router = APIRouter(prefix="/api/v1", tags=["Mettal App APIs"])
 health_router = APIRouter(tags=["Health"])
+from main import limiter
 
 # ============================================
 # AUTHENTICATION ENDPOINTS (JWT)
@@ -50,7 +51,8 @@ class RefreshTokenRequest(BaseModel):
 # Για τώρα, θα χρησιμοποιήσουμε το υπάρχον session system
 
 @router.post("/auth/register", response_model=Token, status_code=201)
-async def register(user_create: UserCreate):
+@limiter.limit("10/minute")
+async def register(request: Request, user_create: UserCreate):
     """
     Register a new user (JWT-based, PostgreSQL)
 
@@ -115,7 +117,8 @@ async def register(user_create: UserCreate):
         db.close()
 
 @router.post("/auth/login", response_model=Token)
-async def login(user_login: UserLogin, request: Request):
+@limiter.limit("10/minute")
+async def login(request: Request, user_login: UserLogin):
     """
     Login with email and password (JWT-based, PostgreSQL)
 
@@ -387,7 +390,8 @@ class Asset(BaseModel):
     type: str
 
 @router.get("/assets", response_model=List[Asset])
-async def get_assets():
+@limiter.limit("60/minute")
+async def get_assets(request: Request):
     """
     Get all available assets (requires authentication)
     """
@@ -418,7 +422,8 @@ class PriceData(BaseModel):
     timestamp: datetime
 
 @router.get("/prices", response_model=List[PriceData])
-async def get_all_prices():
+@limiter.limit("60/minute")
+async def get_all_prices(request: Request):
     """
     Get current prices for all assets (requires authentication)
     """
@@ -443,7 +448,8 @@ async def get_all_prices():
     return prices
 
 @router.get("/price/{asset_id}", response_model=PriceData)
-async def get_price(asset_id: str):
+@limiter.limit("60/minute")
+async def get_price(request: Request, asset_id: str):
     """
     Get current price for an asset with caching and security (requires authentication)
     """
@@ -479,7 +485,8 @@ async def get_price(asset_id: str):
     )
 
 @router.get("/prices/{asset_id}/historical")
-async def get_historical_prices(asset_id: str, period: str = "1M"):
+@limiter.limit("60/minute")
+async def get_historical_prices(request: Request, asset_id: str, period: str = "1M"):
     """
     Get historical prices for an asset (requires authentication)
     
@@ -539,7 +546,8 @@ class PredictionResponse(BaseModel):
     timestamp: datetime
 
 @router.post("/predict/{asset_id}", response_model=PredictionResponse)
-async def predict(asset_id: str):
+@limiter.limit("30/minute")
+async def predict(request: Request, asset_id: str):
     """
     Get predictions for an asset with ML-based analysis (requires authentication)
     
@@ -603,11 +611,12 @@ async def predict(asset_id: str):
     )
 
 @router.get("/simple-predict/{asset_id}")
-async def simple_predict(asset_id: str):
+@limiter.limit("30/minute")
+async def simple_predict(request: Request, asset_id: str):
     """
     Simple prediction with real current price (requires authentication)
     """
-    return await predict(asset_id)
+    return await predict(request, asset_id)
 
 # ============================================
 # PORTFOLIO ENDPOINTS
@@ -619,7 +628,8 @@ class TradeRequest(BaseModel):
     price: float
 
 @router.post("/portfolio/buy")
-async def buy_asset(trade: TradeRequest, request: Request):
+@limiter.limit("20/minute")
+async def buy_asset(request: Request, trade: TradeRequest):
     """
     Buy asset - Protected with CSRF and Authentication
     
@@ -655,7 +665,8 @@ async def buy_asset(trade: TradeRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/portfolio/sell")
-async def sell_asset(trade: TradeRequest, request: Request):
+@limiter.limit("20/minute")
+async def sell_asset(request: Request, trade: TradeRequest):
     """
     Sell asset - Protected with CSRF and Authentication
     """
@@ -696,7 +707,8 @@ async def sell_asset(trade: TradeRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/positions")
-async def get_positions():
+@limiter.limit("60/minute")
+async def get_positions(request: Request):
     """
     Get user portfolio positions with current P&L (requires authentication)
     """
@@ -722,7 +734,8 @@ async def get_positions():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/summary")
-async def get_portfolio_summary():
+@limiter.limit("60/minute")
+async def get_portfolio_summary(request: Request):
     """
     Get portfolio summary with total P&L (requires authentication)
     """
@@ -743,7 +756,8 @@ async def get_portfolio_summary():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/transactions")
-async def get_transactions(limit: int = 50, asset_id: Optional[str] = None):
+@limiter.limit("60/minute")
+async def get_transactions(request: Request, limit: int = 50, asset_id: Optional[str] = None):
     """
     Get user transaction history (requires authentication)
     """
@@ -764,7 +778,8 @@ async def get_transactions(limit: int = 50, asset_id: Optional[str] = None):
 # ============================================
 
 @router.get("/accuracy")
-async def get_accuracy():
+@limiter.limit("60/minute")
+async def get_accuracy(request: Request):
     """
     Get accuracy statistics (requires authentication)
     """
@@ -773,7 +788,8 @@ async def get_accuracy():
     return accuracy_tracker.get_accuracy()
 
 @router.get("/accuracy/{asset_id}")
-async def get_asset_accuracy(asset_id: str):
+@limiter.limit("60/minute")
+async def get_asset_accuracy(request: Request, asset_id: str):
     """
     Get accuracy statistics for specific asset (requires authentication)
     """
@@ -787,7 +803,8 @@ async def get_asset_accuracy(asset_id: str):
 # ============================================
 
 @router.get("/news")
-async def get_news(asset_id: Optional[str] = None, limit: int = 10):
+@limiter.limit("60/minute")
+async def get_news(request: Request, asset_id: Optional[str] = None, limit: int = 10):
     """
     Get latest financial news (requires authentication)
     """
@@ -809,6 +826,7 @@ async def get_news(asset_id: Optional[str] = None, limit: int = 10):
 # ============================================
 
 @router.get("/csrf-token")
+@limiter.limit("60/minute")
 async def get_csrf_token(request: Request):
     """
     Get CSRF token for protected requests (requires authentication)
