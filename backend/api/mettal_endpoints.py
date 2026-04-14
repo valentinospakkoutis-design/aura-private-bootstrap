@@ -281,6 +281,71 @@ async def get_current_user_info(request: Request):
             detail="Invalid or expired token"
         )
 
+@router.get("/reports/weekly")
+async def get_weekly_reports_v1(request: Request):
+    """
+    Return the last 4 weekly performance reports for the authenticated user,
+    plus a freshly computed snapshot for the current (in-progress) week.
+    """
+    from database.connection import SessionLocal
+    from database.models import WeeklyReport
+    from ai.weekly_report import generate_weekly_report
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header",
+        )
+
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        user_info = get_user_from_token(token)
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    try:
+        user_id = int(user_info["user_id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    db = SessionLocal()
+    try:
+        current_week = generate_weekly_report(user_id, db)
+
+        rows = (
+            db.query(WeeklyReport)
+            .filter(WeeklyReport.user_id == user_id)
+            .order_by(WeeklyReport.week_start.desc(), WeeklyReport.created_at.desc())
+            .limit(4)
+            .all()
+        )
+        reports = [
+            {
+                "week_start": r.week_start.isoformat() if r.week_start else None,
+                "pnl_pct": float(r.pnl_pct or 0.0),
+                "total_trades": int(r.total_trades or 0),
+                "win_rate": float(r.win_rate or 0.0),
+                "best_trade": r.best_trade or "N/A",
+                "worst_trade": r.worst_trade or "N/A",
+                "ai_accuracy": float(r.ai_accuracy or 0.0),
+                "report_text": r.report_text or "",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+        return {"reports": reports, "current_week": current_week}
+    finally:
+        db.close()
+
+
 @router.post("/auth/logout")
 async def logout(request: Request):
     """

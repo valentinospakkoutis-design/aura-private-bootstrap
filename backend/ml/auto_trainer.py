@@ -898,6 +898,40 @@ def _weekly_performance_reports():
         logger.error(f"[scheduler] Weekly performance reports push failed: {e}")
 
 
+def _weekly_report_generation():
+    """Generate and persist weekly reports for every active user (Sun 23:00 UTC)."""
+    logger.info("[scheduler] Starting weekly report generation...")
+    try:
+        from database.connection import SessionLocal
+        from database.models import User
+        from ai.weekly_report import generate_weekly_report
+
+        if not SessionLocal:
+            logger.warning("[scheduler] Weekly report generation skipped: DB unavailable")
+            return
+
+        db = SessionLocal()
+        try:
+            user_ids = [uid for (uid,) in db.query(User.id).filter(User.is_active.is_(True)).all()]
+        finally:
+            db.close()
+
+        ok = 0
+        for uid in user_ids:
+            session = SessionLocal()
+            try:
+                generate_weekly_report(int(uid), session)
+                ok += 1
+            except Exception as e:
+                logger.error(f"[scheduler] Weekly report failed for user {uid}: {e}")
+                session.rollback()
+            finally:
+                session.close()
+        logger.info(f"[scheduler] Weekly report generation done: {ok}/{len(user_ids)} users")
+    except Exception as e:
+        logger.error(f"[scheduler] Weekly report generation failed: {e}")
+
+
 def _daily_leaderboard_snapshot():
     """Daily social leaderboard snapshot job (00:00 UTC)."""
     logger.info("[scheduler] Starting daily leaderboard snapshot...")
@@ -1029,6 +1063,15 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+        # Weekly report generation (DB snapshot per user) — Sunday 23:00 UTC
+        scheduler.add_job(
+            _weekly_report_generation,
+            trigger=CronTrigger(day_of_week="sun", hour=23, minute=0),
+            id="weekly_report_generation",
+            name="Weekly report generation (DB snapshot)",
+            replace_existing=True,
+        )
+
         # Daily leaderboard snapshots — 00:00 UTC
         scheduler.add_job(
             _daily_leaderboard_snapshot,
@@ -1073,7 +1116,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report generation (Sun 23:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
