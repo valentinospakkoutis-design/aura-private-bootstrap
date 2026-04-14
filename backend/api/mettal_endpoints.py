@@ -281,6 +281,89 @@ async def get_current_user_info(request: Request):
             detail="Invalid or expired token"
         )
 
+# ============================================
+# KRAKEN BROKER ENDPOINTS
+# ============================================
+
+class KrakenTestRequest(BaseModel):
+    api_key: str
+    api_secret: str
+    testnet: bool = False
+
+
+def _resolve_authenticated_user_id(request: Request) -> int:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header",
+        )
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        user_info = get_user_from_token(token)
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    try:
+        return int(user_info["user_id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+
+
+@router.post("/brokers/kraken/test")
+async def kraken_test_connection(request: Request, body: KrakenTestRequest):
+    """
+    Probe Kraken with the supplied credentials without persisting them.
+
+    Returns ``{"status": "connected", "balances": {...}}`` on success or
+    ``{"status": "error", "message": "..."}`` otherwise.
+    """
+    _resolve_authenticated_user_id(request)
+
+    from brokers.kraken_client import KrakenClient
+
+    client = KrakenClient(
+        api_key=body.api_key,
+        api_secret=body.api_secret,
+        testnet=body.testnet,
+    )
+    probe = client.test_connection()
+    if probe.get("status") != "connected":
+        return {"status": "error", "message": probe.get("error") or "Kraken connection failed"}
+
+    balances = client.get_balance()
+    if isinstance(balances, dict) and "error" in balances:
+        return {"status": "error", "message": balances["error"]}
+
+    return {"status": "connected", "balances": balances}
+
+
+@router.get("/brokers/kraken/balance")
+async def kraken_get_balance(request: Request):
+    """Return the authenticated user's Kraken spot balance."""
+    user_id = _resolve_authenticated_user_id(request)
+
+    try:
+        from main import _get_broker_instance_for_user
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Broker registry unavailable: {exc}")
+
+    broker = _get_broker_instance_for_user("kraken", user_id)
+    if broker is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Kraken not connected. Use POST /api/brokers/connect with broker='kraken'.",
+        )
+
+    balances = broker.get_balance()
+    if isinstance(balances, dict) and "error" in balances:
+        raise HTTPException(status_code=502, detail=balances["error"])
+
+    return {"broker": "kraken", "balances": balances, "timestamp": datetime.now().isoformat()}
+
+
 @router.get("/reports/weekly")
 async def get_weekly_reports_v1(request: Request):
     """
