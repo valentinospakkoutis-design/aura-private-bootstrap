@@ -3,7 +3,7 @@ SQLAlchemy models for AURA database
 """
 
 import os
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY, LargeBinary, Numeric, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Date, UniqueConstraint, ARRAY, LargeBinary, Numeric, Index, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, date
@@ -456,6 +456,87 @@ class UserProfile(Base):
     notes_json = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuthAuditLog(Base):
+    """Legacy authentication audit trail stored via raw SQL."""
+    __tablename__ = "auth_audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=True)
+    event_type = Column(Text, nullable=False)
+    event_status = Column(Text, nullable=False)
+    ip_address = Column(Text, nullable=True)
+    user_agent = Column(Text, nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime, server_default=text("NOW()"))
+
+
+class User2FASetting(Base):
+    """Legacy 2FA settings persisted before Alembic management."""
+    __tablename__ = "user_2fa_settings"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, unique=True, nullable=False)
+    secret_encrypted = Column(Text, nullable=False)
+    is_enabled = Column(Boolean, nullable=False, server_default=text("FALSE"))
+    recovery_codes_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, server_default=text("NOW()"))
+    updated_at = Column(DateTime, server_default=text("NOW()"))
+
+
+class LiveOrderAuditLog(Base):
+    """Legacy live trading order audit trail."""
+    __tablename__ = "live_order_audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=True)
+    source = Column(Text, nullable=False)
+    symbol = Column(Text, nullable=False)
+    side = Column(Text, nullable=False)
+    quantity = Column(Numeric, nullable=False)
+    price = Column(Numeric, nullable=True)
+    trading_mode = Column(Text, nullable=False)
+    client_order_id = Column(Text, nullable=True)
+    broker = Column(Text, nullable=False)
+    status = Column(Text, nullable=False)
+    broker_order_id = Column(Text, nullable=True)
+    response_summary = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=text("NOW()"))
+
+
+class PushToken(Base):
+    """Legacy device push token registry."""
+    __tablename__ = "push_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=True)
+    token = Column(Text, unique=True, nullable=False)
+    platform = Column(Text, server_default=text("'android'"))
+    is_active = Column(Boolean, server_default=text("TRUE"))
+    created_at = Column(DateTime, server_default=text("NOW()"))
+    updated_at = Column(DateTime, server_default=text("NOW()"))
+
+
+class FeedEvent(Base):
+    """Legacy lightweight event feed table."""
+    __tablename__ = "feed_events"
+    __table_args__ = (
+        Index("idx_feed_events_created", "created_at"),
+        Index("idx_feed_events_type", "event_type"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    event_type = Column(Text, nullable=False)
+    symbol = Column(Text, nullable=True)
+    title = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    severity = Column(Text, server_default=text("'info'"))
+    reason_codes = Column(ARRAY(Text), nullable=True)
+    metadata_ = Column("metadata", JSON, server_default=text("'{}'::jsonb"))
+    dedup_key = Column(Text, unique=True, nullable=True)
+    created_at = Column(DateTime, server_default=text("NOW()"))
 
 
 # ═══════════════════════════════════════════════════════════════
