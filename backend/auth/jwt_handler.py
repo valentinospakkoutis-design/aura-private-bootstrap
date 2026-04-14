@@ -49,18 +49,22 @@ def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-def create_refresh_token(data: Dict) -> str:
+def create_refresh_token(data: Dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Create JWT refresh token
-    
+
     Args:
         data: Data to encode in token
-    
+        expires_delta: Optional expiration override
+
     Returns:
         Encoded refresh token
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     
     to_encode.update({
         "exp": expire,

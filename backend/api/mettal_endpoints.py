@@ -47,8 +47,23 @@ class Token(BaseModel):
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
-# Note: Θα χρειαστεί να προσθέσουμε JWT authentication system
-# Για τώρα, θα χρησιμοποιήσουμε το υπάρχον session system
+
+ACCESS_TOKEN_TTL = timedelta(hours=1)
+REFRESH_TOKEN_TTL = timedelta(days=7)
+
+
+def _persist_session(db, user_id: int, access_token: str, refresh_token: str) -> None:
+    """Insert a user_sessions row tying the access/refresh tokens to the user."""
+    from database.models import UserSession
+
+    session = UserSession(
+        user_id=user_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=datetime.utcnow() + REFRESH_TOKEN_TTL,
+    )
+    db.add(session)
+    db.commit()
 
 @router.post("/auth/register", response_model=Token, status_code=201)
 @limiter.limit("10/minute")
@@ -105,8 +120,10 @@ async def register(request: Request, user_create: UserCreate):
             "token_version": new_user.token_version,
         }
 
-        access_token = create_access_token(token_data)
-        refresh_token = create_refresh_token(token_data)
+        access_token = create_access_token(token_data, expires_delta=ACCESS_TOKEN_TTL)
+        refresh_token = create_refresh_token(token_data, expires_delta=REFRESH_TOKEN_TTL)
+
+        _persist_session(db, new_user.id, access_token, refresh_token)
 
         return Token(
             access_token=access_token,
@@ -156,8 +173,10 @@ async def login(request: Request, user_login: UserLogin):
             "token_version": db_user.token_version,
         }
 
-        access_token = create_access_token(token_data)
-        refresh_token = create_refresh_token(token_data)
+        access_token = create_access_token(token_data, expires_delta=ACCESS_TOKEN_TTL)
+        refresh_token = create_refresh_token(token_data, expires_delta=REFRESH_TOKEN_TTL)
+
+        _persist_session(db, db_user.id, access_token, refresh_token)
 
         log_auth_event("LOGIN", "SUCCESS", user_id=db_user.id, email=email_lower,
                        ip_address=client_ip, user_agent=user_agent)
@@ -173,37 +192,67 @@ async def login(request: Request, user_login: UserLogin):
 @router.post("/auth/refresh", response_model=Token)
 async def refresh_token_endpoint(refresh_request: RefreshTokenRequest):
     """
-    Refresh an access token using a valid refresh token
+    Rotate tokens using a valid refresh token.
+
+    Verifies the refresh JWT, matches it against a stored session in
+    ``user_sessions`` (so revoked/rotated tokens are rejected even if still
+    cryptographically valid), invalidates the old session, and issues a new
+    access token (1h) and refresh token (7d).
     """
+    from database.connection import SessionLocal
+    from database.models import UserSession
+
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
     try:
-        # Verify refresh token
         payload = verify_token(refresh_request.refresh_token, "refresh")
-        
-        # Get user data from token
-        user_id = payload.get("sub")
-        email = payload.get("email")
-        full_name = payload.get("full_name")
-        
-        # Create new tokens
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    user_id = payload.get("sub")
+    email = payload.get("email")
+    full_name = payload.get("full_name")
+    token_version = payload.get("token_version")
+
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(UserSession)
+            .filter(UserSession.refresh_token == refresh_request.refresh_token)
+            .first()
+        )
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token",
+            )
+
         token_data = {
             "sub": user_id,
             "email": email,
-            "full_name": full_name
+            "full_name": full_name,
         }
-        
-        new_access_token = create_access_token(token_data)
-        new_refresh_token = create_refresh_token(token_data)
-        
+        if token_version is not None:
+            token_data["token_version"] = token_version
+
+        new_access_token = create_access_token(token_data, expires_delta=ACCESS_TOKEN_TTL)
+        new_refresh_token = create_refresh_token(token_data, expires_delta=REFRESH_TOKEN_TTL)
+
+        db.delete(existing)
+        db.flush()
+        _persist_session(db, int(user_id), new_access_token, new_refresh_token)
+
         return Token(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
-            token_type="bearer"
+            token_type="bearer",
         )
-    except AuthenticationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token"
-        )
+    finally:
+        db.close()
 
 @router.get("/auth/me", response_model=dict)
 async def get_current_user_info(request: Request):
@@ -235,18 +284,52 @@ async def get_current_user_info(request: Request):
 @router.post("/auth/logout")
 async def logout(request: Request):
     """
-    Logout user (invalidate tokens)
-    
-    Note: With JWT, tokens are stateless. In production, you might want to
-    maintain a blacklist of invalidated tokens in Redis.
+    Logout the current user by deleting their session rows.
+
+    Requires ``Authorization: Bearer <access_token>``. The matching
+    ``user_sessions`` row (and any other sessions belonging to this user) is
+    removed so the refresh token cannot be rotated again.
     """
-    # In a stateless JWT system, logout is handled client-side by removing tokens
-    # For production, you could implement token blacklisting in Redis
-    
-    return {
-        "message": "Logged out successfully",
-        "note": "Please remove tokens from client storage"
-    }
+    from database.connection import SessionLocal
+    from database.models import UserSession
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header",
+        )
+
+    token = auth_header.split(" ", 1)[1].strip()
+
+    try:
+        payload = verify_token(token, "access")
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    user_id = payload.get("sub")
+    db = SessionLocal()
+    try:
+        try:
+            uid_int = int(user_id) if user_id is not None else None
+        except (TypeError, ValueError):
+            uid_int = None
+
+        if uid_int is not None:
+            db.query(UserSession).filter(UserSession.user_id == uid_int).delete(
+                synchronize_session=False
+            )
+            db.commit()
+
+        return {"status": "logged out"}
+    finally:
+        db.close()
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
