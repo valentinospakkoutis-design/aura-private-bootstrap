@@ -1873,6 +1873,20 @@ def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[st
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
 
+    # Redis cache lookup (TTL 300s, key: prediction:{symbol}:{timeframe})
+    _cache_at_str = asset_type or "all"
+    _all_cache_key = f"prediction:all:{days}:{_cache_at_str}"
+    try:
+        _r = get_redis()
+        if _r is not None:
+            _cached_raw = _r.get(_all_cache_key)
+            if _cached_raw:
+                cached_list = json.loads(_cached_raw)
+                print(f"[cache] Predictions cache HIT: {_all_cache_key}")
+                return [{**item, "cached": True} for item in cached_list]
+    except Exception as _ce:
+        print(f"[!] Prediction cache lookup failed (non-fatal): {_ce}")
+
     raw = asset_predictor.get_all_predictions(days, asset_type_enum)
     raw_predictions = raw.get("predictions", {})
 
@@ -2017,7 +2031,70 @@ def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[st
     except Exception:
         pass
 
-    return sanitize_floats(result)
+    safe_result = sanitize_floats(result)
+    # Store in Redis cache (TTL 300s) — aggregate key + per-symbol keys
+    try:
+        _r = get_redis()
+        if _r is not None:
+            _r.setex(_all_cache_key, 300, json.dumps(safe_result))
+            for _item in safe_result:
+                _sym = _item.get("symbol", "")
+                if _sym:
+                    _r.setex(f"prediction:{_sym}:{days}", 300, json.dumps(_item))
+            print(f"[cache] Predictions cached: {_all_cache_key} ({len(safe_result)} items, TTL 300s)")
+    except Exception as _se:
+        print(f"[!] Prediction cache store failed (non-fatal): {_se}")
+    return [{**item, "cached": False} for item in safe_result]
+
+
+@app.delete("/api/v1/predictions/cache/{symbol}")
+def invalidate_prediction_cache(symbol: str):
+    """Invalida la cache Redis per un simbolo specifico (e tutti gli aggregati)."""
+    sym_upper = symbol.upper()
+    deleted = 0
+    try:
+        _r = get_redis()
+        if _r is None:
+            return {"status": "skipped", "reason": "Redis not available", "symbol": sym_upper}
+        # Delete per-symbol keys: prediction:{SYMBOL}:*
+        for key in _r.scan_iter(f"prediction:{sym_upper}:*"):
+            _r.delete(key)
+            deleted += 1
+        # Delete all aggregate keys that embed this symbol: prediction:all:*
+        for key in _r.scan_iter("prediction:all:*"):
+            _r.delete(key)
+            deleted += 1
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cache invalidation failed: {e}")
+    return {"status": "cleared", "symbol": sym_upper, "keys_deleted": deleted}
+
+
+@app.get("/api/v1/predictions/cache/status")
+def get_prediction_cache_status():
+    """Ritorna lo stato della cache Redis per le predictions."""
+    try:
+        _r = get_redis()
+        if _r is None:
+            return {"status": "unavailable", "cached_symbols": [], "total_cached": 0, "ttl_seconds": 300}
+        cached_symbols = []
+        seen = set()
+        for key in _r.scan_iter("prediction:*:*"):
+            parts = key.split(":")
+            # key format: prediction:{symbol}:{timeframe}  (3 parts)
+            if len(parts) == 3 and parts[1] not in ("all",):
+                sym = parts[1]
+                if sym not in seen:
+                    seen.add(sym)
+                    ttl = _r.ttl(key)
+                    cached_symbols.append({"symbol": sym, "timeframe": parts[2], "ttl_remaining": ttl})
+        return {
+            "status": "available",
+            "cached_symbols": cached_symbols,
+            "total_cached": len(cached_symbols),
+            "ttl_seconds": 300,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cache status failed: {e}")
 
 
 @app.get("/api/ai/accuracy")
