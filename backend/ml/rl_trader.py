@@ -31,7 +31,7 @@ RISK_FREE = 0.04 / 252
 
 ALL_SYMBOLS = [
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "SOL-USD",
-    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD", "MATIC-USD",
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
     "ASML", "SAP", "MC.PA",
     "GC=F", "SI=F", "PA=F", "PL=F", "CL=F", "ES=F", "NQ=F",

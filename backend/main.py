@@ -5290,6 +5290,69 @@ def train_rl_symbol(symbol: str, background_tasks: BackgroundTasks):
 
 _rl_training_active = False
 
+
+def _get_rl_target_symbols() -> List[str]:
+    """Return the canonical RL target universe from the trainer module."""
+    from ml.rl_trader import ALL_SYMBOLS
+
+    symbols = []
+    seen = set()
+    for symbol in ALL_SYMBOLS:
+        symbol_u = str(symbol).upper()
+        if symbol_u not in seen:
+            seen.add(symbol_u)
+            symbols.append(symbol_u)
+    return symbols
+
+
+def _get_trained_rl_symbols() -> List[str]:
+    """Return symbols that have an active best RL model in the database."""
+    if SessionLocal is None:
+        raise RuntimeError("Database not configured")
+
+    from database.models import RLModel
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(RLModel.symbol)
+            .filter(RLModel.is_best == True)
+            .distinct()
+            .all()
+        )
+        return sorted({str(row[0]).upper() for row in rows if row and row[0]})
+    finally:
+        db.close()
+
+
+def _write_rl_training_log(job_id: str, status: str, message: str, progress: float) -> None:
+    """Persist RL training progress in training_logs."""
+    if SessionLocal is None:
+        return
+
+    from database.models import TrainingLog
+
+    db = SessionLocal()
+    try:
+        log = TrainingLog(
+            job_id=job_id,
+            phase="rl_train_remaining",
+            status=status,
+            message=message,
+            progress=progress,
+            completed_at=datetime.utcnow() if status in {"completed", "failed"} else None,
+        )
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        print(f"[RL_TRAIN_LOG_FAILED] {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
 async def _run_train_all_rl():
     """Run train_all_rl in a thread, managing the global training flag."""
     global _rl_training_active
@@ -5315,10 +5378,81 @@ async def train_all_rl_endpoint():
     asyncio.create_task(_run_train_all_rl())
     return {"status": "started", "message": "Training all symbols in background"}
 
+
+async def _run_train_remaining_rl(symbols: List[str], job_id: str):
+    """Train remaining RL symbols sequentially and log progress after each one."""
+    global _rl_training_active
+    _rl_training_active = True
+    total = len(symbols)
+
+    try:
+        _write_rl_training_log(job_id, "running", f"Starting RL training for {total} symbols", 0.0)
+
+        from ml.rl_trader import train_rl_agent
+
+        for index, symbol in enumerate(symbols, start=1):
+            result = await asyncio.to_thread(train_rl_agent, symbol, 300, job_id)
+            failed = isinstance(result, dict) and "error" in result
+            status = "failed" if failed else "running"
+            progress = round((index / total) * 100.0, 2)
+            message = (
+                f"{index}/{total} {symbol} failed: {result.get('error')}"
+                if failed
+                else f"{index}/{total} {symbol} trained"
+            )
+            _write_rl_training_log(job_id, status, message, progress)
+
+        _write_rl_training_log(job_id, "completed", f"RL training completed for {total} symbols", 100.0)
+    except Exception as e:
+        _write_rl_training_log(job_id, "failed", f"RL training fatal error: {e}", 0.0)
+        print(f"[TRAIN_REMAINING_FATAL] {e}")
+    finally:
+        _rl_training_active = False
+
+
+@app.post("/api/v1/rl/train-remaining")
+async def train_remaining_rl_endpoint():
+    """Train the remaining untrained RL symbols sequentially in the background."""
+    global _rl_training_active
+    if _rl_training_active:
+        return {"status": "already_running", "remaining_symbols": []}
+
+    try:
+        all_symbols = _get_rl_target_symbols()
+        trained_symbols = set(_get_trained_rl_symbols())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to resolve RL training state: {e}")
+
+    remaining_symbols = [symbol for symbol in all_symbols if symbol not in trained_symbols]
+    if not remaining_symbols:
+        return {"status": "started", "remaining_symbols": []}
+
+    import uuid
+
+    job_id = f"rl_remaining_{uuid.uuid4().hex[:8]}"
+    asyncio.create_task(_run_train_remaining_rl(remaining_symbols, job_id))
+    return {"status": "started", "remaining_symbols": remaining_symbols}
+
+
 @app.get("/api/v1/rl/training-status")
 def get_rl_training_status():
-    """Check if RL batch training is currently running."""
-    return {"is_training": _rl_training_active}
+    """Return trained/untrained RL coverage across the full symbol universe."""
+    try:
+        all_symbols = _get_rl_target_symbols()
+        trained_symbols = _get_trained_rl_symbols()
+        trained_set = set(trained_symbols)
+        untrained_symbols = [symbol for symbol in all_symbols if symbol not in trained_set]
+        total = len(all_symbols)
+        progress_pct = round((len(trained_symbols) / total) * 100.0, 2) if total else 0.0
+        return {
+            "trained": trained_symbols,
+            "untrained": untrained_symbols,
+            "total": total,
+            "progress_pct": progress_pct,
+            "is_training": _rl_training_active,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch RL training status: {e}")
 
 
 @app.get("/api/v1/rl/predict/{symbol}")
@@ -5399,14 +5533,9 @@ def get_rl_batch_predictions():
         from ml.rl_trader import get_rl_prediction
         db = SessionLocal()
         trained = db.query(RLModel).filter(RLModel.is_best == True).all()
-        trained_symbols = [m.symbol for m in trained]
+        trained_symbols = [str(m.symbol).upper() for m in trained]
 
-        all_symbols = [
-            "BTC-USD","ETH-USD","BNB-USD","XRP-USD","SOL-USD","ADA-USD","AVAX-USD",
-            "DOT-USD","LINK-USD","MATIC-USD","AAPL","MSFT","NVDA","GOOGL","AMZN",
-            "META","TSLA","ASML","SAP","MC.PA","GC=F","SI=F","PA=F","PL=F","CL=F",
-            "ES=F","NQ=F","^TNX","^IRX","^TYX","EURUSD=X","GBPEUR=X","USDJPY=X","^VIX",
-        ]
+        all_symbols = _get_rl_target_symbols()
 
         predictions = {}
         for m in trained:
@@ -5436,7 +5565,7 @@ def get_rl_batch_predictions():
         })
     except Exception as e:
         return {"predictions": {}, "trained_symbols": [], "pending_symbols": [],
-                "trained_count": 0, "total_count": 34, "is_training": False, "error": str(e)}
+                "trained_count": 0, "total_count": len(_get_rl_target_symbols()), "is_training": False, "error": str(e)}
 
 
 @app.get("/api/v1/anomalies/active")
