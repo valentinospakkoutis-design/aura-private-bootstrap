@@ -1,7 +1,7 @@
 """
 Phase 2: Sentiment Labeling
 Analyzes financial news headlines using VADER + financial keyword dictionary,
-with TextBlob kept as fallback for compatibility.
+with FinBERT + TextBlob fallback for compatibility.
 Updates sentiment_score and sentiment_label in financial_news table.
 """
 
@@ -13,6 +13,11 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+_FINBERT_MODEL_NAME = "ProsusAI/finbert"
+_FINBERT_MODEL = None
+_FINBERT_TOKENIZER = None
+_FINBERT_LOAD_FAILED = False
 
 # Financial-domain keyword boosts
 BULLISH_KEYWORDS = [
@@ -94,11 +99,81 @@ def _analyze_sentiment_textblob(text: str) -> float:
     return max(-1.0, min(1.0, base_score + keyword_boost))
 
 
+def _get_finbert():
+    """Load FinBERT once and cache the tokenizer/model at module level."""
+    global _FINBERT_MODEL, _FINBERT_TOKENIZER, _FINBERT_LOAD_FAILED
+
+    if _FINBERT_MODEL is not None and _FINBERT_TOKENIZER is not None:
+        return _FINBERT_TOKENIZER, _FINBERT_MODEL
+
+    if _FINBERT_LOAD_FAILED:
+        raise RuntimeError("FinBERT unavailable")
+
+    try:
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        _FINBERT_TOKENIZER = AutoTokenizer.from_pretrained(_FINBERT_MODEL_NAME)
+        _FINBERT_MODEL = AutoModelForSequenceClassification.from_pretrained(_FINBERT_MODEL_NAME)
+        return _FINBERT_TOKENIZER, _FINBERT_MODEL
+    except Exception as e:
+        _FINBERT_LOAD_FAILED = True
+        logger.warning("[FINBERT] failed to load, using TextBlob fallback: %s", e)
+        raise
+
+
+def analyze_sentiment_finbert(text: str) -> dict:
+    """
+    Analyze financial sentiment with FinBERT and fall back to TextBlob on failure.
+    Returns {"label": str, "score": float} using a -1.0..1.0 score range.
+    """
+    if not text:
+        return {"label": "neutral", "score": 0.0}
+
+    try:
+        import torch
+
+        tokenizer, model = _get_finbert()
+        encoded = tokenizer(
+            text,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+        )
+
+        with torch.no_grad():
+            outputs = model(**encoded)
+            probabilities = torch.softmax(outputs.logits, dim=-1)[0]
+
+        label_index = int(torch.argmax(probabilities).item())
+        label = str(model.config.id2label[label_index]).lower()
+        confidence = float(probabilities[label_index].item())
+
+        score_map = {
+            "positive": confidence,
+            "negative": -confidence,
+            "neutral": 0.0,
+        }
+        return {
+            "label": label if label in score_map else "neutral",
+            "score": round(score_map.get(label, 0.0), 4),
+        }
+    except Exception as e:
+        logger.debug("[FINBERT] inference failed, falling back to TextBlob: %s", e)
+        score = _analyze_sentiment_textblob(text)
+        if score >= 0.1:
+            label = "positive"
+        elif score <= -0.1:
+            label = "negative"
+        else:
+            label = "neutral"
+        return {"label": label, "score": round(score, 4)}
+
+
 def analyze_sentiment(text: str) -> tuple:
     """
     Analyze sentiment of financial text.
     Returns (score: -1.0 to 1.0, label: str).
-    Uses VADER + financial keyword boosting with TextBlob fallback.
+    Uses VADER + financial keyword boosting with FinBERT/TextBlob fallback.
     """
     if not text:
         return 0.0, "neutral"
@@ -107,9 +182,10 @@ def analyze_sentiment(text: str) -> tuple:
         score = analyze_sentiment_vader(text)
         logger.info("[VADER] score=%.4f", score)
     except Exception as e:
-        logger.warning("[VADER] failed, falling back to TextBlob: %s", e)
-        score = _analyze_sentiment_textblob(text)
-        logger.info("[TEXTBLOB] score=%.4f", score)
+        logger.warning("[VADER] failed, falling back to FinBERT: %s", e)
+        finbert_result = analyze_sentiment_finbert(text)
+        score = float(finbert_result.get("score", 0.0))
+        logger.info("[FINBERT] label=%s score=%.4f", finbert_result.get("label", "neutral"), score)
 
     # Label
     if score >= 0.1:
