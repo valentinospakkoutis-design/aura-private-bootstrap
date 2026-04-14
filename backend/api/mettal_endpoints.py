@@ -7,7 +7,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr
 # yfinance is now available via market_data module
@@ -534,6 +534,7 @@ class PredictionResponse(BaseModel):
     asset_id: str
     current_price: float
     predictions: List[Prediction]
+    shap_explanation: Optional[Dict[str, float]] = None
     sentiment: Optional[SentimentData] = None
     timestamp: datetime
 
@@ -596,6 +597,7 @@ async def predict(asset_id: str):
         asset_id=asset_id.upper(),
         current_price=prediction["current_price"],
         predictions=predictions,
+        shap_explanation=prediction.get("shap_explanation", {}),
         sentiment=None,  # Will be added if news available
         timestamp=datetime.now()
     )

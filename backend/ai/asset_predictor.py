@@ -39,6 +39,42 @@ class AssetType(str, Enum):
     SENTIMENT = "sentiment"
 
 
+def get_shap_explanation(model, features_df: pd.DataFrame) -> Dict[str, float]:
+    """Return the top 5 SHAP feature contributions for a tree-based model."""
+    try:
+        import shap
+
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(features_df)
+
+        if isinstance(shap_values, list):
+            shap_values = shap_values[-1]
+
+        shap_array = np.asarray(shap_values)
+        if shap_array.ndim == 3:
+            shap_array = shap_array[0]
+        if shap_array.ndim == 2:
+            shap_row = shap_array[0]
+        elif shap_array.ndim == 1:
+            shap_row = shap_array
+        else:
+            return {}
+
+        contributions = []
+        for feature_name, shap_value in zip(features_df.columns.tolist(), shap_row.tolist()):
+            try:
+                numeric_value = float(shap_value)
+            except Exception:
+                continue
+            contributions.append((feature_name, numeric_value))
+
+        contributions.sort(key=lambda item: abs(item[1]), reverse=True)
+        return {name: round(value, 6) for name, value in contributions[:5]}
+    except Exception as e:
+        logger.debug(f"SHAP explanation failed: {e}")
+        return {}
+
+
 class AssetPredictor:
     """
     Unified AI Predictor για όλα τα asset types
@@ -418,14 +454,16 @@ class AssetPredictor:
             last_row = full_row
 
         scaled = scaler.transform(last_row)
+        scaled_df = pd.DataFrame(scaled, columns=feature_cols)
         predicted_price = float(model.predict(scaled)[0])
+        shap_explanation = get_shap_explanation(model, scaled_df)
 
         price_change = predicted_price - current_price
         price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
         trend_score = float(np.clip(price_change_pct / 5.0, -1, 1))
         confidence = min(95.0, 85.0 + abs(trend_score) * 8)
 
-        return predicted_price, trend_score, confidence
+        return predicted_price, trend_score, confidence, shap_explanation
 
     def _get_recent_ohlcv(self, symbol: str, days: int = 250) -> Optional[pd.DataFrame]:
         from ml.auto_trainer import fetch_binance_ohlcv, fetch_yfinance_ohlcv, YFINANCE_SYMBOL_MAP
@@ -546,6 +584,7 @@ class AssetPredictor:
         
         mtf: Dict[str, Any] = {}
         onchain: Optional[Dict[str, Any]] = None
+        shap_explanation: Dict[str, float] = {}
         ensemble = {
             "xgboost": None,
             "random_forest": None,
@@ -560,7 +599,11 @@ class AssetPredictor:
 
                 if is_xgboost:
                     # XGBoost path: use auto_trainer's feature engineering
-                    predicted_price, trend_score, confidence = self._predict_xgboost(symbol, current_price, recent_df=recent_df)
+                    predicted_price, trend_score, confidence, shap_explanation = self._predict_xgboost(
+                        symbol,
+                        current_price,
+                        recent_df=recent_df,
+                    )
 
                     xgb_prob = max(0.0, min(1.0, confidence / 100.0))
                     rf_prob = self._predict_rf_sidecar(symbol, recent_df)
@@ -626,6 +669,18 @@ class AssetPredictor:
                     features_scaled = scaler.transform(features)
                     model = self.models[symbol]
                     predicted_price = model.predict(features_scaled)[0]
+                    feature_names = [
+                        "current_price",
+                        "sma_7",
+                        "sma_3",
+                        "volatility",
+                        "momentum",
+                        "price_lag_1",
+                        "price_lag_2",
+                        "price_lag_3",
+                    ]
+                    shap_features_df = pd.DataFrame(features_scaled, columns=feature_names)
+                    shap_explanation = get_shap_explanation(model, shap_features_df)
 
                     price_change = predicted_price - current_price
                     price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
@@ -744,6 +799,7 @@ class AssetPredictor:
             "prediction_horizon_days": days,
             "price_path": price_path,
             "ensemble": ensemble,
+            "shap_explanation": shap_explanation,
             "onchain": {
                 "score": round(float(onchain.get("onchain_score", 0.5)), 3),
                 "sentiment": onchain.get("onchain_sentiment", "neutral"),
