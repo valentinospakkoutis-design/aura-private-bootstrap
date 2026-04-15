@@ -5480,6 +5480,67 @@ def get_backtest_summary():
     }
 
 
+@app.get("/api/v1/backtest/compare")
+def get_backtest_compare(symbols: str = "", days: int = 365):
+    """Side-by-side backtest metrics for multiple symbols (comma-separated)."""
+    from services.backtest_dashboard import run_backtest_summary
+
+    requested = [s.strip().upper() for s in (symbols or "").split(",") if s.strip()]
+    if not requested:
+        raise HTTPException(status_code=400, detail="symbols query parameter is required")
+
+    out = []
+    for sym in requested:
+        try:
+            res = run_backtest_summary(sym, days=days)
+        except Exception as e:
+            out.append({"symbol": sym, "error": str(e)})
+            continue
+        if "error" in res:
+            out.append({"symbol": sym, "error": res["error"]})
+            continue
+        out.append({k: v for k, v in res.items() if k != "equity_curve"})
+
+    return sanitize_floats({
+        "compare": out,
+        "count": len(out),
+        "days": int(days),
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/v1/backtest/summary/{symbol}")
+def get_backtest_summary_for_symbol(symbol: str, days: int = 365):
+    """Run (or return cached) backtest summary metrics for a single symbol."""
+    from services.backtest_dashboard import run_backtest_summary
+
+    sym = symbol.upper()
+    result = run_backtest_summary(sym, days=days)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    payload = {k: v for k, v in result.items() if k != "equity_curve"}
+    return sanitize_floats(payload)
+
+
+@app.get("/api/v1/backtest/equity-curve/{symbol}")
+def get_backtest_equity_curve(symbol: str, days: int = 365):
+    """Equity + drawdown series for plotting a symbol's backtest."""
+    from services.backtest_dashboard import run_backtest_summary
+
+    sym = symbol.upper()
+    result = run_backtest_summary(sym, days=days)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    curve = result.get("equity_curve") or {"dates": [], "equity": [], "drawdown": []}
+    return sanitize_floats({
+        "symbol": sym,
+        "days": int(days),
+        "dates": curve.get("dates", []),
+        "equity": curve.get("equity", []),
+        "drawdown": curve.get("drawdown", []),
+    })
+
+
 # ── RL Trading Agent Endpoints ──────────────────────────────
 
 @app.post("/api/v1/rl/train/{symbol}")
