@@ -75,6 +75,153 @@ def get_shap_explanation(model, features_df: pd.DataFrame) -> Dict[str, float]:
         return {}
 
 
+def fetch_multi_timeframe_data(symbol: str) -> Dict[str, pd.DataFrame]:
+    """Fetch OHLCV data for 1h, 4h, and 1d timeframes via yfinance.
+
+    Returns a dict {"1h": df, "4h": df, "1d": df}. Each value is a DataFrame
+    with at least Open/High/Low/Close/Volume columns; empty on failure.
+    """
+    out: Dict[str, pd.DataFrame] = {"1h": pd.DataFrame(), "4h": pd.DataFrame(), "1d": pd.DataFrame()}
+    try:
+        from market_data.yfinance_client import _normalize_symbol
+        import yfinance as yf
+    except Exception as e:
+        logger.debug(f"MTF fetch import failed for {symbol}: {e}")
+        return out
+
+    yf_symbol = _normalize_symbol(symbol)
+    requests = [
+        ("1h", {"interval": "1h", "period": "60d"}),
+        ("4h", {"interval": "4h", "period": "120d"}),
+        ("1d", {"interval": "1d", "period": "365d"}),
+    ]
+    for tf, kwargs in requests:
+        try:
+            df = yf.Ticker(yf_symbol).history(**kwargs)
+            if (df is None or df.empty) and tf == "4h":
+                # yfinance has no native 4h interval — resample 1h to 4h as fallback
+                raw = yf.Ticker(yf_symbol).history(interval="1h", period="120d")
+                if raw is not None and not raw.empty:
+                    df = raw.resample("4h").agg({
+                        "Open": "first",
+                        "High": "max",
+                        "Low": "min",
+                        "Close": "last",
+                        "Volume": "sum",
+                    }).dropna()
+            if df is not None and not df.empty:
+                out[tf] = df
+        except Exception as e:
+            logger.debug(f"MTF {tf} fetch failed for {symbol}: {e}")
+            if tf == "4h":
+                try:
+                    raw = yf.Ticker(yf_symbol).history(interval="1h", period="120d")
+                    if raw is not None and not raw.empty:
+                        out[tf] = raw.resample("4h").agg({
+                            "Open": "first",
+                            "High": "max",
+                            "Low": "min",
+                            "Close": "last",
+                            "Volume": "sum",
+                        }).dropna()
+                except Exception as e2:
+                    logger.debug(f"MTF 4h resample fallback failed for {symbol}: {e2}")
+    return out
+
+
+def compute_timeframe_signal(df: pd.DataFrame) -> Dict[str, Any]:
+    """Compute trend / momentum / signal / confidence for a single timeframe.
+
+    - trend: "up" / "down" / "neutral" based on EMA20 vs EMA50.
+    - momentum: RSI(14) value (overbought >70, oversold <30).
+    - signal: "BUY" / "SELL" / "HOLD" combining trend and RSI extremes.
+    - confidence: float 0-1 from EMA spread magnitude and RSI distance from 50.
+    """
+    empty = {"trend": "neutral", "momentum": 50.0, "signal": "HOLD", "confidence": 0.0}
+    if df is None or df.empty or "Close" not in df.columns or len(df) < 50:
+        return empty
+
+    close = df["Close"].astype(float)
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    ema50 = close.ewm(span=50, adjust=False).mean()
+    last_ema20 = float(ema20.iloc[-1])
+    last_ema50 = float(ema50.iloc[-1])
+    diff_pct = ((last_ema20 - last_ema50) / last_ema50 * 100.0) if last_ema50 != 0 else 0.0
+
+    if diff_pct > 0.2:
+        trend = "up"
+    elif diff_pct < -0.2:
+        trend = "down"
+    else:
+        trend = "neutral"
+
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(window=14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    rsi_series = 100.0 - (100.0 / (1.0 + rs))
+    last_rsi_val = rsi_series.iloc[-1]
+    last_rsi = 50.0 if pd.isna(last_rsi_val) else float(last_rsi_val)
+
+    if last_rsi > 70:
+        signal = "SELL"
+    elif last_rsi < 30:
+        signal = "BUY"
+    elif trend == "up":
+        signal = "BUY"
+    elif trend == "down":
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+
+    trend_strength = min(1.0, abs(diff_pct) / 2.0)
+    rsi_strength = min(1.0, abs(last_rsi - 50.0) / 50.0)
+    confidence = float(max(0.0, min(1.0, 0.5 * trend_strength + 0.5 * rsi_strength)))
+
+    return {
+        "trend": trend,
+        "momentum": round(last_rsi, 2),
+        "signal": signal,
+        "confidence": round(confidence, 3),
+    }
+
+
+def compute_mtf_agreement(symbol: str) -> Dict[str, Any]:
+    """Compute multi-timeframe signal agreement across 1h / 4h / 1d.
+
+    Returns the majority signal, the agreement ratio (fraction of timeframes
+    matching the majority signal), per-timeframe breakdown, and a strong_signal
+    flag (True when at least 2 of 3 timeframes agree).
+    """
+    data = fetch_multi_timeframe_data(symbol)
+    timeframes = {tf: compute_timeframe_signal(df) for tf, df in data.items()}
+
+    signals = [v["signal"] for v in timeframes.values()]
+    if not signals:
+        return {
+            "signal": "HOLD",
+            "agreement": 0.0,
+            "timeframes": timeframes,
+            "strong_signal": False,
+        }
+
+    from collections import Counter
+    counts = Counter(signals)
+    # Tie-break: prefer non-HOLD if tied
+    ordered = counts.most_common()
+    top_signal, top_count = ordered[0]
+    if len(ordered) > 1 and ordered[1][1] == top_count and top_signal == "HOLD":
+        top_signal, top_count = ordered[1]
+
+    agreement = round(top_count / len(signals), 2)
+    return {
+        "signal": top_signal,
+        "agreement": agreement,
+        "timeframes": timeframes,
+        "strong_signal": agreement >= 0.66,
+    }
+
+
 class AssetPredictor:
     """
     Unified AI Predictor για όλα τα asset types
@@ -778,7 +925,13 @@ class AssetPredictor:
             if v < 0:
                 return "bearish"
             return "neutral"
-        
+
+        mtf_agreement: Optional[Dict[str, Any]] = None
+        try:
+            mtf_agreement = compute_mtf_agreement(symbol)
+        except Exception as e:
+            logger.debug(f"mtf_agreement failed for {symbol}: {e}")
+
         prediction = {
             "symbol": symbol,
             "asset_name": asset["name"],
@@ -808,6 +961,7 @@ class AssetPredictor:
                 "long_short_ratio": onchain.get("long_short_ratio"),
                 "fear_greed": onchain.get("fear_greed"),
             } if onchain else None,
+            "mtf_agreement": mtf_agreement,
             "timestamp": datetime.now().isoformat(),
             "model_version": "v1.0-trained" if use_ml_model else "v1.0-alpha",
             "using_ml_model": use_ml_model

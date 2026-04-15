@@ -19,8 +19,7 @@ from sqlalchemy import text
 from brokers.binance import BinanceAPI
 from services.paper_trading import paper_trading_service
 from ai.precious_metals import precious_metals_predictor
-from ai.asset_predictor import asset_predictor, AssetType
-from ai.asset_predictor import asset_predictor, AssetType
+from ai.asset_predictor import asset_predictor, AssetType, compute_mtf_agreement
 from services.cms_service import cms_service
 from services.voice_briefing import voice_briefing_service
 from ml.model_manager import model_manager
@@ -2265,6 +2264,24 @@ def get_market_onchain(symbol: str):
         raise HTTPException(status_code=404, detail=f"On-chain signals not supported for {sym}")
 
     return sanitize_floats(get_onchain_signals(sym))
+
+
+@app.get("/api/v1/predictions/mtf/{symbol}")
+def get_mtf_prediction(symbol: str):
+    """Multi-timeframe (1h / 4h / 1d) signal agreement for a symbol."""
+    sym = symbol.upper()
+    if sym not in asset_predictor.all_assets:
+        raise HTTPException(status_code=404, detail=f"Unsupported symbol: {sym}")
+    try:
+        result = compute_mtf_agreement(sym)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"MTF analysis failed: {e}")
+    return sanitize_floats({
+        "symbol": sym,
+        "asset_name": asset_predictor.all_assets[sym].get("name", sym),
+        "mtf_agreement": result,
+        "timestamp": datetime.now().isoformat(),
+    })
 
 
 @app.get("/api/v1/predictions/extended")
