@@ -2374,6 +2374,47 @@ def get_volatility_for_symbol(symbol: str):
     return sanitize_floats(info)
 
 
+@app.get("/api/v1/market/correlation/matrix")
+def get_correlation_matrix_endpoint():
+    """Pearson correlation matrix for default tracked universe (last 90d returns)."""
+    from ai.correlation_matrix import compute_correlation_matrix
+
+    return sanitize_floats(compute_correlation_matrix(symbols=None))
+
+
+@app.get("/api/v1/market/correlation/pairs")
+def get_correlation_pairs_endpoint(threshold: float = Query(0.8, ge=0.0, le=1.0)):
+    """Highly correlated pairs with |corr| above threshold."""
+    from ai.correlation_matrix import get_correlated_pairs
+
+    pairs = get_correlated_pairs(threshold=threshold)
+    return sanitize_floats(
+        {
+            "threshold": float(threshold),
+            "pairs": pairs,
+            "count": len(pairs),
+            "computed_at": datetime.utcnow().isoformat(),
+        }
+    )
+
+
+@app.get("/api/v1/market/correlation/portfolio")
+def get_portfolio_correlation_endpoint(payload=Depends(require_auth)):
+    """Correlation safety check for the authenticated user's current open positions."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from ai.correlation_matrix import check_portfolio_correlation
+
+    positions = auto_trader.get_user_positions(user_id)
+    symbols = [str(p.get("symbol") or "").upper() for p in positions if p and p.get("symbol")]
+    result = check_portfolio_correlation(symbols)
+    result["symbols"] = symbols
+    result["positions_count"] = len(symbols)
+    return sanitize_floats(result)
+
+
 @app.get("/api/v1/predictions/ensemble/{symbol}")
 def get_ensemble_prediction(symbol: str):
     """Majority-vote ensemble across XGBoost, RandomForest, RL agent, and MTF."""

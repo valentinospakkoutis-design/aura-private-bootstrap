@@ -456,6 +456,25 @@ class AutoTradingEngine:
                 body=f"{symbol} closed by risk control ({reason}). PnL ${pnl:.2f}",
                 data={"screen": "/auto-trading", "type": "position_closed", "symbol": symbol},
             )
+
+            # Live P&L push notification with realized percentage return.
+            try:
+                if user_id is not None:
+                    pnl_pct = (
+                        (pnl / (entry_price * quantity) * 100.0)
+                        if entry_price > 0 and quantity > 0
+                        else 0.0
+                    )
+                    from services.push_notifications import send_trade_notification
+                    send_trade_notification(
+                        user_id=int(user_id),
+                        symbol=symbol,
+                        side=str(position.get("side", "BUY")),
+                        pnl_pct=float(pnl_pct),
+                        pnl_usd=float(pnl),
+                    )
+            except Exception as notify_err:
+                logger.debug(f"[AutoTrading] trade notification failed for {symbol}: {notify_err}")
             return closed_trade
         except Exception as e:
             self._log_event("CLOSE_ERROR", f"{symbol}: {type(e).__name__}: {e}")
@@ -740,6 +759,7 @@ class AutoTradingEngine:
 
         # Phase V safety layer: correlation exposure guard.
         correlation_cap_usd: Optional[float] = None
+        correlation_size_multiplier = 1.0
         try:
             from ml.correlation_engine import check_correlation_risk
 
@@ -774,6 +794,34 @@ class AutoTradingEngine:
             correlation_cap_usd = float(corr_check.get("max_allowed_usd", proposed_size_usd) or proposed_size_usd)
         except Exception as corr_err:
             logger.debug("[AUTO_TRADE] correlation check failed for %s: %s", symbol, corr_err)
+
+        # Dynamic pairwise correlation matrix check: if adding the symbol creates
+        # >0.85 absolute correlation with an existing position, reduce size by 50%.
+        try:
+            from ai.correlation_matrix import check_portfolio_correlation
+
+            existing_symbols = [str(pos.get("symbol") or "").upper() for pos in self.open_positions.values()]
+            existing_symbols = [s for s in existing_symbols if s]
+            candidate_symbols = existing_symbols + [symbol]
+            corr_portfolio = check_portfolio_correlation(candidate_symbols)
+
+            if not bool(corr_portfolio.get("safe", True)):
+                risky_pairs = [
+                    p for p in (corr_portfolio.get("pairs") or [])
+                    if str(p.get("symbol_a", "")).upper() == symbol or str(p.get("symbol_b", "")).upper() == symbol
+                ]
+                if risky_pairs:
+                    correlation_size_multiplier = 0.5
+                    top_pair = risky_pairs[0]
+                    top_corr = float(top_pair.get("correlation", 0.0) or 0.0)
+                    warning = (
+                        f"{symbol}: high correlation risk with existing position "
+                        f"({top_pair.get('symbol_a')}/{top_pair.get('symbol_b')} corr={top_corr:+.2f})"
+                    )
+                    self._log_event("REDUCE", warning)
+                    logger.warning("[AUTO_TRADE] %s -> reducing size by 50%%", warning)
+        except Exception as corr_matrix_err:
+            logger.debug("[AUTO_TRADE] correlation matrix check failed for %s: %s", symbol, corr_matrix_err)
 
         # ── Claude AI validation (only for high-confidence ELITE signals) ──
         claude_size_multiplier = 1.0
@@ -845,6 +893,7 @@ class AutoTradingEngine:
         vol = abs(prediction.get("trend_score", 0.3)) if "trend_score" in prediction else 0.3
         quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol, symbol=symbol)
         quantity *= claude_size_multiplier
+        quantity *= correlation_size_multiplier
 
         if correlation_cap_usd is not None and price > 0:
             max_corr_qty = max(0.0, float(correlation_cap_usd) / float(price))
