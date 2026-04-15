@@ -920,6 +920,16 @@ class AssetPredictor:
         if symbol not in self.all_assets:
             return 0.0
 
+        # Prefer realtime websocket feed for current price to avoid yfinance lag.
+        try:
+            from services.websocket_feed import get_realtime_price
+
+            rt = get_realtime_price(symbol)
+            if rt and rt.get("price") is not None:
+                return round(float(rt["price"]), 8)
+        except Exception as e:
+            logger.debug(f"realtime feed failed for {symbol}: {e}")
+
         real_prices = self._get_real_prices(symbol, days=1)
         if real_prices:
             return round(real_prices[-1], 8)

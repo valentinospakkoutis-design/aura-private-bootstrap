@@ -385,6 +385,22 @@ async def startup_event():
     else:
         print("[!] Redis not configured - continuing without cache")
 
+    # Start Binance websocket price feed for all crypto symbols.
+    try:
+        from services.websocket_feed import start_websocket_feed
+
+        crypto_symbols = sorted(
+            [
+                sym
+                for sym, asset in asset_predictor.all_assets.items()
+                if asset.get("type") == AssetType.CRYPTO
+            ]
+        )
+        ws_status = start_websocket_feed(crypto_symbols)
+        print(f"[+] WebSocket feed started for {len(ws_status.get('subscribed_symbols', []))} crypto symbols")
+    except Exception as e:
+        print(f"[!] Failed to start websocket feed: {e}")
+
     # Start auto trading engine (per-user isolated loop)
     from services.auto_trading_engine import auto_trader as _auto_trader
 
@@ -2413,6 +2429,25 @@ def get_portfolio_correlation_endpoint(payload=Depends(require_auth)):
     result["symbols"] = symbols
     result["positions_count"] = len(symbols)
     return sanitize_floats(result)
+
+
+@app.get("/api/v1/market/realtime/status")
+def get_market_realtime_status():
+    """Show websocket feed status and live symbol activity."""
+    from services.websocket_feed import get_websocket_feed_status
+
+    return sanitize_floats(get_websocket_feed_status())
+
+
+@app.get("/api/v1/market/realtime/{symbol}")
+def get_market_realtime_price(symbol: str):
+    """Return live price from websocket/Redis or yfinance fallback."""
+    from services.websocket_feed import get_realtime_price
+
+    payload = get_realtime_price(symbol.upper())
+    if payload.get("price") is None:
+        raise HTTPException(status_code=404, detail=f"Realtime price unavailable for {symbol.upper()}")
+    return sanitize_floats(payload)
 
 
 @app.get("/api/v1/predictions/ensemble/{symbol}")
