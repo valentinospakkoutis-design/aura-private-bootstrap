@@ -5583,6 +5583,88 @@ def get_rl_prediction_endpoint(symbol: str):
     return {"symbol": symbol.upper(), "action": "HOLD", "confidence": 0.0, "note": "No RL model available"}
 
 
+@app.get("/api/v1/rl/attention/{symbol}")
+def get_rl_attention(symbol: str):
+    """Return saved feature-level attention weights for the best RL model of ``symbol``.
+
+    Falls back to a live forward pass if weights were not persisted when the
+    model was trained (older checkpoints predate the attention layer).
+    """
+    try:
+        from database.models import RLModel
+        from ml.rl_trader import (
+            FEATURE_NAMES,
+            PPOAgent,
+            SYMBOL_ALIASES,
+            TradingEnv,
+            WINDOW_SIZE,
+            _load_prices,
+            get_rl_prediction,  # noqa: F401  (imported for symmetry with other endpoints)
+        )
+
+        target = symbol.upper()
+        aliases = [target]
+        for k, als in SYMBOL_ALIASES.items():
+            if target == k or target in als:
+                aliases = list({target, k, *als})
+                break
+
+        db = SessionLocal()
+        try:
+            row = (
+                db.query(RLModel)
+                .filter(RLModel.symbol.in_(aliases), RLModel.is_best == True)  # noqa: E712
+                .order_by(RLModel.val_sharpe.desc())
+                .first()
+            )
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"No RL model for {target}")
+
+            meta = row.metadata_ or {}
+            weights = (meta.get("attention_weights") or {}) if isinstance(meta, dict) else {}
+
+            # Older checkpoints didn't persist attention weights — compute them
+            # on the fly from a validation window if the model bytes still load.
+            if not weights and row.model_data is not None:
+                df = _load_prices(db, target)
+                if df is not None and len(df) >= WINDOW_SIZE + 5:
+                    try:
+                        env = TradingEnv(df)
+                        states = [env.reset()]
+                        while True:
+                            s, _, done, _ = env.step(0)
+                            states.append(s)
+                            if done:
+                                break
+                        agent = PPOAgent()
+                        agent.load_from_bytes(row.model_data)
+                        weights = agent.compute_attention_summary(np.asarray(states[-128:]))
+                    except Exception as compute_err:
+                        print(f"[RL attention] live computation failed for {target}: {compute_err}")
+
+            if not weights:
+                raise HTTPException(status_code=404, detail=f"No attention weights available for {target}")
+
+            # Coerce to float and rank features by weight.
+            clean = {str(k): float(v) for k, v in weights.items()}
+            top_features = [
+                {"feature": name, "weight": round(w, 6)}
+                for name, w in sorted(clean.items(), key=lambda kv: kv[1], reverse=True)[:5]
+            ]
+            return {
+                "symbol": target,
+                "attention_weights": {k: round(v, 6) for k, v in clean.items()},
+                "top_features": top_features,
+                "feature_names": FEATURE_NAMES,
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch attention weights: {e}")
+
+
 @app.get("/api/v1/rl/status")
 def get_rl_status():
     """Get RL training status for all symbols."""

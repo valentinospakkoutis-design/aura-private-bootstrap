@@ -29,6 +29,19 @@ ACTION_DIM = 3   # HOLD=0, BUY=1, SELL=2
 FEE = 0.001
 RISK_FREE = 0.04 / 252
 
+# Names of the 10 per-timestep features produced by TradingEnv._build_features.
+# Kept in sync with the DataFrame columns in that method — attention weights are
+# reported against these names for explainability.
+FEATURE_NAMES: List[str] = [
+    "ret1", "ret3", "ret5", "ret10", "ret20",
+    "rsi", "macd", "bb_pos", "vol_ratio", "position",
+]
+
+INITIAL_LR = 0.001
+MIN_LR = 1e-5
+LR_PATIENCE_EPISODES = 50
+GRAD_CLIP_MAX_NORM = 0.5
+
 ALL_SYMBOLS = [
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "SOL-USD",
     "ADA-USD", "AVAX-USD", "DOT-USD", "LINK-USD", "MATIC-USD",
@@ -213,28 +226,72 @@ class TradingEnv:
 
 # ── PPO Agent ────────────────────────────────────────────────
 
+class FeatureAttention(nn.Module):
+    """Additive self-attention over the N_FEATURES channels of each timestep.
+
+    Given x of shape (B, WINDOW_SIZE, N_FEATURES), computes per-timestep,
+    per-feature weights via ``softmax(W · tanh(V · x))`` (Bahdanau-style) and
+    returns ``x * weights`` along with the weights themselves so callers can
+    inspect which features the agent is focusing on.
+    """
+
+    def __init__(self, n_features: int = N_FEATURES, hidden: int = 32):
+        super().__init__()
+        self.V = nn.Linear(n_features, hidden, bias=True)
+        self.W = nn.Linear(hidden, n_features, bias=False)
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        z = torch.tanh(self.V(x))          # (B, T, hidden)
+        scores = self.W(z)                 # (B, T, F)
+        weights = F.softmax(scores, dim=-1)  # softmax over the feature dim
+        return x * weights, weights
+
+
 class ActorCritic(nn.Module):
     def __init__(self, state_dim=STATE_DIM, action_dim=ACTION_DIM):
         super().__init__()
+        self.attention = FeatureAttention(n_features=N_FEATURES)
         self.shared = nn.Sequential(nn.Linear(state_dim, 256), nn.ReLU(), nn.Linear(256, 128), nn.ReLU())
         self.actor = nn.Linear(128, action_dim)
         self.critic = nn.Linear(128, 1)
+        self._last_attention_weights: Optional[torch.Tensor] = None
 
     def forward(self, x):
-        h = self.shared(x)
+        # x arrives flattened as (B, STATE_DIM); reshape to (B, T, F) for attention.
+        batch = x.shape[0]
+        windowed = x.view(batch, WINDOW_SIZE, N_FEATURES)
+        attended, weights = self.attention(windowed)
+        self._last_attention_weights = weights.detach()
+        h = self.shared(attended.reshape(batch, STATE_DIM))
         return F.softmax(self.actor(h), dim=-1), self.critic(h)
 
 
 class PPOAgent:
-    def __init__(self, state_dim=STATE_DIM, action_dim=ACTION_DIM, lr=3e-4):
+    def __init__(self, state_dim=STATE_DIM, action_dim=ACTION_DIM, lr: float = INITIAL_LR):
         self.model = ActorCritic(state_dim, action_dim)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.initial_lr = float(lr)
+        self.current_lr = float(lr)
+        self.min_lr = MIN_LR
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.current_lr)
         self.clip_ratio = 0.2
         self.entropy_coef = 0.01
         self.value_coef = 0.5
         self.gamma = 0.99
         self.lam = 0.95
         self.buffer = []
+
+    def reduce_lr(self, factor: float = 0.5) -> float:
+        """Multiply the optimizer's learning rate by ``factor``, clamped at ``min_lr``.
+
+        Returns the new (possibly clamped) learning rate. If the current rate
+        is already at the floor, returns it unchanged.
+        """
+        new_lr = max(self.min_lr, self.current_lr * factor)
+        if new_lr < self.current_lr:
+            self.current_lr = new_lr
+            for pg in self.optimizer.param_groups:
+                pg["lr"] = new_lr
+        return self.current_lr
 
     def select_action(self, state: np.ndarray) -> Tuple[int, float, float]:
         with torch.no_grad():
@@ -293,7 +350,8 @@ class PPOAgent:
 
             self.optimizer.zero_grad()
             loss.backward()
-            nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+            # Clip gradients to prevent exploding updates through the attention layer.
+            nn.utils.clip_grad_norm_(self.model.parameters(), GRAD_CLIP_MAX_NORM)
             self.optimizer.step()
             total_loss += loss.item()
 
@@ -307,10 +365,37 @@ class PPOAgent:
         return buffer.getvalue()
 
     def load_from_bytes(self, data: bytes):
-        """Load model state_dict from bytes."""
+        """Load model state_dict from bytes.
+
+        Uses ``strict=False`` so checkpoints trained before the attention
+        layer was introduced still load — missing attention params keep their
+        freshly initialised random weights.
+        """
         buffer = io.BytesIO(data)
-        self.model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
+        state = torch.load(buffer, map_location="cpu", weights_only=True)
+        self.model.load_state_dict(state, strict=False)
         self.model.eval()
+
+    def compute_attention_summary(self, states: np.ndarray) -> Dict[str, float]:
+        """Average feature-level attention weights across a batch of states.
+
+        ``states`` is expected to be an array of shape ``(N, STATE_DIM)``.
+        Returns a dict keyed by :data:`FEATURE_NAMES` whose values sum to 1.0.
+        """
+        if states is None or len(states) == 0:
+            return {name: 0.0 for name in FEATURE_NAMES}
+        with torch.no_grad():
+            s = torch.FloatTensor(np.asarray(states))
+            if s.dim() == 1:
+                s = s.unsqueeze(0)
+            self.model(s)
+            weights = self.model._last_attention_weights  # (B, T, F)
+        if weights is None:
+            return {name: 0.0 for name in FEATURE_NAMES}
+        avg = weights.mean(dim=(0, 1)).cpu().numpy()
+        total = float(avg.sum()) or 1.0
+        normalised = (avg / total).tolist()
+        return {name: float(round(val, 6)) for name, val in zip(FEATURE_NAMES, normalised)}
 
     def predict(self, state: np.ndarray) -> Tuple[str, float]:
         """Get action recommendation + confidence."""
@@ -393,7 +478,7 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
         train_env = TradingEnv(train_df)
         val_env = TradingEnv(val_df)
-        agent = PPOAgent()
+        agent = PPOAgent(lr=INITIAL_LR)
 
         best_val_sharpe = -999
         no_improve = 0
@@ -402,6 +487,9 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
         best_val_trades = 0
         best_train_return = 0
         best_episode = 0
+        # Rolling buffer of recent validation states used to derive the
+        # attention summary that's persisted with the best model.
+        last_val_states: List[np.ndarray] = []
 
         for ep in range(episodes):
             # Train episode
@@ -421,9 +509,11 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
             # Validate every 25 episodes
             if (ep + 1) % 25 == 0:
                 val_state = val_env.reset()
+                val_states_this_pass: List[np.ndarray] = [val_state.copy()]
                 while True:
                     action, _, _ = agent.select_action(val_state)
                     val_state, _, val_done, val_info = val_env.step(action)
+                    val_states_this_pass.append(val_state.copy())
                     if val_done:
                         break
 
@@ -434,7 +524,7 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
 
                 print(f"[RL {symbol}] Ep {ep+1}: reward={ep_reward:.1f}, "
                       f"val_sharpe={val_sharpe:.3f}, val_return={val_return:.1f}%, "
-                      f"trades={val_info['total_trades']}")
+                      f"trades={val_info['total_trades']}, lr={agent.current_lr:.6f}")
 
                 if val_sharpe > best_val_sharpe:
                     best_val_sharpe = val_sharpe
@@ -443,13 +533,23 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                     best_val_trades = val_info["total_trades"]
                     best_train_return = info["total_return_pct"]
                     best_episode = ep + 1
+                    last_val_states = val_states_this_pass[-256:]
                     no_improve = 0
                 else:
                     no_improve += 25
 
-                if no_improve >= 50:
-                    print(f"[RL {symbol}] Early stop at episode {ep+1}")
-                    break
+                # Adaptive LR: after `LR_PATIENCE_EPISODES` of no validation
+                # improvement, halve the LR (floor at MIN_LR). Once the floor
+                # is reached and another full patience cycle elapses without
+                # improvement, we give up rather than spin indefinitely.
+                if no_improve >= LR_PATIENCE_EPISODES:
+                    if agent.current_lr > agent.min_lr:
+                        new_lr = agent.reduce_lr(0.5)
+                        print(f"[RL {symbol}] LR reduced to {new_lr} at episode {ep+1}")
+                        no_improve = 0
+                    else:
+                        print(f"[RL {symbol}] Early stop at episode {ep+1} (LR at floor)")
+                        break
 
         # Determine if training was successful
         training_failed = best_val_sharpe <= 0 or best_val_trades == 0
@@ -469,6 +569,18 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
             db.commit()
             print(f"[RL {symbol}] Failed: sharpe={best_val_sharpe:.3f}, trades={best_val_trades}")
         else:
+            # Reload the best checkpoint so the attention summary is derived
+            # from the same weights that are about to be persisted.
+            attention_weights: Dict[str, float] = {}
+            try:
+                best_agent = PPOAgent(lr=INITIAL_LR)
+                best_agent.load_from_bytes(best_model_bytes)
+                sample = np.asarray(last_val_states[-128:]) if last_val_states else None
+                if sample is not None and len(sample) > 0:
+                    attention_weights = best_agent.compute_attention_summary(sample)
+            except Exception as attn_err:
+                logger.warning(f"[RL {symbol}] Failed to compute attention summary: {attn_err}")
+
             # Save successful model
             db.add(RLModel(
                 symbol=str(symbol), episode=int(best_episode),
@@ -478,7 +590,12 @@ def train_rl_agent(symbol: str, episodes: int = 300, job_id: str = "manual") -> 
                 val_return_pct=float(_to_py(best_val_return)),
                 total_trades=int(_to_py(best_val_trades)),
                 model_path=str(symbol), model_data=best_model_bytes,
-                metadata_={"status": "success"},
+                metadata_={
+                    "status": "success",
+                    "final_lr": agent.current_lr,
+                    "attention_weights": attention_weights,
+                    "feature_names": FEATURE_NAMES,
+                },
                 is_best=True,
             ))
             db.commit()
