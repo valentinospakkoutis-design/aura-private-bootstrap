@@ -222,6 +222,63 @@ def compute_mtf_agreement(symbol: str) -> Dict[str, Any]:
     }
 
 
+def compute_dynamic_threshold(symbol: str) -> Dict[str, Any]:
+    """Adjust the auto-trade confidence threshold based on recent volatility.
+
+    Fetches the last 30 trading days of daily closes via yfinance and uses the
+    standard deviation of daily % returns to classify the regime:
+        std < 1.5%        → LOW    → threshold 0.80
+        1.5% <= std < 3%  → MEDIUM → threshold 0.90
+        std >= 3%         → HIGH   → threshold 0.95
+    Falls back to MEDIUM (0.90) when data is unavailable.
+    """
+    default = {
+        "symbol": symbol,
+        "volatility_pct": None,
+        "regime": "MEDIUM",
+        "threshold": 0.90,
+    }
+    try:
+        from market_data.yfinance_client import _normalize_symbol
+        import yfinance as yf
+    except Exception as e:
+        logger.debug(f"dynamic_threshold import failed for {symbol}: {e}")
+        return default
+
+    try:
+        yf_symbol = _normalize_symbol(symbol)
+        hist = yf.Ticker(yf_symbol).history(period="45d", interval="1d")
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return default
+        closes = hist["Close"].astype(float).dropna().tail(31)
+        if len(closes) < 5:
+            return default
+        returns = closes.pct_change().dropna()
+        if returns.empty:
+            return default
+        vol_pct = float(returns.std() * 100.0)
+    except Exception as e:
+        logger.debug(f"dynamic_threshold fetch failed for {symbol}: {e}")
+        return default
+
+    if vol_pct < 1.5:
+        regime = "LOW"
+        threshold = 0.80
+    elif vol_pct < 3.0:
+        regime = "MEDIUM"
+        threshold = 0.90
+    else:
+        regime = "HIGH"
+        threshold = 0.95
+
+    return {
+        "symbol": symbol,
+        "volatility_pct": round(vol_pct, 4),
+        "regime": regime,
+        "threshold": threshold,
+    }
+
+
 def _ensure_features(symbol: str, features_df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
     """Return engineered features, fetching/recomputing if not provided."""
     if features_df is not None and not features_df.empty:

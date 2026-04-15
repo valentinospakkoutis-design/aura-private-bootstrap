@@ -19,7 +19,7 @@ from sqlalchemy import text
 from brokers.binance import BinanceAPI
 from services.paper_trading import paper_trading_service
 from ai.precious_metals import precious_metals_predictor
-from ai.asset_predictor import asset_predictor, AssetType, compute_mtf_agreement, compute_ensemble_vote
+from ai.asset_predictor import asset_predictor, AssetType, compute_mtf_agreement, compute_ensemble_vote, compute_dynamic_threshold
 from services.cms_service import cms_service
 from services.voice_briefing import voice_briefing_service
 from ml.model_manager import model_manager
@@ -2264,6 +2264,39 @@ def get_market_onchain(symbol: str):
         raise HTTPException(status_code=404, detail=f"On-chain signals not supported for {sym}")
 
     return sanitize_floats(get_onchain_signals(sym))
+
+
+@app.get("/api/v1/market/volatility/all")
+def get_volatility_all():
+    """Volatility regime and dynamic threshold for every supported symbol."""
+    items = []
+    for sym in asset_predictor.all_assets.keys():
+        try:
+            info = compute_dynamic_threshold(sym)
+        except Exception as e:
+            info = {"symbol": sym, "volatility_pct": None, "regime": "MEDIUM", "threshold": 0.90, "error": str(e)}
+        info["asset_name"] = asset_predictor.all_assets[sym].get("name", sym)
+        items.append(info)
+    return sanitize_floats({
+        "volatility": items,
+        "count": len(items),
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/v1/market/volatility/{symbol}")
+def get_volatility_for_symbol(symbol: str):
+    """Volatility regime and dynamic confidence threshold for a single symbol."""
+    sym = symbol.upper()
+    if sym not in asset_predictor.all_assets:
+        raise HTTPException(status_code=404, detail=f"Unsupported symbol: {sym}")
+    try:
+        info = compute_dynamic_threshold(sym)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Volatility analysis failed: {e}")
+    info["asset_name"] = asset_predictor.all_assets[sym].get("name", sym)
+    info["timestamp"] = datetime.now().isoformat()
+    return sanitize_floats(info)
 
 
 @app.get("/api/v1/predictions/ensemble/{symbol}")

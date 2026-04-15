@@ -576,13 +576,31 @@ class AutoTradingEngine:
             self._log_event("SKIP", f"{symbol}: broker not connected")
             return None
 
-        if confidence < self.config["confidence_threshold"]:
+        # Dynamic confidence threshold based on recent volatility regime
+        try:
+            from ai.asset_predictor import compute_dynamic_threshold
+            dyn = compute_dynamic_threshold(symbol)
+        except Exception as dyn_err:
+            logger.debug(f"[AutoTrading] dynamic threshold failed for {symbol}: {dyn_err}")
+            dyn = {"regime": "MEDIUM", "threshold": float(self.config["confidence_threshold"]), "volatility_pct": None}
+
+        dynamic_threshold = float(dyn.get("threshold") or self.config["confidence_threshold"])
+        regime = dyn.get("regime", "MEDIUM")
+        vol_pct = dyn.get("volatility_pct")
+        vol_str = f"{vol_pct:.2f}%" if isinstance(vol_pct, (int, float)) else "n/a"
+        logger.info(f"[AutoTrading] {symbol} regime={regime} volatility={vol_str} threshold={dynamic_threshold:.2f}")
+
+        if confidence < dynamic_threshold:
             try:
                 from ai.trust_layer import verdict_from_auto_trader_skip
-                verdict_from_auto_trader_skip(symbol, f"Confidence {confidence:.0%} < {self.config['confidence_threshold']:.0%}", confidence=confidence)
+                verdict_from_auto_trader_skip(
+                    symbol,
+                    f"Confidence {confidence:.0%} < dynamic {dynamic_threshold:.0%} ({regime}, vol={vol_str})",
+                    confidence=confidence,
+                )
             except Exception:
                 pass
-            return None  # skip — confidence too low
+            return None  # skip — confidence below volatility-adjusted threshold
 
         # ── Smart Score gate ─────────────────────────────────────
         from services.smart_score import smart_score_calculator
@@ -956,9 +974,11 @@ class AutoTradingEngine:
                 if self.config["enabled"] and self.broker and self.broker.connected:
                     self.last_run = datetime.utcnow().isoformat()
                     predictions = await get_predictions_func()
+                    # Pre-filter at the lowest possible dynamic threshold (LOW regime).
+                    # Per-symbol volatility-adjusted gating happens in place_auto_order.
                     high_conf = [
                         p for p in predictions
-                        if p.get("confidence", 0) >= self.config["confidence_threshold"]
+                        if p.get("confidence", 0) >= 0.80
                     ]
                     if high_conf:
                         score_previews = []
@@ -1058,9 +1078,11 @@ class AutoTradingEngine:
                         continue
 
                     predictions = await get_predictions_func(uid)
+                    # Pre-filter at the lowest possible dynamic threshold (LOW regime).
+                    # Per-symbol volatility-adjusted gating happens in place_auto_order.
                     high_conf = [
                         p for p in predictions
-                        if p.get("confidence", 0) >= self.config["confidence_threshold"]
+                        if p.get("confidence", 0) >= 0.80
                     ]
 
                     for prediction in high_conf:
