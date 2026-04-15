@@ -5390,6 +5390,61 @@ def reset_auto_trading_circuit_breaker(payload=Depends(require_auth)):
     }
 
 
+@app.get("/api/v1/trading/circuit-breaker/status")
+def get_trading_circuit_breaker_status(payload=Depends(require_auth)):
+    """Return current circuit breaker status for authenticated user."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    from services.circuit_breaker import check_circuit_breaker, circuit_breaker_service
+
+    db = SessionLocal()
+    try:
+        eval_result = check_circuit_breaker(user_id, db)
+    finally:
+        db.close()
+
+    state = circuit_breaker_service.get_state(user_id)
+    return sanitize_floats({
+        "user_id": user_id,
+        "tripped": bool(eval_result.get("tripped", False)),
+        "reason": eval_result.get("reason"),
+        "resume_at": eval_result.get("resume_at"),
+        "state": state,
+    })
+
+
+@app.post("/api/v1/trading/circuit-breaker/reset")
+def reset_trading_circuit_breaker(
+    user_id: int = Query(..., ge=1),
+    payload=Depends(require_auth),
+):
+    """Admin-only manual reset of circuit breaker for a target user."""
+    requester_id = _extract_user_id(payload)
+    if requester_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    if requester_id != LEGACY_SEED_USER_ID:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from services.circuit_breaker import reset_circuit_breaker, circuit_breaker_service
+
+    db = SessionLocal()
+    try:
+        result = reset_circuit_breaker(int(user_id), db)
+    finally:
+        db.close()
+
+    state = circuit_breaker_service.get_state(int(user_id))
+    return sanitize_floats({
+        "success": bool(result.get("success", True)),
+        "target_user_id": int(user_id),
+        "reset_by": int(requester_id),
+        "result": result,
+        "state": state,
+    })
+
+
 # ── Model Training Endpoints ────────────────────────────────
 
 @app.post("/api/ml/train/{symbol}")

@@ -564,6 +564,33 @@ class AutoTradingEngine:
         if not self.config["enabled"]:
             return None
 
+        # Circuit breaker check MUST run at the start of each trade attempt.
+        if user_id is not None:
+            try:
+                from database.connection import SessionLocal
+                from services.circuit_breaker import check_circuit_breaker
+
+                db = SessionLocal()
+                try:
+                    cb = check_circuit_breaker(int(user_id), db)
+                finally:
+                    db.close()
+
+                if bool(cb.get("tripped", False)):
+                    reason = str(cb.get("reason") or "risk_limits_breached")
+                    msg = f"[CircuitBreaker] TRIPPED for user {int(user_id)}: {reason}"
+                    self._log_event("CIRCUIT_BREAKER_TRIPPED", msg, {"resume_at": cb.get("resume_at")})
+                    logger.warning(msg)
+                    self._notify_user(
+                        user_id,
+                        title="🚨 AURA Circuit Breaker Activated",
+                        body="Trading paused for 24h",
+                        data={"screen": "/auto-trading", "type": "circuit_breaker", "reason": reason},
+                    )
+                    return None
+            except Exception as cb_err:
+                logger.debug("[AUTO_TRADE] circuit breaker pre-check failed for user %s: %s", user_id, cb_err)
+
         # Only trade allowed USDC crypto pairs
         trading_symbol = self.get_trading_symbol(symbol)
         if trading_symbol not in ALLOWED_AUTO_TRADE_SYMBOLS:
