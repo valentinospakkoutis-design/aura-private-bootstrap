@@ -597,6 +597,30 @@ class AutoTradingEngine:
         except Exception as regime_err:
             logger.debug(f"[AutoTrading] regime detection failed for {symbol}: {regime_err}")
 
+        # News impact gate: pause trades while HIGH / EXTREME news is breaking
+        try:
+            from services.news_impact import compute_news_impact_score
+            news_info = compute_news_impact_score(symbol)
+            impact_level = str(news_info.get("impact_level", "LOW")).upper()
+            if impact_level in ("HIGH", "EXTREME"):
+                reason = (
+                    f"{symbol}: news impact {impact_level} "
+                    f"(score={news_info.get('impact_score')}, "
+                    f"count={news_info.get('news_count')}, "
+                    f"avg_sentiment={news_info.get('avg_sentiment')}) — skipping trade"
+                )
+                self._log_event("SKIP", reason)
+                try:
+                    from ai.trust_layer import verdict_from_auto_trader_skip
+                    verdict_from_auto_trader_skip(
+                        symbol, f"News impact {impact_level}", confidence=confidence
+                    )
+                except Exception:
+                    pass
+                return None
+        except Exception as news_err:
+            logger.debug(f"[AutoTrading] news impact check failed for {symbol}: {news_err}")
+
         # Dynamic confidence threshold based on recent volatility regime
         try:
             from ai.asset_predictor import compute_dynamic_threshold

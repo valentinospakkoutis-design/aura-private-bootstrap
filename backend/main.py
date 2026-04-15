@@ -2266,6 +2266,43 @@ def get_market_onchain(symbol: str):
     return sanitize_floats(get_onchain_signals(sym))
 
 
+@app.get("/api/v1/news/impact/all")
+def get_news_impact_all():
+    """News impact score for every supported symbol."""
+    from services.news_impact import compute_news_impact_score
+
+    items = []
+    for sym in asset_predictor.all_assets.keys():
+        try:
+            info = compute_news_impact_score(sym)
+        except Exception as e:
+            info = {"symbol": sym, "impact_level": "LOW", "error": str(e)}
+        info["asset_name"] = asset_predictor.all_assets[sym].get("name", sym)
+        items.append(info)
+    return sanitize_floats({
+        "news_impact": items,
+        "count": len(items),
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/v1/news/impact/{symbol}")
+def get_news_impact_for_symbol(symbol: str):
+    """24h aggregated FinBERT news impact score for a single symbol."""
+    from services.news_impact import compute_news_impact_score
+
+    sym = symbol.upper()
+    if sym not in asset_predictor.all_assets:
+        raise HTTPException(status_code=404, detail=f"Unsupported symbol: {sym}")
+    try:
+        info = compute_news_impact_score(sym)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"News impact failed: {e}")
+    info["asset_name"] = asset_predictor.all_assets[sym].get("name", sym)
+    info["timestamp"] = datetime.now().isoformat()
+    return sanitize_floats(info)
+
+
 @app.get("/api/v1/market/regime/all")
 def get_market_regime_all():
     """Regime classification for every supported symbol."""

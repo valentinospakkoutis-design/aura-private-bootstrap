@@ -1199,6 +1199,13 @@ class AssetPredictor:
         except Exception as e:
             logger.debug(f"market_regime failed for {symbol}: {e}")
 
+        news_impact: Optional[Dict[str, Any]] = None
+        try:
+            from services.news_impact import compute_news_impact_score
+            news_impact = compute_news_impact_score(symbol)
+        except Exception as e:
+            logger.debug(f"news_impact failed for {symbol}: {e}")
+
         prediction = {
             "symbol": symbol,
             "asset_name": asset["name"],
@@ -1231,6 +1238,7 @@ class AssetPredictor:
             "mtf_agreement": mtf_agreement,
             "ensemble_vote": ensemble_vote,
             "market_regime": market_regime,
+            "news_impact": news_impact,
             "timestamp": datetime.now().isoformat(),
             "model_version": "v1.0-trained" if use_ml_model else "v1.0-alpha",
             "using_ml_model": use_ml_model
