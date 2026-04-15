@@ -3,7 +3,7 @@ Unified Asset Predictor
 Υποστηρίζει Precious Metals, Stocks, Cryptocurrencies, και Derivatives
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 import os
 import pickle
@@ -219,6 +219,203 @@ def compute_mtf_agreement(symbol: str) -> Dict[str, Any]:
         "agreement": agreement,
         "timeframes": timeframes,
         "strong_signal": agreement >= 0.66,
+    }
+
+
+def _ensure_features(symbol: str, features_df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    """Return engineered features, fetching/recomputing if not provided."""
+    if features_df is not None and not features_df.empty:
+        return features_df
+    try:
+        recent_df = asset_predictor._get_recent_ohlcv(symbol, days=250)
+    except Exception:
+        return None
+    if recent_df is None or recent_df.empty:
+        return None
+    try:
+        from ml.auto_trainer import engineer_features
+        feat = engineer_features(recent_df)
+        return feat if feat is not None and not feat.empty else None
+    except Exception:
+        return None
+
+
+def _xgboost_vote(symbol: str, features_df: Optional[pd.DataFrame]) -> Tuple[str, float]:
+    """XGBoost vote: signal from predicted price change, confidence 0-1."""
+    if (
+        symbol not in asset_predictor.models
+        or symbol not in asset_predictor.scalers
+        or symbol not in asset_predictor.model_features
+    ):
+        return "HOLD", 0.0
+    feat = _ensure_features(symbol, features_df)
+    if feat is None:
+        return "HOLD", 0.0
+
+    feature_cols = asset_predictor.model_features[symbol]
+    available = [c for c in feature_cols if c in feat.columns]
+    if not available:
+        return "HOLD", 0.0
+    last_row = feat[available].iloc[-1:].values
+    if len(available) < len(feature_cols):
+        full_row = np.zeros((1, len(feature_cols)))
+        for i, col in enumerate(feature_cols):
+            if col in available:
+                idx = available.index(col)
+                full_row[0, i] = last_row[0, idx]
+        last_row = full_row
+
+    scaled = asset_predictor.scalers[symbol].transform(last_row)
+    predicted_price = float(asset_predictor.models[symbol].predict(scaled)[0])
+    current_price = asset_predictor.get_current_price(symbol)
+    if current_price <= 0:
+        return "HOLD", 0.0
+    pct = (predicted_price - current_price) / current_price * 100.0
+    if pct > 0.5:
+        signal = "BUY"
+    elif pct < -0.5:
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+    confidence = float(min(1.0, abs(pct) / 5.0))
+    return signal, confidence
+
+
+def _random_forest_vote(symbol: str, features_df: Optional[pd.DataFrame]) -> Tuple[str, float]:
+    """RandomForest sidecar vote: signal from up-probability, confidence 0-1."""
+    bundle = asset_predictor.ensemble_models.get(symbol)
+    if not bundle:
+        return "HOLD", 0.0
+    feature_cols = bundle.get("feature_cols", [])
+    rf_model = bundle.get("rf_model")
+    scaler = bundle.get("scaler")
+    if not feature_cols or rf_model is None or scaler is None:
+        return "HOLD", 0.0
+
+    feat = _ensure_features(symbol, features_df)
+    if feat is None:
+        return "HOLD", 0.0
+
+    available = [c for c in feature_cols if c in feat.columns]
+    if not available:
+        return "HOLD", 0.0
+    row = feat[available].iloc[-1:].values
+    if len(available) < len(feature_cols):
+        full_row = np.zeros((1, len(feature_cols)))
+        for i, col in enumerate(feature_cols):
+            if col in available:
+                idx = available.index(col)
+                full_row[0, i] = row[0, idx]
+        row = full_row
+
+    scaled = scaler.transform(row)
+    if hasattr(rf_model, "predict_proba"):
+        prob = float(rf_model.predict_proba(scaled)[0][1])
+    else:
+        prob = float(rf_model.predict(scaled)[0])
+    prob = max(0.0, min(1.0, prob))
+    if prob > 0.6:
+        signal = "BUY"
+    elif prob < 0.4:
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+    confidence = float(min(1.0, abs(prob - 0.5) * 2.0))
+    return signal, confidence
+
+
+def _rl_agent_vote(symbol: str) -> Tuple[str, float]:
+    """RL agent vote from best stored PPO model in rl_models table."""
+    try:
+        from ml.rl_trader import get_rl_prediction
+        rl = get_rl_prediction(symbol)
+    except Exception as e:
+        logger.debug(f"ensemble: rl prediction failed for {symbol}: {e}")
+        return "HOLD", 0.0
+    if not rl:
+        return "HOLD", 0.0
+    action = str(rl.get("action", "HOLD")).upper()
+    if action not in ("BUY", "SELL", "HOLD"):
+        action = "HOLD"
+    confidence = float(rl.get("confidence", 0.0) or 0.0)
+    return action, max(0.0, min(1.0, confidence))
+
+
+def _mtf_vote(symbol: str) -> Tuple[str, float]:
+    """MTF analysis vote from compute_mtf_agreement."""
+    try:
+        mtf = compute_mtf_agreement(symbol)
+    except Exception as e:
+        logger.debug(f"ensemble: mtf vote failed for {symbol}: {e}")
+        return "HOLD", 0.0
+    sig = str(mtf.get("signal", "HOLD")).upper()
+    if sig not in ("BUY", "SELL", "HOLD"):
+        sig = "HOLD"
+    agreement = float(mtf.get("agreement", 0.0) or 0.0)
+    return sig, max(0.0, min(1.0, agreement))
+
+
+def compute_ensemble_vote(symbol: str, features_df: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    """Aggregate XGBoost, RandomForest, RL agent, and MTF into a majority vote.
+
+    Returns final_signal (majority, min 2/4 agreement else HOLD), per-model votes,
+    vote counts, consensus ratio, and strong_consensus flag (True when >=3/4 agree).
+    """
+    votes: Dict[str, str] = {"xgboost": "HOLD", "random_forest": "HOLD", "rl_agent": "HOLD", "mtf": "HOLD"}
+    confidences: Dict[str, float] = {"xgboost": 0.0, "random_forest": 0.0, "rl_agent": 0.0, "mtf": 0.0}
+
+    try:
+        votes["xgboost"], confidences["xgboost"] = _xgboost_vote(symbol, features_df)
+    except Exception as e:
+        logger.debug(f"ensemble xgboost vote failed for {symbol}: {e}")
+    try:
+        votes["random_forest"], confidences["random_forest"] = _random_forest_vote(symbol, features_df)
+    except Exception as e:
+        logger.debug(f"ensemble rf vote failed for {symbol}: {e}")
+    try:
+        votes["rl_agent"], confidences["rl_agent"] = _rl_agent_vote(symbol)
+    except Exception as e:
+        logger.debug(f"ensemble rl vote failed for {symbol}: {e}")
+    try:
+        votes["mtf"], confidences["mtf"] = _mtf_vote(symbol)
+    except Exception as e:
+        logger.debug(f"ensemble mtf vote failed for {symbol}: {e}")
+
+    from collections import Counter
+    counts = Counter(votes.values())
+    vote_count = {
+        "BUY": int(counts.get("BUY", 0)),
+        "SELL": int(counts.get("SELL", 0)),
+        "HOLD": int(counts.get("HOLD", 0)),
+    }
+    total = sum(vote_count.values()) or 1
+
+    sorted_votes = sorted(vote_count.items(), key=lambda kv: kv[1], reverse=True)
+    top_signal, top_count = sorted_votes[0]
+
+    # Majority-vote rule: need >=2 agreement; tied BUY/SELL → HOLD
+    if (
+        len(sorted_votes) >= 2
+        and sorted_votes[0][1] == sorted_votes[1][1]
+        and {sorted_votes[0][0], sorted_votes[1][0]} == {"BUY", "SELL"}
+    ):
+        final_signal = "HOLD"
+    elif top_count < 2:
+        final_signal = "HOLD"
+    else:
+        final_signal = top_signal
+
+    final_count = vote_count.get(final_signal, 0)
+    consensus = round(final_count / total, 3)
+    strong_consensus = final_count >= 3
+
+    return {
+        "final_signal": final_signal,
+        "votes": votes,
+        "vote_count": vote_count,
+        "consensus": consensus,
+        "strong_consensus": strong_consensus,
+        "confidences": {k: round(v, 3) for k, v in confidences.items()},
     }
 
 
@@ -932,6 +1129,12 @@ class AssetPredictor:
         except Exception as e:
             logger.debug(f"mtf_agreement failed for {symbol}: {e}")
 
+        ensemble_vote: Optional[Dict[str, Any]] = None
+        try:
+            ensemble_vote = compute_ensemble_vote(symbol)
+        except Exception as e:
+            logger.debug(f"ensemble_vote failed for {symbol}: {e}")
+
         prediction = {
             "symbol": symbol,
             "asset_name": asset["name"],
@@ -962,6 +1165,7 @@ class AssetPredictor:
                 "fear_greed": onchain.get("fear_greed"),
             } if onchain else None,
             "mtf_agreement": mtf_agreement,
+            "ensemble_vote": ensemble_vote,
             "timestamp": datetime.now().isoformat(),
             "model_version": "v1.0-trained" if use_ml_model else "v1.0-alpha",
             "using_ml_model": use_ml_model

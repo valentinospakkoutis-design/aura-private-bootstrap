@@ -633,6 +633,34 @@ class AutoTradingEngine:
 
         side = "BUY" if action == "buy" else "SELL"
 
+        # Ensemble consensus gate: require >=3/4 model agreement on the same direction
+        try:
+            ensemble = prediction.get("ensemble_vote")
+            if not ensemble:
+                from ai.asset_predictor import compute_ensemble_vote
+                ensemble = compute_ensemble_vote(symbol)
+            final_signal = str(ensemble.get("final_signal", "HOLD")).upper()
+            strong_consensus = bool(ensemble.get("strong_consensus", False))
+            if not strong_consensus or final_signal != side:
+                self._log_event(
+                    "SKIP",
+                    f"{symbol}: ensemble gate failed (final={final_signal}, strong={strong_consensus}, "
+                    f"votes={ensemble.get('vote_count')})",
+                )
+                try:
+                    from ai.trust_layer import verdict_from_auto_trader_skip
+                    verdict_from_auto_trader_skip(
+                        symbol,
+                        f"Ensemble {final_signal} strong={strong_consensus} != {side}",
+                        confidence=confidence,
+                    )
+                except Exception:
+                    pass
+                return None
+        except Exception as ensemble_err:
+            self._log_event("SKIP", f"{symbol}: ensemble gate error: {ensemble_err}")
+            return None
+
         # Phase V safety layer: correlation exposure guard.
         correlation_cap_usd: Optional[float] = None
         try:
