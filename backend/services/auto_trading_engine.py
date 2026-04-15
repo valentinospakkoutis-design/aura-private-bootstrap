@@ -576,6 +576,27 @@ class AutoTradingEngine:
             self._log_event("SKIP", f"{symbol}: broker not connected")
             return None
 
+        # Market regime gate: skip entries when the market is in a VOLATILE regime
+        try:
+            from ai.market_regime import detect_market_regime
+            regime_info = detect_market_regime(symbol)
+            if regime_info.get("regime") == "VOLATILE":
+                self._log_event(
+                    "SKIP",
+                    f"{symbol}: VOLATILE regime (adx={regime_info.get('adx')}, "
+                    f"bb_width={regime_info.get('bb_width')}) — skipping regardless of confidence",
+                )
+                try:
+                    from ai.trust_layer import verdict_from_auto_trader_skip
+                    verdict_from_auto_trader_skip(
+                        symbol, "Market regime VOLATILE", confidence=confidence
+                    )
+                except Exception:
+                    pass
+                return None
+        except Exception as regime_err:
+            logger.debug(f"[AutoTrading] regime detection failed for {symbol}: {regime_err}")
+
         # Dynamic confidence threshold based on recent volatility regime
         try:
             from ai.asset_predictor import compute_dynamic_threshold

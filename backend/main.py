@@ -2266,6 +2266,43 @@ def get_market_onchain(symbol: str):
     return sanitize_floats(get_onchain_signals(sym))
 
 
+@app.get("/api/v1/market/regime/all")
+def get_market_regime_all():
+    """Regime classification for every supported symbol."""
+    from ai.market_regime import detect_market_regime
+
+    items = []
+    for sym in asset_predictor.all_assets.keys():
+        try:
+            info = detect_market_regime(sym)
+        except Exception as e:
+            info = {"symbol": sym, "regime": "NEUTRAL", "error": str(e)}
+        info["asset_name"] = asset_predictor.all_assets[sym].get("name", sym)
+        items.append(info)
+    return sanitize_floats({
+        "regimes": items,
+        "count": len(items),
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/v1/market/regime/{symbol}")
+def get_market_regime_for_symbol(symbol: str):
+    """ADX/BB/SMA-based regime classification for a single symbol."""
+    from ai.market_regime import detect_market_regime
+
+    sym = symbol.upper()
+    if sym not in asset_predictor.all_assets:
+        raise HTTPException(status_code=404, detail=f"Unsupported symbol: {sym}")
+    try:
+        info = detect_market_regime(sym)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Regime detection failed: {e}")
+    info["asset_name"] = asset_predictor.all_assets[sym].get("name", sym)
+    info["timestamp"] = datetime.now().isoformat()
+    return sanitize_floats(info)
+
+
 @app.get("/api/v1/market/volatility/all")
 def get_volatility_all():
     """Volatility regime and dynamic threshold for every supported symbol."""
