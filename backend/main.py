@@ -2410,6 +2410,139 @@ def get_mtf_prediction(symbol: str):
     })
 
 
+def _humanize_feature_name(feature_name: str) -> str:
+    """Convert model feature keys into a readable label."""
+    label = str(feature_name or "").replace("_", " ").strip()
+    return label.title() if label else "Unknown Feature"
+
+
+def _top_shap_explanation(prediction: Dict) -> Dict[str, float]:
+    """Return SHAP feature impacts sorted by absolute importance (top 5)."""
+    shap_items = prediction.get("shap_explanation", {})
+    if not isinstance(shap_items, dict):
+        return {}
+
+    pairs = []
+    for name, value in shap_items.items():
+        try:
+            pairs.append((str(name), float(value)))
+        except Exception:
+            continue
+
+    pairs.sort(key=lambda item: abs(item[1]), reverse=True)
+    return {name: round(value, 6) for name, value in pairs[:5]}
+
+
+def _build_shap_summary(signal: str, shap_explanation: Dict[str, float]) -> str:
+    """Generate a short human-readable summary from SHAP top features."""
+    if not shap_explanation:
+        return "Top model drivers are unavailable for this symbol right now."
+
+    parts = []
+    for name, value in shap_explanation.items():
+        direction = "supports" if value >= 0 else "pushes against"
+        parts.append(f"{_humanize_feature_name(name)} {direction} {signal} ({value:+.3f})")
+
+    return "Top model drivers: " + "; ".join(parts[:3]) + "."
+
+
+def _build_prediction_explanation_payload(symbol: str, days: int = 7) -> Dict:
+    """Build a full explainability payload for a single prediction symbol."""
+    from ai.decision_explanation import build_explanation
+    from ai.market_regime import detect_market_regime
+    from services.news_impact import compute_news_impact_score
+
+    sym = symbol.upper()
+    if sym not in asset_predictor.all_assets:
+        raise HTTPException(status_code=404, detail=f"Unsupported symbol: {sym}")
+
+    prediction = asset_predictor.predict_price(sym, days=days)
+    if "error" in prediction:
+        raise HTTPException(status_code=400, detail=prediction["error"])
+
+    try:
+        from services.smart_score import smart_score_calculator
+        smart_score = smart_score_calculator.calculate_smart_score(sym)
+    except Exception:
+        smart_score = None
+
+    shap_explanation = _top_shap_explanation(prediction)
+    signal = str(prediction.get("recommendation", "HOLD") or "HOLD").upper()
+    confidence_raw = float(prediction.get("confidence", 0.0) or 0.0)
+    confidence = confidence_raw / 100.0 if confidence_raw > 1.0 else confidence_raw
+
+    decision = build_explanation(prediction, smart_score=smart_score)
+    ensemble_vote = compute_ensemble_vote(sym)
+    market_regime = detect_market_regime(sym)
+    mtf_agreement = compute_mtf_agreement(sym)
+    news_impact = compute_news_impact_score(sym)
+
+    shap_summary = _build_shap_summary(signal, shap_explanation)
+    human_readable_summary = f"{decision.narrative_summary} {shap_summary}".strip()
+
+    return sanitize_floats({
+        "symbol": sym,
+        "asset_name": asset_predictor.all_assets[sym].get("name", sym),
+        "signal": signal,
+        "confidence": round(max(0.0, min(1.0, confidence)), 4),
+        "shap_explanation": shap_explanation,
+        "human_readable_summary": human_readable_summary,
+        "ensemble_vote": ensemble_vote,
+        "market_regime": market_regime,
+        "mtf_agreement": mtf_agreement,
+        "news_impact": news_impact,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/v1/predictions/explain/batch")
+def get_prediction_explanations_batch(
+    symbols: Optional[str] = None,
+    asset_type: Optional[str] = None,
+    limit: int = 20,
+):
+    """Batch explainability endpoint for predictions."""
+    selected_symbols: List[str]
+    if symbols:
+        selected_symbols = [sym.strip().upper() for sym in symbols.split(",") if sym.strip()]
+    else:
+        selected_symbols = list(asset_predictor.all_assets.keys())
+        if asset_type:
+            try:
+                wanted_type = AssetType(asset_type.lower())
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
+            selected_symbols = [
+                sym for sym in selected_symbols
+                if asset_predictor.all_assets.get(sym, {}).get("type") == wanted_type
+            ]
+
+    capped_symbols = selected_symbols[: max(1, min(limit, 100))]
+    items = []
+    errors = []
+    for sym in capped_symbols:
+        try:
+            items.append(_build_prediction_explanation_payload(sym))
+        except HTTPException as exc:
+            errors.append({"symbol": sym, "detail": exc.detail})
+        except Exception as exc:
+            errors.append({"symbol": sym, "detail": str(exc)})
+
+    return sanitize_floats({
+        "items": items,
+        "count": len(items),
+        "requested_symbols": capped_symbols,
+        "errors": errors,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.get("/api/v1/predictions/explain/{symbol}")
+def get_prediction_explanation(symbol: str):
+    """Explain a single prediction with SHAP and decision context."""
+    return _build_prediction_explanation_payload(symbol)
+
+
 @app.get("/api/v1/predictions/extended")
 def get_extended_predictions(days: int = 7):
     """Extended predictions with yfinance pricing for stocks, bonds, FX, VIX."""
