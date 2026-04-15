@@ -4326,6 +4326,78 @@ def upgrade_subscription_endpoint(data: SubscriptionUpgradeRequest, payload=Depe
     return sanitize_floats(upgrade_subscription(user_id, data.tier))
 
 
+@app.get("/api/v1/dashboard/performance")
+def get_dashboard_performance_endpoint(payload=Depends(require_auth)):
+    """Return weekly/monthly trade KPIs, AI 30-day accuracy and paper portfolio stats."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    from services.performance_dashboard import get_performance_dashboard
+
+    db = SessionLocal()
+    try:
+        return sanitize_floats(get_performance_dashboard(user_id=user_id, db=db))
+    finally:
+        db.close()
+
+
+@app.get("/api/v1/dashboard/leaderboard")
+def get_dashboard_leaderboard_endpoint(payload=Depends(require_auth)):
+    """Return top 10 users by paper P/L% from leaderboard snapshots."""
+    user_id = _extract_user_id(payload)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+    if not SessionLocal:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    user_id,
+                    display_name,
+                    paper_pnl_pct,
+                    paper_trades,
+                    win_rate,
+                    period,
+                    snapshot_date
+                FROM leaderboard_snapshots
+                WHERE period = 'alltime'
+                  AND snapshot_date = (
+                    SELECT MAX(snapshot_date)
+                    FROM leaderboard_snapshots
+                    WHERE period = 'alltime'
+                  )
+                ORDER BY paper_pnl_pct DESC
+                LIMIT 10
+                """
+            )
+        ).mappings().all()
+
+        rankings = [
+            {
+                "rank": idx + 1,
+                "user_id": int(row["user_id"]),
+                "display_name": str(row["display_name"]),
+                "paper_pnl_pct": float(row["paper_pnl_pct"] or 0.0),
+                "paper_trades": int(row["paper_trades"] or 0),
+                "win_rate": float(row["win_rate"] or 0.0),
+                "period": str(row["period"]),
+                "snapshot_date": row["snapshot_date"].isoformat() if row["snapshot_date"] else None,
+            }
+            for idx, row in enumerate(rows)
+        ]
+
+        return sanitize_floats({"leaderboard": rankings, "count": len(rankings)})
+    finally:
+        db.close()
+
+
 @app.get("/api/leaderboard")
 def get_leaderboard_endpoint(
     period: str = Query("weekly", pattern="^(weekly|monthly|alltime)$"),
