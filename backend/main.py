@@ -255,6 +255,9 @@ def _restore_broker_connections(user_id: Optional[int] = None):
                 elif row.broker_name == "kraken":
                     from brokers.kraken_client import KrakenClient
                     broker = KrakenClient(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
+                elif row.broker_name == "coinbase":
+                    from brokers.coinbase_client import CoinbaseClient
+                    broker = CoinbaseClient(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
                 else:
                     broker = BinanceAPI(api_key=api_key, api_secret=api_secret, testnet=row.testnet)
                 broker.connected = True
@@ -1059,6 +1062,36 @@ async def connect_broker(connection: BrokerConnection, payload=Depends(require_a
                 testnet=connection.testnet,
             )
             print(f"[broker] Testing connection to Kraken (testnet={connection.testnet})...")
+            result = await asyncio.to_thread(broker.test_connection)
+            print(f"[broker] Connection result: {result.get('status', 'unknown')}")
+
+            if result["status"] == "connected":
+                broker_instances[_broker_cache_key(connection.broker.lower(), user_id)] = broker
+                await asyncio.to_thread(
+                    _save_broker_to_db,
+                    connection.broker.lower(),
+                    connection.api_key,
+                    connection.api_secret,
+                    connection.testnet,
+                    user_id,
+                )
+                return {
+                    "status": "connected",
+                    "broker": connection.broker,
+                    "message": "Successfully connected and saved to database",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            else:
+                print(f"[broker] Connection FAILED: {result}")
+                raise HTTPException(status_code=400, detail=result)
+        elif connection.broker.lower() == "coinbase":
+            from brokers.coinbase_client import CoinbaseClient
+            broker = CoinbaseClient(
+                api_key=connection.api_key,
+                api_secret=connection.api_secret,
+                testnet=connection.testnet,
+            )
+            print(f"[broker] Testing connection to Coinbase (testnet={connection.testnet})...")
             result = await asyncio.to_thread(broker.test_connection)
             print(f"[broker] Connection result: {result.get('status', 'unknown')}")
 
