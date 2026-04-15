@@ -5583,6 +5583,76 @@ def get_rl_prediction_endpoint(symbol: str):
     return {"symbol": symbol.upper(), "action": "HOLD", "confidence": 0.0, "note": "No RL model available"}
 
 
+@app.get("/api/v1/models/benchmark-status")
+def get_models_benchmark_status():
+    """Return benchmark-pass status for the latest ModelRegistry row per symbol.
+
+    ``passed_benchmarks`` mirrors ``is_active`` — in the post-benchmark
+    training flow a model is only activated when it clears the configured
+    accuracy/precision/recall/sharpe thresholds, so the two fields agree.
+    """
+    try:
+        from database.models import ModelRegistry
+        from ml.enhanced_trainer import (
+            MIN_ACCURACY,
+            MIN_PRECISION,
+            MIN_RECALL,
+            MIN_SHARPE,
+            MIN_TRAINING_SAMPLES,
+        )
+
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(ModelRegistry)
+                .order_by(ModelRegistry.symbol.asc(), ModelRegistry.trained_at.desc())
+                .all()
+            )
+
+            seen: set = set()
+            out = []
+            for r in rows:
+                if r.symbol in seen:
+                    continue
+                seen.add(r.symbol)
+                accuracy = float(r.accuracy or 0.0)
+                precision = float(r.precision_score or 0.0)
+                recall = float(r.recall_score or 0.0)
+                is_active = bool(r.is_active)
+                passed = (
+                    is_active
+                    and accuracy >= MIN_ACCURACY
+                    and precision >= MIN_PRECISION
+                    and recall >= MIN_RECALL
+                )
+                out.append({
+                    "symbol": r.symbol,
+                    "accuracy": round(accuracy, 4),
+                    "precision": round(precision, 4),
+                    "recall": round(recall, 4),
+                    "passed_benchmarks": passed,
+                    "is_active": is_active,
+                    "model_version": r.model_version,
+                    "trained_at": r.trained_at.isoformat() if r.trained_at else None,
+                })
+
+            return {
+                "models": out,
+                "count": len(out),
+                "thresholds": {
+                    "min_accuracy": MIN_ACCURACY,
+                    "min_precision": MIN_PRECISION,
+                    "min_recall": MIN_RECALL,
+                    "min_sharpe": MIN_SHARPE,
+                    "min_training_samples": MIN_TRAINING_SAMPLES,
+                },
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch benchmark status: {e}")
+
+
 @app.get("/api/v1/rl/attention/{symbol}")
 def get_rl_attention(symbol: str):
     """Return saved feature-level attention weights for the best RL model of ``symbol``.
