@@ -418,6 +418,7 @@ async def startup_event():
                 "symbol": sym,
                 "action": action,
                 "confidence": conf,
+                "strong_consensus": bool(p.get("consensus", False)),
                 "price": ap.get("current_price", 0),
                 "targetPrice": ap.get("predicted_price", 0),
             })

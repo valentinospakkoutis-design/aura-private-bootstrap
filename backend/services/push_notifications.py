@@ -126,3 +126,21 @@ def notify_high_confidence(symbol: str, action: str, confidence: float):
         body=f"{symbol}: {action.upper()} signal with {confidence:.0%} confidence",
         data={"screen": "/ai-predictions", "type": "high_confidence"},
     )
+
+
+def send_signal_notification(
+    symbol: str,
+    action: str,
+    confidence: float,
+    user_id: Optional[int] = None,
+):
+    """Send a strong-consensus signal notification globally or to one user."""
+    title = "Strong Consensus Signal"
+    body = f"{symbol}: {action.upper()} consensus signal with {confidence:.0%} confidence"
+    data = {"screen": "/ai-predictions", "type": "strong_consensus", "symbol": symbol}
+
+    if user_id is None:
+        send_push_to_all_users(title=title, body=body, data=data)
+        return
+
+    send_push_to_user_id(int(user_id), title=title, body=body, data=data)

@@ -648,6 +648,20 @@ class AutoTradingEngine:
             return None  # skip — confidence below volatility-adjusted threshold
 
         # ── Smart Score gate ─────────────────────────────────────
+        strong_consensus = bool(prediction.get("strong_consensus"))
+        if strong_consensus:
+            try:
+                from services.push_notifications import send_signal_notification
+
+                send_signal_notification(
+                    symbol=symbol,
+                    action=action,
+                    confidence=float(confidence or 0.0),
+                    user_id=user_id,
+                )
+            except Exception as notify_err:
+                logger.debug("[auto-trader] signal notification skipped for %s: %s", symbol, notify_err)
+
         from services.smart_score import smart_score_calculator
         score_result = smart_score_calculator.calculate_smart_score(symbol)
         smart_score = score_result.get("smart_score", 0)
