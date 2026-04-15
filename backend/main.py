@@ -5380,6 +5380,87 @@ def train_all_models(_user=Depends(require_auth)):
     }
 
 
+@app.post("/api/v1/models/transfer-train/{symbol}")
+def transfer_train_symbol(symbol: str, _user=Depends(require_auth)):
+    """Run transfer-learning training for one symbol using the best active base model."""
+    from ml.transfer_learning import train_with_transfer
+
+    db = SessionLocal()
+    try:
+        result = train_with_transfer(symbol.upper(), db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transfer training failed for {symbol}: {e}")
+    finally:
+        db.close()
+
+    asset_predictor._load_models()
+    return sanitize_floats(result)
+
+
+@app.post("/api/v1/models/transfer-train/all")
+def transfer_train_all_low_accuracy(_user=Depends(require_auth)):
+    """Run transfer learning for symbols whose latest model accuracy is below 0.55."""
+    from sqlalchemy import func
+    from database.models import ModelRegistry
+    from ml.transfer_learning import MIN_ACCURACY, train_with_transfer
+
+    db = SessionLocal()
+    try:
+        latest_per_symbol = (
+            db.query(
+                ModelRegistry.symbol.label("symbol"),
+                func.max(ModelRegistry.trained_at).label("latest_trained_at"),
+            )
+            .group_by(ModelRegistry.symbol)
+            .subquery()
+        )
+
+        rows = (
+            db.query(ModelRegistry.symbol, ModelRegistry.accuracy)
+            .join(
+                latest_per_symbol,
+                (ModelRegistry.symbol == latest_per_symbol.c.symbol)
+                & (ModelRegistry.trained_at == latest_per_symbol.c.latest_trained_at),
+            )
+            .filter(ModelRegistry.accuracy.isnot(None))
+            .all()
+        )
+
+        target_symbols = sorted(
+            {
+                str(r.symbol).upper()
+                for r in rows
+                if r.symbol is not None and float(r.accuracy) < float(MIN_ACCURACY)
+            }
+        )
+
+        results = []
+        for sym in target_symbols:
+            try:
+                results.append(train_with_transfer(sym, db))
+            except Exception as e:
+                db.rollback()
+                results.append({"symbol": sym, "error": str(e)})
+    finally:
+        db.close()
+
+    asset_predictor._load_models()
+
+    succeeded = [r for r in results if "accuracy" in r]
+    failed = [r for r in results if "error" in r]
+    return sanitize_floats(
+        {
+            "threshold": MIN_ACCURACY,
+            "total_targets": len(target_symbols),
+            "succeeded": len(succeeded),
+            "failed": len(failed),
+            "results": results,
+        }
+    )
+
+
 # ── News Intelligence Endpoints ─────────────────────────────
 
 @app.get("/api/news/sentiment/{symbol}")
