@@ -37,7 +37,7 @@ from database.models import BrokerCredential
 from cache.connection import get_redis, check_redis_connection
 
 # Security and Error Handling
-from utils.error_handler import handle_error, AuraError, get_error_message
+from utils.error_handler import AuraError
 from utils.security import security_manager
 
 def sanitize_floats(obj):
@@ -82,7 +82,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Global exception handler for AuraError ───────────────────────
 from starlette.responses import JSONResponse
-from utils.error_handler import AuraError
 
 @app.exception_handler(AuraError)
 async def aura_error_handler(request: Request, exc: AuraError):

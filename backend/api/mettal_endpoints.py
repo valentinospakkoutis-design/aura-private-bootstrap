@@ -18,7 +18,7 @@ from database.connection import check_db_connection
 from utils.error_handler import handle_error, ValidationError, NotFoundError, get_error_message
 from utils.security import security_manager
 # JWT Authentication
-from auth import require_auth
+from auth.dependencies import require_auth
 from auth.jwt_handler import create_access_token, create_refresh_token, verify_token, get_user_from_token, refresh_access_token
 # 2FA
 from auth.two_factor import generate_2fa_secret, generate_qr_code, generate_backup_codes, verify_2fa_token, verify_backup_code
