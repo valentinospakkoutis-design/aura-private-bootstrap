@@ -15,9 +15,10 @@ from market_data.yfinance_client import get_price as yf_get_price, get_historica
 from cache.connection import check_redis_connection
 from database.connection import check_db_connection
 # Error handling and security
-from utils.error_handler import handle_error, ValidationError, NotFoundError, AuthenticationError, get_error_message
+from utils.error_handler import handle_error, ValidationError, NotFoundError, get_error_message
 from utils.security import security_manager
 # JWT Authentication
+from auth import require_auth
 from auth.jwt_handler import create_access_token, create_refresh_token, verify_token, get_user_from_token, refresh_access_token
 # 2FA
 from auth.two_factor import generate_2fa_secret, generate_qr_code, generate_backup_codes, verify_2fa_token, verify_backup_code
@@ -159,12 +160,12 @@ async def login(request: Request, user_login: UserLogin):
         if not db_user or not db_user.password_hash:
             log_auth_event("LOGIN", "FAILED", email=email_lower, ip_address=client_ip,
                            user_agent=user_agent, metadata={"reason": "user_not_found"})
-            raise AuthenticationError("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
 
         if not security_manager.verify_password(user_login.password, db_user.password_hash):
             log_auth_event("LOGIN", "FAILED", user_id=db_user.id, email=email_lower,
                            ip_address=client_ip, user_agent=user_agent, metadata={"reason": "wrong_password"})
-            raise AuthenticationError("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
 
         token_data = {
             "sub": str(db_user.id),
@@ -207,7 +208,7 @@ async def refresh_token_endpoint(refresh_request: RefreshTokenRequest):
 
     try:
         payload = verify_token(refresh_request.refresh_token, "refresh")
-    except AuthenticationError:
+    except HTTPException:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -264,7 +265,7 @@ async def get_current_user_info(request: Request):
     # Get token from Authorization header
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise AuthenticationError("Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Unauthorized")("Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
 
@@ -275,7 +276,7 @@ async def get_current_user_info(request: Request):
             "email": user_info["email"],
             "full_name": user_info.get("full_name")
         }
-    except AuthenticationError as e:
+    except HTTPException as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
@@ -301,7 +302,7 @@ def _resolve_authenticated_user_id(request: Request) -> int:
     token = auth_header.split(" ", 1)[1].strip()
     try:
         user_info = get_user_from_token(token)
-    except AuthenticationError:
+    except HTTPException:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -445,7 +446,7 @@ async def get_weekly_reports_v1(request: Request):
     token = auth_header.split(" ", 1)[1].strip()
     try:
         user_info = get_user_from_token(token)
-    except AuthenticationError:
+    except HTTPException:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -513,7 +514,7 @@ async def logout(request: Request):
 
     try:
         payload = verify_token(token, "access")
-    except AuthenticationError:
+    except HTTPException:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -553,7 +554,7 @@ async def change_password(request: Request, body: ChangePasswordRequest):
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise AuthenticationError("Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Unauthorized")("Missing or invalid authorization header")
 
     token = auth_header.split(" ")[1]
     user_info = get_user_from_token(token)
@@ -568,10 +569,10 @@ async def change_password(request: Request, body: ChangePasswordRequest):
     try:
         db_user = db.query(DBUser).filter(DBUser.email == user_info["email"]).first()
         if not db_user:
-            raise AuthenticationError("User not found")
+            raise HTTPException(status_code=401, detail="Unauthorized")("User not found")
 
         if not security_manager.verify_password(body.current_password, db_user.password_hash):
-            raise AuthenticationError("Current password is incorrect")
+            raise HTTPException(status_code=401, detail="Unauthorized")("Current password is incorrect")
 
         db_user.password_hash = security_manager.hash_password(body.new_password)
         db.commit()
@@ -618,7 +619,7 @@ async def verify_2fa_setup(verify_request: Verify2FARequest, request: Request):
     # Get current user from token
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise AuthenticationError("Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Unauthorized")("Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
     user_info = get_user_from_token(token)
@@ -657,10 +658,10 @@ async def login_with_2fa(login_request: Login2FARequest):
     try:
         db_user = db.query(DBUser).filter(DBUser.email == email_lower).first()
         if not db_user or not db_user.password_hash:
-            raise AuthenticationError("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
 
         if not security_manager.verify_password(login_request.password, db_user.password_hash):
-            raise AuthenticationError("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
 
         # 2FA verification — placeholder until 2FA secrets are stored in DB
         # For now, this endpoint requires a valid TOTP token but has no stored secret
@@ -683,7 +684,7 @@ class Asset(BaseModel):
 
 @router.get("/assets", response_model=List[Asset])
 @limiter.limit("60/minute")
-async def get_assets(request: Request):
+async def get_assets(request: Request, _user=Depends(require_auth)):
     """
     Get all available assets (requires authentication)
     """
@@ -715,7 +716,7 @@ class PriceData(BaseModel):
 
 @router.get("/prices", response_model=List[PriceData])
 @limiter.limit("60/minute")
-async def get_all_prices(request: Request):
+async def get_all_prices(request: Request, _user=Depends(require_auth)):
     """
     Get current prices for all assets (requires authentication)
     """
@@ -778,7 +779,7 @@ async def get_price(request: Request, asset_id: str):
 
 @router.get("/prices/{asset_id}/historical")
 @limiter.limit("60/minute")
-async def get_historical_prices(request: Request, asset_id: str, period: str = "1M"):
+async def get_historical_prices(request: Request, asset_id: str, period: str = "1M", _user=Depends(require_auth)):
     """
     Get historical prices for an asset (requires authentication)
     
@@ -904,7 +905,7 @@ async def predict(request: Request, asset_id: str):
 
 @router.get("/simple-predict/{asset_id}")
 @limiter.limit("30/minute")
-async def simple_predict(request: Request, asset_id: str):
+async def simple_predict(request: Request, asset_id: str, _user=Depends(require_auth)):
     """
     Simple prediction with real current price (requires authentication)
     """
@@ -921,7 +922,7 @@ class TradeRequest(BaseModel):
 
 @router.post("/portfolio/buy")
 @limiter.limit("20/minute")
-async def buy_asset(request: Request, trade: TradeRequest):
+async def buy_asset(request: Request, trade: TradeRequest, _user=Depends(require_auth)):
     """
     Buy asset - Protected with CSRF and Authentication
     
@@ -958,7 +959,7 @@ async def buy_asset(request: Request, trade: TradeRequest):
 
 @router.post("/portfolio/sell")
 @limiter.limit("20/minute")
-async def sell_asset(request: Request, trade: TradeRequest):
+async def sell_asset(request: Request, trade: TradeRequest, _user=Depends(require_auth)):
     """
     Sell asset - Protected with CSRF and Authentication
     """
@@ -1000,7 +1001,7 @@ async def sell_asset(request: Request, trade: TradeRequest):
 
 @router.get("/portfolio/positions")
 @limiter.limit("60/minute")
-async def get_positions(request: Request):
+async def get_positions(request: Request, _user=Depends(require_auth)):
     """
     Get user portfolio positions with current P&L (requires authentication)
     """
@@ -1027,7 +1028,7 @@ async def get_positions(request: Request):
 
 @router.get("/portfolio/summary")
 @limiter.limit("60/minute")
-async def get_portfolio_summary(request: Request):
+async def get_portfolio_summary(request: Request, _user=Depends(require_auth)):
     """
     Get portfolio summary with total P&L (requires authentication)
     """
@@ -1049,7 +1050,7 @@ async def get_portfolio_summary(request: Request):
 
 @router.get("/portfolio/transactions")
 @limiter.limit("60/minute")
-async def get_transactions(request: Request, limit: int = 50, asset_id: Optional[str] = None):
+async def get_transactions(request: Request, limit: int = 50, asset_id: Optional[str] = None, _user=Depends(require_auth)):
     """
     Get user transaction history (requires authentication)
     """
@@ -1071,7 +1072,7 @@ async def get_transactions(request: Request, limit: int = 50, asset_id: Optional
 
 @router.get("/accuracy")
 @limiter.limit("60/minute")
-async def get_accuracy(request: Request):
+async def get_accuracy(request: Request, _user=Depends(require_auth)):
     """
     Get accuracy statistics (requires authentication)
     """
@@ -1081,7 +1082,7 @@ async def get_accuracy(request: Request):
 
 @router.get("/accuracy/{asset_id}")
 @limiter.limit("60/minute")
-async def get_asset_accuracy(request: Request, asset_id: str):
+async def get_asset_accuracy(request: Request, asset_id: str, _user=Depends(require_auth)):
     """
     Get accuracy statistics for specific asset (requires authentication)
     """
@@ -1096,7 +1097,7 @@ async def get_asset_accuracy(request: Request, asset_id: str):
 
 @router.get("/news")
 @limiter.limit("60/minute")
-async def get_news(request: Request, asset_id: Optional[str] = None, limit: int = 10):
+async def get_news(request: Request, asset_id: Optional[str] = None, limit: int = 10, _user=Depends(require_auth)):
     """
     Get latest financial news (requires authentication)
     """

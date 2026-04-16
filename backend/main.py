@@ -826,15 +826,6 @@ def logout(request: Request):
     response.delete_cookie(key="session_id")
     return response
 
-@app.get("/debug/users")
-def debug_users():
-    """Debug endpoint - Shows registered users (remove in production!)"""
-    return {
-        "total_users": len(users_db),
-        "users": {email: {"name": data["name"], "password_length": len(data["password"])} 
-                  for email, data in users_db.items()}
-    }
-
 # Authentication Models
 class LoginRequest(BaseModel):
     email: EmailStr
