@@ -80,6 +80,15 @@ export default {
           color: "#6366F1"
         }
       ],
+      [
+        "expo-build-properties",
+        {
+          android: {
+            kotlinVersion: "2.0.21"
+          }
+        }
+      ],
+      "expo-asset",
       "expo-router",
       "expo-secure-store"
     ],
