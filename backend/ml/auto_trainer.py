@@ -40,11 +40,11 @@ CRYPTO_SYMBOLS = [
 # Non-crypto assets (fetched from yfinance)
 # Maps AURA symbol → yfinance ticker
 YFINANCE_SYMBOL_MAP = {
-    # Metals
-    "XAUUSDC": "GC=F",
-    "XAGUSDC": "SI=F",
-    "XPDUSDC": "PA=F",
-    "XPTUSDC": "PL=F",
+    # Metals (ETF proxies — futures tickers return 404 on weekends)
+    "XAUUSDC": "GLD",
+    "XAGUSDC": "SLV",
+    "XPDUSDC": "PALL",
+    "XPTUSDC": "PPLT",
     # US Stocks
     "AAPL": "AAPL",
     "MSFT": "MSFT",
@@ -163,9 +163,10 @@ def fetch_yfinance_ohlcv(symbol: str, days: int = 1095) -> Optional[pd.DataFrame
     try:
         import yfinance as yf
 
-        period = "3y" if days >= 730 else ("2y" if days >= 365 else "1y")
+        end_dt = datetime.utcnow()
+        start_dt = end_dt - timedelta(days=days)
         ticker = yf.Ticker(yf_ticker)
-        hist = ticker.history(period=period, interval="1d")
+        hist = ticker.history(start=start_dt, end=end_dt, interval="1d")
 
         if hist is None or hist.empty:
             logger.warning(f"[trainer] No data available for {symbol} (yf: {yf_ticker})")
