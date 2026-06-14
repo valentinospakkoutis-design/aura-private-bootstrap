@@ -67,6 +67,19 @@ YFINANCE_SYMBOL_MAP = {
     # Bonds / Indices
     "TNX": "^TNX",
     "VIX": "^VIX",
+    # US Indices (ETF proxies)
+    "US30": "DIA",        # Dow Jones
+    "US500": "SPY",       # S&P 500
+    "US100": "QQQ",       # Nasdaq 100
+    # Commodities
+    "OILUSD": "USO",      # Crude Oil ETF
+    "XBRUSD": "BNO",      # Brent Oil ETF
+    # Additional Forex majors
+    "USDCAD": "USDCAD=X",
+    "USDCHF": "USDCHF=X",
+    "NZDUSD": "NZDUSD=X",
+    "EURJPY": "EURJPY=X",
+    "GBPJPY": "GBPJPY=X",
 }
 
 YFINANCE_SYMBOLS = list(YFINANCE_SYMBOL_MAP.keys())
@@ -992,12 +1005,12 @@ def setup_weekly_retraining():
 
         scheduler = BackgroundScheduler()
 
-        # Weekly full retraining — Sunday 00:00 UTC
+        # Daily full retraining — 02:00 UTC
         scheduler.add_job(
             _weekly_retraining_with_feedback,
-            trigger=CronTrigger(day_of_week="sun", hour=0, minute=0),
+            trigger=CronTrigger(hour=2, minute=0),
             id="weekly_retrain",
-            name="Weekly model retraining + feedback refinement",
+            name="Daily model retraining + feedback refinement",
             replace_existing=True,
         )
 
@@ -1117,7 +1130,7 @@ def setup_weekly_retraining():
         )
 
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), weekly retrain (Sun 00:00), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report generation (Sun 23:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), daily retrain (02:00 UTC), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report generation (Sun 23:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
