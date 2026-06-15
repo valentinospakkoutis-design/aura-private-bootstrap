@@ -612,7 +612,7 @@ templates = Jinja2Templates(directory=templates_dir)
 # CORS Configuration
 _allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "https://exciting-renewal-production-d251.up.railway.app,https://aura-private-bootstrap-production.up.railway.app,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006"
+    "http://116.203.75.114:8080,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -2204,41 +2204,44 @@ def get_ai_model_health():
 @app.get("/api/v1/market/movers")
 def get_market_movers():
     """Top gainers, losers, and volume leaders across all assets."""
-    # Use the predictions already computed (they have price + change data)
-    all_preds = get_all_predictions(days=1)  # call existing endpoint with 1-day horizon
-    if not isinstance(all_preds, list):
-        all_preds = []
+    try:
+        # Use the predictions already computed (they have price + change data)
+        all_preds = get_all_predictions(days=1)  # call existing endpoint with 1-day horizon
+        if not isinstance(all_preds, list):
+            all_preds = []
 
-    # Calculate change_pct for each
-    items = []
-    for p in all_preds:
-        price = p.get("price", 0)
-        target = p.get("targetPrice", 0)
-        if price > 0:
-            change_pct = ((target - price) / price) * 100
-        else:
-            change_pct = 0
-        items.append({
-            "symbol": p.get("symbol", p.get("asset", "")),
-            "name": p.get("asset", ""),
-            "category": p.get("category", "other"),
-            "price": price,
-            "change_pct": round(change_pct, 2),
-            "confidence": p.get("confidence", 0),
-        })
+        # Calculate change_pct for each
+        items = []
+        for p in all_preds:
+            price = p.get("price", 0)
+            target = p.get("targetPrice", 0)
+            if price > 0:
+                change_pct = ((target - price) / price) * 100
+            else:
+                change_pct = 0
+            items.append({
+                "symbol": p.get("symbol", p.get("asset", "")),
+                "name": p.get("asset", ""),
+                "category": p.get("category", "other"),
+                "price": price,
+                "change_pct": round(change_pct, 2),
+                "confidence": p.get("confidence", 0),
+            })
 
-    # Sort for movers
-    sorted_by_change = sorted(items, key=lambda x: x["change_pct"], reverse=True)
-    top_gainers = [x for x in sorted_by_change if x["change_pct"] > 0][:5]
-    top_losers = sorted(items, key=lambda x: x["change_pct"])[:5]
-    # For volume, use confidence as proxy (higher confidence = more data = more active)
-    top_volume = sorted(items, key=lambda x: x["confidence"], reverse=True)[:5]
+        # Sort for movers
+        sorted_by_change = sorted(items, key=lambda x: x["change_pct"], reverse=True)
+        top_gainers = [x for x in sorted_by_change if x["change_pct"] > 0][:5]
+        top_losers = sorted(items, key=lambda x: x["change_pct"])[:5]
+        # For volume, use confidence as proxy (higher confidence = more data = more active)
+        top_volume = sorted(items, key=lambda x: x["confidence"], reverse=True)[:5]
 
-    return {
-        "top_gainers": top_gainers,
-        "top_losers": top_losers,
-        "top_volume": top_volume,
-    }
+        return {
+            "top_gainers": top_gainers,
+            "top_losers": top_losers,
+            "top_volume": top_volume,
+        }
+    except Exception:
+        return []
 
 
 @app.get("/api/market/onchain/summary")
