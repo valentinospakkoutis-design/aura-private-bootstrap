@@ -120,7 +120,9 @@ export default function AIPredictionsScreen() {
             setHistoricalAccuracy(data.overall_accuracy_7d);
           }
           setSymbolHistoricalAccuracy(data?.per_symbol_accuracy || {});
-        }).catch(() => {}),
+        }).catch(() => {
+          setHistoricalAccuracy(null);
+        }),
         api.getModelPerformance().then((data: ModelPerformanceResponse) => {
           const map: Record<string, number> = {};
           for (const m of data?.models || []) {
@@ -220,7 +222,7 @@ export default function AIPredictionsScreen() {
           <View key={section.title}>
             <Text style={s.moversSectionTitle}>{section.title}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.moversRow}>
-              {section.data.map(renderMoverCard)}
+              {(section.data || []).map(renderMoverCard)}
             </ScrollView>
           </View>
         ))}
