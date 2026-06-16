@@ -158,21 +158,6 @@ function AppContent() {
         />
 
         {/* Keep original screens for direct navigation */}
-        <Stack.Screen
-          name="index"
-          options={{
-            title: 'AURA',
-            headerShown: true,
-          }}
-        />
-
-        <Stack.Screen
-          name="ai-predictions"
-          options={{
-            title: '🤖 AI Predictions',
-            headerShown: true,
-          }} 
-        />
         
         <Stack.Screen 
           name="paper-trading" 
@@ -190,14 +175,6 @@ function AppContent() {
           }} 
         />
         
-        <Stack.Screen
-          name="auto-trading"
-          options={{
-            title: '🤖 Auto Trading',
-            headerShown: true,
-          }}
-        />
-
         <Stack.Screen
           name="voice-briefing"
           options={{
