@@ -36,6 +36,7 @@ export default {
     },
     android: {
       jsEngine: "hermes",
+      usesCleartextTraffic: true,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#6366F1"
@@ -107,8 +108,8 @@ export default {
       // API URL: Set via environment variable from eas.json or use production default
       // For standalone builds, this should be your production API URL
       // EAS build sets EXPO_PUBLIC_API_URL from eas.json env variables
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://aura-private-bootstrap-production.up.railway.app' : undefined),
-      wsUrl: process.env.EXPO_PUBLIC_WS_URL || (process.env.NODE_ENV === 'production' ? 'wss://aura-private-bootstrap-production.up.railway.app/ws' : undefined),
+      apiUrl: process.env.EXPO_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'http://116.203.75.114:8080' : undefined),
+      wsUrl: process.env.EXPO_PUBLIC_WS_URL || (process.env.NODE_ENV === 'production' ? 'ws://116.203.75.114:8080/ws' : undefined),
       enableAnalytics: process.env.EXPO_PUBLIC_ENABLE_ANALYTICS === 'true',
       enableCrashReporting: process.env.EXPO_PUBLIC_ENABLE_CRASH_REPORTING === 'true',
     },

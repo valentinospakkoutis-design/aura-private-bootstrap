@@ -225,7 +225,7 @@ const getWebSocketUrl = () => {
     console.warn('Failed to get API URL for WebSocket:', error);
   }
 
-  return 'wss://aura-private-bootstrap-production.up.railway.app/ws';
+  return 'ws://116.203.75.114:8080/ws';
 };
 
 export const websocket = new WebSocketService({
