@@ -163,7 +163,7 @@ def fetch_binance_ohlcv(symbol: str, interval: str = "1d", days: int = 730) -> O
         return None
 
 
-def fetch_yfinance_ohlcv(symbol: str, days: int = 1095) -> Optional[pd.DataFrame]:
+def fetch_yfinance_ohlcv(symbol: str, days: int = 500) -> Optional[pd.DataFrame]:
     """
     Fetch historical OHLCV from yfinance for non-crypto assets.
     Returns DataFrame in the same format as fetch_binance_ohlcv().
@@ -229,9 +229,12 @@ def engineer_features(df: pd.DataFrame, onchain_data: Optional[pd.DataFrame] = N
     feat["return_30d"] = close.pct_change(30)
 
     # ── Moving averages ──────────────────────────────────────
-    for w in [7, 14, 21, 50, 100, 200]:
+    for w in [7, 14, 21, 50]:
         feat[f"sma_{w}"] = close.rolling(w).mean()
         feat[f"ema_{w}"] = close.ewm(span=w, adjust=False).mean()
+    for w in [100, 200]:
+        feat[f"sma_{w}"] = close.rolling(w, min_periods=1).mean()
+        feat[f"ema_{w}"] = close.ewm(span=w, adjust=False, min_periods=1).mean()
 
     # SMA crossover signals
     feat["sma_7_21_cross"] = (feat["sma_7"] - feat["sma_21"]) / feat["sma_21"]

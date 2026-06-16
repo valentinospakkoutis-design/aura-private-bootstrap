@@ -284,7 +284,7 @@ def _ensure_features(symbol: str, features_df: Optional[pd.DataFrame]) -> Option
     if features_df is not None and not features_df.empty:
         return features_df
     try:
-        recent_df = asset_predictor._get_recent_ohlcv(symbol, days=250)
+        recent_df = asset_predictor._get_recent_ohlcv(symbol, days=500)
     except Exception:
         return None
     if recent_df is None or recent_df.empty:
@@ -823,9 +823,9 @@ class AssetPredictor:
         if recent_df is not None:
             df = recent_df
         elif symbol in YFINANCE_SYMBOL_MAP:
-            df = fetch_yfinance_ohlcv(symbol, days=250)
+            df = fetch_yfinance_ohlcv(symbol, days=500)
         else:
-            df = fetch_binance_ohlcv(symbol, interval="1d", days=250)
+            df = fetch_binance_ohlcv(symbol, interval="1d", days=500)
         if df is None or len(df) < 50:
             raise ValueError(f"Insufficient data for XGBoost prediction: {symbol}")
 
@@ -1006,7 +1006,7 @@ class AssetPredictor:
         if use_ml_model:
             try:
                 is_xgboost = symbol in self.model_features and len(self.model_features[symbol]) > 10
-                recent_df = self._get_recent_ohlcv(symbol, days=250) if is_xgboost else None
+                recent_df = self._get_recent_ohlcv(symbol, days=500) if is_xgboost else None
 
                 if is_xgboost:
                     # XGBoost path: use auto_trainer's feature engineering
