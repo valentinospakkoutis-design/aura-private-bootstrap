@@ -510,6 +510,23 @@ async def startup_event():
     asyncio.create_task(_train_missing_on_startup())
     print("[*] Checking for missing models in background...")
 
+    # Keep the predictions cache warm so /api/ai/predictions always serves from
+    # cache. Refresh every 30 min — well within the 1h (3600s) cache TTL.
+    async def _refresh_predictions_cache_loop():
+        """Regenerate predictions in the background so the Redis cache never expires cold."""
+        while True:
+            try:
+                # get_all_predictions is sync and heavy (ML + HTTP); run off the event loop.
+                # request=None skips per-user quota; days=7 matches the default endpoint query.
+                await asyncio.to_thread(get_all_predictions, None, 7, None)
+                print("[+] Predictions cache refreshed (background)")
+            except Exception as e:
+                print(f"[!] Predictions cache refresh failed (non-fatal): {e}")
+            await asyncio.sleep(1800)  # 30 minutes
+
+    asyncio.create_task(_refresh_predictions_cache_loop())
+    print("[*] Predictions cache refresher started (every 30 min)")
+
     # Start scheduled jobs (fear_greed, news_fetch, weekly retrain, daily XGBoost, daily predictions)
     try:
         from ml.auto_trainer import setup_weekly_retraining
@@ -1945,7 +1962,7 @@ def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[st
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
 
-    # Redis cache lookup (TTL 300s, key: prediction:{symbol}:{timeframe})
+    # Redis cache lookup (TTL 3600s, key: prediction:{symbol}:{timeframe})
     _cache_at_str = asset_type or "all"
     _all_cache_key = f"prediction:all:{days}:{_cache_at_str}"
     try:
@@ -2104,16 +2121,16 @@ def get_all_predictions(request: Request, days: int = 7, asset_type: Optional[st
         pass
 
     safe_result = sanitize_floats(result)
-    # Store in Redis cache (TTL 300s) — aggregate key + per-symbol keys
+    # Store in Redis cache (TTL 3600s) — aggregate key + per-symbol keys
     try:
         _r = get_redis()
         if _r is not None:
-            _r.setex(_all_cache_key, 300, json.dumps(safe_result))
+            _r.setex(_all_cache_key, 3600, json.dumps(safe_result))
             for _item in safe_result:
                 _sym = _item.get("symbol", "")
                 if _sym:
-                    _r.setex(f"prediction:{_sym}:{days}", 300, json.dumps(_item))
-            print(f"[cache] Predictions cached: {_all_cache_key} ({len(safe_result)} items, TTL 300s)")
+                    _r.setex(f"prediction:{_sym}:{days}", 3600, json.dumps(_item))
+            print(f"[cache] Predictions cached: {_all_cache_key} ({len(safe_result)} items, TTL 3600s)")
     except Exception as _se:
         print(f"[!] Prediction cache store failed (non-fatal): {_se}")
     return [{**item, "cached": False} for item in safe_result]
