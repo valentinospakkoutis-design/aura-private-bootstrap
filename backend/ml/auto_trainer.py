@@ -80,6 +80,24 @@ YFINANCE_SYMBOL_MAP = {
     "NZDUSD": "NZDUSD=X",
     "EURJPY": "EURJPY=X",
     "GBPJPY": "GBPJPY=X",
+    # Futures — US indices
+    "ES1!": "ES=F",
+    "NQ1!": "NQ=F",
+    "YM1!": "YM=F",
+    # Futures — Metals
+    "GC1!": "GC=F",
+    "SI1!": "SI=F",
+    "HG1!": "HG=F",
+    # Futures — Energy
+    "CL1!": "CL=F",
+    "NG1!": "NG=F",
+    # Futures — Agriculture
+    "ZC1!": "ZC=F",
+    "ZS1!": "ZS=F",
+    # International indices
+    "FTSE1!": "^FTSE",
+    "DAX1!": "^GDAXI",
+    "N2251!": "^N225",
 }
 
 YFINANCE_SYMBOLS = list(YFINANCE_SYMBOL_MAP.keys())
