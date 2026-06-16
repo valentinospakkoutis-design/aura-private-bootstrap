@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { theme } from '../../mobile/src/constants/theme';
 
 export default function TabLayout() {
@@ -22,6 +22,12 @@ export default function TabLayout() {
           paddingBottom: 6,
           paddingTop: 6,
           height: 54,
+          // Pin the tab bar to the bottom of the viewport on web so it stays
+          // visible. `position: 'fixed'` is web-only (native layout has no such
+          // value), so it is applied only on web.
+          ...(Platform.OS === 'web'
+            ? ({ position: 'fixed', bottom: 0, left: 0, right: 0 } as any)
+            : {}),
         },
         tabBarActiveTintColor: theme.colors.brand.primary,
         tabBarInactiveTintColor: theme.colors.text.secondary,
