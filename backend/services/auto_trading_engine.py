@@ -1,7 +1,7 @@
 """
 Auto Trading Engine for AURA
 Monitors AI predictions and places orders automatically when confidence is high.
-DISABLED by default â€” user must explicitly enable from the UI.
+DISABLED by default — user must explicitly enable from the UI.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from services.dca_engine import calculate_dca_plan, execute_dca_plan, check_pend
 logger = logging.getLogger(__name__)
 
 # Only USDC crypto pairs are allowed for auto trading.
-# Metals (XAU, XAG, XPT, XPD) are excluded â€” no USDC pairs on Binance for Cyprus.
+# Metals (XAU, XAG, XPT, XPD) are excluded — no USDC pairs on Binance for Cyprus.
 # Removed: MANAUSDC, MATICUSDC, FTMUSDC, EOSUSDC (delisted from Binance)
 # MATIC rebranded to POL
 ALLOWED_AUTO_TRADE_SYMBOLS = {
@@ -560,7 +560,7 @@ class AutoTradingEngine:
         target_price = prediction.get("targetPrice", 0)
         confidence = prediction.get("confidence", 0)
 
-        # â”€â”€ Safety checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Safety checks ────────────────────────────────────────
         if not self.config["enabled"]:
             return None
 
@@ -583,7 +583,7 @@ class AutoTradingEngine:
                     logger.warning(msg)
                     self._notify_user(
                         user_id,
-                        title="ðŸš¨ AURA Circuit Breaker Activated",
+                        title="🚨 AURA Circuit Breaker Activated",
                         body="Trading paused for 24h",
                         data={"screen": "/auto-trading", "type": "circuit_breaker", "reason": reason},
                     )
@@ -630,7 +630,7 @@ class AutoTradingEngine:
                 self._log_event(
                     "SKIP",
                     f"{symbol}: VOLATILE regime (adx={regime_info.get('adx')}, "
-                    f"bb_width={regime_info.get('bb_width')}) â€” skipping regardless of confidence",
+                    f"bb_width={regime_info.get('bb_width')}) — skipping regardless of confidence",
                 )
                 try:
                     from ai.trust_layer import verdict_from_auto_trader_skip
@@ -653,7 +653,7 @@ class AutoTradingEngine:
                     f"{symbol}: news impact {impact_level} "
                     f"(score={news_info.get('impact_score')}, "
                     f"count={news_info.get('news_count')}, "
-                    f"avg_sentiment={news_info.get('avg_sentiment')}) â€” skipping trade"
+                    f"avg_sentiment={news_info.get('avg_sentiment')}) — skipping trade"
                 )
                 self._log_event("SKIP", reason)
                 try:
@@ -677,7 +677,7 @@ class AutoTradingEngine:
 
         dynamic_threshold = float(dyn.get("threshold") or self.config["confidence_threshold"])
         # Paper mode: low-volatility signal-quality assets get regime=LOW (threshold 0.80),
-        # which their 0.63–0.82 confidence never clears. Use a fixed paper threshold so the
+        # which their 0.63-0.82 confidence never clears. Use a fixed paper threshold so the
         # A/B experiment can fire. LIVE keeps the volatility-adjusted threshold unchanged.
         if self.config.get("paper_mode", False):
             dynamic_threshold = float(self.config.get("paper_confidence_threshold", 0.60))
@@ -696,9 +696,9 @@ class AutoTradingEngine:
                 )
             except Exception:
                 pass
-            return None  # skip â€” confidence below volatility-adjusted threshold
+            return None  # skip — confidence below volatility-adjusted threshold
 
-        # â”€â”€ Smart Score gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Smart Score gate ─────────────────────────────────────
         strong_consensus = bool(prediction.get("strong_consensus"))
         if strong_consensus:
             try:
@@ -855,7 +855,7 @@ class AutoTradingEngine:
         except Exception as corr_matrix_err:
             logger.debug("[AUTO_TRADE] correlation matrix check failed for %s: %s", symbol, corr_matrix_err)
 
-        # â”€â”€ Claude AI validation (only for high-confidence ELITE signals) â”€â”€
+        # ── Claude AI validation (only for high-confidence ELITE signals) ──
         claude_size_multiplier = 1.0
         can_use_claude = False
         if user_id is not None:
@@ -888,7 +888,7 @@ class AutoTradingEngine:
                 )
 
                 if validation["decision"] == "skip":
-                    self._log_event("SKIP", f"{symbol}: Claude rejected â€” {validation.get('reasoning', '')[:100]}")
+                    self._log_event("SKIP", f"{symbol}: Claude rejected — {validation.get('reasoning', '')[:100]}")
                     try:
                         from services.feed_engine import emit
                         emit(
@@ -941,15 +941,15 @@ class AutoTradingEngine:
             self._log_event("BLOCKED", f"{symbol}: order value ${order_value:.2f} exceeds limit ${self.config['max_order_value_usd']:.0f}")
             return None
 
-        # â”€â”€ Kill switch check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        # Paper mode uses virtual money — the live kill switch does not apply.
+        # ── Kill switch check ────────────────────────────────────
+        # Paper mode uses virtual money - the live kill switch does not apply.
         import os
         if not self.config.get("paper_mode", False):
             if os.getenv("ALLOW_LIVE_TRADING", "false").lower() not in ("true", "1", "yes"):
                 self._log_event("BLOCKED", f"{symbol}: ALLOW_LIVE_TRADING is disabled")
                 return None
 
-        # â”€â”€ Place order â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Place order ──────────────────────────────────────────
         dca_enabled = bool(self.config.get("dca_enabled", False))
         if dca_enabled and confidence >= 0.90 and side == "BUY" and user_id is not None:
             try:
@@ -1105,7 +1105,7 @@ class AutoTradingEngine:
             return None
 
     async def run(self, get_predictions_func: Callable):
-        """Main loop â€” checks predictions every check_interval seconds."""
+        """Main loop — checks predictions every check_interval seconds."""
         from services.smart_score import smart_score_calculator
         self.is_running = True
         self._log_event("ENGINE_START", "Auto trading engine started (disabled by default)")
