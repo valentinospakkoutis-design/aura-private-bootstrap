@@ -508,6 +508,21 @@ async def startup_event():
             print(f"[!] Startup training failed: {e}")
 
     asyncio.create_task(_train_missing_on_startup())
+
+    async def _build_rf_ensembles_on_startup():
+        """Rebuild RF ensemble sidecars if missing (lost on ephemeral fs wipe)."""
+        try:
+            from scripts.build_rf_ensemble import build_missing
+            built = await asyncio.to_thread(build_missing)
+            if built:
+                asset_predictor._load_models()
+                print(f"[+] RF ensemble sidecars built: {built}")
+            else:
+                print("[+] RF ensemble sidecars already present")
+        except Exception as e:
+            print(f"[!] RF ensemble build failed: {e}")
+
+    asyncio.create_task(_build_rf_ensembles_on_startup())
     print("[*] Checking for missing models in background...")
 
     # Keep the predictions cache warm so /api/ai/predictions always serves from
@@ -629,7 +644,7 @@ templates = Jinja2Templates(directory=templates_dir)
 # CORS Configuration
 _allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://116.203.75.114:8080,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006"
+    "https://116.203.75.114.nip.io,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,
