@@ -160,12 +160,12 @@ async def login(request: Request, user_login: UserLogin):
         if not db_user or not db_user.password_hash:
             log_auth_event("LOGIN", "FAILED", email=email_lower, ip_address=client_ip,
                            user_agent=user_agent, metadata={"reason": "user_not_found"})
-            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
         if not security_manager.verify_password(user_login.password, db_user.password_hash):
             log_auth_event("LOGIN", "FAILED", user_id=db_user.id, email=email_lower,
                            ip_address=client_ip, user_agent=user_agent, metadata={"reason": "wrong_password"})
-            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
         token_data = {
             "sub": str(db_user.id),
@@ -265,7 +265,7 @@ async def get_current_user_info(request: Request):
     # Get token from Authorization header
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")("Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
 
@@ -554,7 +554,7 @@ async def change_password(request: Request, body: ChangePasswordRequest):
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")("Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
 
     token = auth_header.split(" ")[1]
     user_info = get_user_from_token(token)
@@ -569,10 +569,10 @@ async def change_password(request: Request, body: ChangePasswordRequest):
     try:
         db_user = db.query(DBUser).filter(DBUser.email == user_info["email"]).first()
         if not db_user:
-            raise HTTPException(status_code=401, detail="Unauthorized")("User not found")
+            raise HTTPException(status_code=401, detail="User not found")
 
         if not security_manager.verify_password(body.current_password, db_user.password_hash):
-            raise HTTPException(status_code=401, detail="Unauthorized")("Current password is incorrect")
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
 
         db_user.password_hash = security_manager.hash_password(body.new_password)
         db.commit()
@@ -619,7 +619,7 @@ async def verify_2fa_setup(verify_request: Verify2FARequest, request: Request):
     # Get current user from token
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")("Missing or invalid authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     
     token = auth_header.split(" ")[1]
     user_info = get_user_from_token(token)
@@ -658,10 +658,10 @@ async def login_with_2fa(login_request: Login2FARequest):
     try:
         db_user = db.query(DBUser).filter(DBUser.email == email_lower).first()
         if not db_user or not db_user.password_hash:
-            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
         if not security_manager.verify_password(login_request.password, db_user.password_hash):
-            raise HTTPException(status_code=401, detail="Unauthorized")("Invalid email or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
         # 2FA verification — placeholder until 2FA secrets are stored in DB
         # For now, this endpoint requires a valid TOTP token but has no stored secret

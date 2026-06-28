@@ -482,15 +482,19 @@ async def startup_event():
             broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
         return broker
 
-    asyncio.create_task(
-        _auto_trader.run_per_user(
-            _get_predictions_for_auto_trader,
-            _get_active_autopilot_users,
-            _get_user_broker,
-            _get_user_engine_config,
+    import os as _os_at
+    if _os_at.getenv("DISABLE_AUTO_TRADER", "0").lower() in ("1", "true", "yes"):
+        print("[!] Auto trading engine DISABLED via DISABLE_AUTO_TRADER env")
+    else:
+        asyncio.create_task(
+            _auto_trader.run_per_user(
+                _get_predictions_for_auto_trader,
+                _get_active_autopilot_users,
+                _get_user_broker,
+                _get_user_engine_config,
+            )
         )
-    )
-    print("[+] Auto trading engine initialized (per-user mode)")
+        print("[+] Auto trading engine initialized (per-user mode)")
 
     # Train missing models in background (survives ephemeral filesystem wipes)
     async def _train_missing_on_startup():
