@@ -2711,6 +2711,37 @@ def get_extended_predictions(days: int = 7):
 @app.get("/api/ai/predictions/{prediction_id}")
 def get_prediction_by_id(prediction_id: str):
     """Return a single prediction by its generated id (pred_symbol_timestamp)"""
+    # Fast path: serve from the warm Redis predictions cache (~15ms) instead of
+    # running live ML inference (which can exceed the 120s client timeout).
+    # Prediction ids carry a timestamp that changes every refresh, so we match
+    # by SYMBOL (the per-symbol key is always fresh), not by exact id.
+    try:
+        import json as _json
+        from cache.connection import get_redis as _get_redis
+        _r = _get_redis()
+        if _r is not None:
+            _want = prediction_id.replace("pred_", "").rsplit("_", 1)[0].upper()
+            # 1) direct per-symbol key (one GET, always current)
+            try:
+                _praw = _r.get(f"prediction:{_want}:7")
+                if _praw:
+                    return _json.loads(_praw)
+            except Exception:
+                pass
+            # 2) aggregate cache — exact id, then symbol
+            _raw = _r.get("prediction:all:7:all")
+            if _raw:
+                _data = _json.loads(_raw)
+                _items = _data if isinstance(_data, list) else _data.get("predictions", _data.get("items", []))
+                for _it in _items:
+                    if _it.get("id") == prediction_id:
+                        return _it
+                for _it in _items:
+                    if str(_it.get("symbol", "")).upper() == _want:
+                        return _it
+    except Exception as _ce:
+        print(f"[!] prediction-by-id cache lookup failed (falling back to live): {_ce}")
+
     # Extract symbol from id: pred_btcusdc_1711648000 -> BTCUSDC
     parts = prediction_id.replace("pred_", "").rsplit("_", 1)
     symbol = parts[0].upper() if parts else ""
