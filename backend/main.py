@@ -3400,15 +3400,82 @@ def get_trading_signal(symbol: str):
 
 @app.get("/api/ai/signals")
 def get_all_signals(asset_type: Optional[str] = None):
-    """Επιστρέφει trading signals για όλα τα assets ή filtered by type"""
-    asset_type_enum = None
+    """Signals from cached predictions (no live ML)."""
     if asset_type:
         try:
-            asset_type_enum = AssetType(asset_type.lower())
+            AssetType(asset_type.lower())
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid asset type: {asset_type}")
-    
-    return asset_predictor.get_all_signals(asset_type_enum)
+    cached_list = None
+    try:
+        _r = get_redis()
+        if _r is not None:
+            _raw = _r.get("prediction:all:7:all")
+            if _raw:
+                cached_list = json.loads(_raw)
+    except Exception as _ce:
+        print(f"[!] Signals cache lookup failed (non-fatal): {_ce}")
+    if not cached_list:
+        return {"signals": {}, "count": 0, "asset_type": asset_type or "all",
+                "timestamp": datetime.now().isoformat(), "cache_warming": True}
+    signals = {}
+    for p in cached_list:
+        sym = p.get("symbol")
+        if not sym:
+            continue
+        if asset_type and (p.get("category", "").lower() != asset_type.lower()):
+            continue
+        action = (p.get("action") or "hold").upper()
+        conf = float(p.get("confidence") or 0.0)
+        conf_pct = conf * 100 if conf <= 1 else conf
+        price = p.get("price") or 0.0
+        target = p.get("targetPrice") or 0.0
+        exp_ret = ((target - price) / price * 100) if price else 0.0
+        strength = "STRONG" if conf_pct >= 80 else ("MODERATE" if conf_pct >= 65 else "WEAK")
+        if action == "BUY":
+            position_size = "LARGE" if strength == "STRONG" else "MEDIUM"
+        elif action == "SELL":
+            position_size = "SMALL"
+        else:
+            position_size = "NONE"
+        signals[sym] = {
+            "symbol": sym,
+            "asset_name": p.get("asset", sym),
+            "asset_type": p.get("category", "unknown"),
+            "signal": action,
+            "strength": strength,
+            "confidence": round(conf_pct, 1),
+            "risk_score": round(max(20.0, 100.0 - conf_pct), 1),
+            "position_size": position_size,
+            "current_price": price,
+            "target_price": target,
+            "expected_return_pct": round(exp_ret, 2),
+            "timestamp": p.get("timestamp"),
+        }
+    return {"signals": signals, "count": len(signals),
+            "asset_type": asset_type or "all", "cached": True,
+            "timestamp": datetime.now().isoformat()}
+
+@app.get("/api/ai/signal-quality")
+def get_signal_quality():
+    """Per-asset signal quality rankings from prediction_outcomes (self-adapting, hourly cache)."""
+    try:
+        from services.signal_quality import signal_quality_service
+        scores = signal_quality_service.get_all_scores() or {}
+    except Exception as _e:
+        print(f"[!] signal-quality fetch failed (non-fatal): {_e}")
+        scores = {}
+
+    rankings = sorted(scores.values(),
+                      key=lambda r: r.get("composite_score", 0.0),
+                      reverse=True)
+    return {
+        "rankings": rankings,
+        "count": len(rankings),
+        "allowed_count": sum(1 for r in rankings if r.get("allowed")),
+        "timestamp": datetime.now().isoformat(),
+    }
+
 
 @app.get("/api/ai/assets")
 def list_assets(asset_type: Optional[str] = None):
