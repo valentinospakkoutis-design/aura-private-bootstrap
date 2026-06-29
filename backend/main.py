@@ -476,6 +476,15 @@ async def startup_event():
             return {"enabled": False}
 
     def _get_user_broker(user_id: int):
+        # Paper-mode users trade with virtual money — no live broker needed.
+        # Return a PaperBroker so the auto-trader loop does not skip them.
+        try:
+            _ucfg = _get_user_engine_config(user_id) or {}
+            if _ucfg.get("paper_mode", False):
+                from brokers.paper_broker import PaperBroker
+                return PaperBroker(user_id=user_id)
+        except Exception as _pe:
+            print(f"[!] paper-broker check failed for user {user_id} (non-fatal): {_pe}")
         broker = _get_broker_instance_for_user("binance", user_id) or _get_broker_instance_for_user("bybit", user_id)
         if not broker:
             _restore_broker_connections(user_id=user_id)
