@@ -1228,7 +1228,7 @@ class AutoTradingEngine:
                     ]
 
                     for prediction in high_conf:
-                        result = self.place_auto_order(prediction, user_id=uid)
+                        result = await asyncio.to_thread(self.place_auto_order, prediction, user_id=uid)
                         if result:
                             self.total_auto_trades += 1
                             self._evaluate_circuit_breaker(uid)
