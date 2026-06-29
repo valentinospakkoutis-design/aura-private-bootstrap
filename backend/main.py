@@ -5266,6 +5266,56 @@ def enable_auto_trading(_user=Depends(require_auth)):
     }
 
 
+@app.post("/api/auto-trading/enable-paper")
+def enable_auto_trading_paper(_user=Depends(require_auth)):
+    """Enable auto-trading in PAPER mode (virtual money, no live broker needed)."""
+    from services.autopilot_config import get_user_autopilot, save_user_autopilot
+
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    settings = get_user_autopilot(user_id)
+    mode = settings.get("current_mode", "balanced")
+    overrides = dict(settings.get("config_overrides", {}) or {})
+    overrides["paper_mode"] = True
+    save_user_autopilot(user_id=user_id, mode=mode, is_enabled=True,
+                        config_overrides=overrides, changed_by="user")
+
+    ctx = auto_trader._ensure_user_runtime(user_id)
+    cfg = dict(ctx.get("config", {}))
+    cfg.update(settings.get("engine_config", {}))
+    cfg.update(overrides)
+    cfg["enabled"] = True
+    cfg["paper_mode"] = True
+    ctx["config"] = cfg
+    auto_trader.user_runtime[user_id] = ctx
+
+    return {
+        "success": True,
+        "message": "Paper trading enabled",
+        "status": auto_trader.get_user_status(user_id),
+    }
+
+
+@app.get("/api/auto-trading/paper-portfolio")
+def get_auto_trading_paper_portfolio(_user=Depends(require_auth)):
+    """Return the paper-trading portfolio for the current user."""
+    from services.paper_trading import paper_trading_service
+
+    user_id = _extract_user_id(_user)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user token")
+
+    try:
+        pf = paper_trading_service.get_portfolio({}, user_id=user_id)
+        pf["mode"] = "paper"
+        return pf
+    except Exception as e:
+        print(f"[!] paper-portfolio fetch failed (non-fatal): {e}")
+        return {"positions": [], "total_value": 0.0, "mode": "paper", "error": str(e)}
+
+
 @app.post("/api/auto-trading/disable")
 def disable_auto_trading(_user=Depends(require_auth)):
     """Disable auto trading."""
