@@ -19,7 +19,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+MODELS_DIR = os.environ.get("AURA_MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "models"))
 
 # ── Training benchmarks ────────────────────────────────────────────
 # A model is only promoted to ``is_active=True`` when it clears every one

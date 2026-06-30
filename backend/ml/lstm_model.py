@@ -11,7 +11,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+MODELS_DIR = os.environ.get("AURA_MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "models"))
 LSTM_SEQUENCE_LENGTH = 60
 LSTM_FEATURE_COUNT = 20
 

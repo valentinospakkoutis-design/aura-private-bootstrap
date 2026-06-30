@@ -661,7 +661,13 @@ class AssetPredictor:
     
     def _load_models(self):
         """Load trained ML models from disk (XGBoost preferred, Random Forest fallback)."""
-        models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+        try:
+            from ml.model_storage import get_models_dir, seed_models_dir
+            seed_models_dir()  # first-boot copy of bundled models into the volume
+            models_dir = get_models_dir()
+        except Exception as e:
+            print(f"[!] model_storage unavailable, using bundled dir: {e}")
+            models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
 
         if not os.path.exists(models_dir):
             print(f"[!] Models directory not found: {models_dir}")

@@ -17,7 +17,7 @@ from database.models import ModelRegistry
 from ml.auto_trainer import engineer_features, fetch_ohlcv
 
 MIN_ACCURACY = 0.55
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+MODELS_DIR = os.environ.get("AURA_MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "models"))
 
 
 def _candidate_model_paths(symbol: str) -> List[str]:

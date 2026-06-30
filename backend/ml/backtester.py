@@ -17,7 +17,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+MODELS_DIR = os.environ.get("AURA_MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "models"))
 BINANCE_FEE = 0.001
 SLIPPAGE = 0.0005
 MIN_HOLD_DAYS = 3

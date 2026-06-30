@@ -11,6 +11,10 @@ services:
       PORT: "8080"
       DATABASE_URL: "postgresql://aura:aura@db:5432/aura"
       REDIS_URL: "redis://redis:6379/0"
+      # Persist trained models outside the ephemeral container filesystem.
+      AURA_MODELS_DIR: "/data/models"
+    volumes:
+      - models:/data/models
     depends_on:
       db:
         condition: service_healthy
@@ -48,3 +52,4 @@ services:
 
 volumes:
   pgdata:
+  models:

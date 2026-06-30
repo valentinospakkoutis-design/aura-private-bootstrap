@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 LABEL_THRESHOLD = 0.01  # 1% threshold for UP/DOWN vs SIDEWAYS
 
 BINANCE_BASE = "https://api.binance.com"
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+MODELS_DIR = os.environ.get("AURA_MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "models"))
 
 # All 27 tradeable USDC crypto pairs (fetched from Binance)
 CRYPTO_SYMBOLS = [
