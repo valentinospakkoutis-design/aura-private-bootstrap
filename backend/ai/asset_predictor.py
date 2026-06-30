@@ -82,6 +82,13 @@ def fetch_multi_timeframe_data(symbol: str) -> Dict[str, pd.DataFrame]:
     with at least Open/High/Low/Close/Volume columns; empty on failure.
     """
     out: Dict[str, pd.DataFrame] = {"1h": pd.DataFrame(), "4h": pd.DataFrame(), "1d": pd.DataFrame()}
+    # Crypto USDC/USDT pairs are not on Yahoo Finance — querying them triggers
+    # slow cookie/crumb handshakes that pile up on the worker threadpool and
+    # produce hundreds of "delisted" log lines. Skip MTF yfinance for crypto.
+    _su = str(symbol).upper()
+    _is_metal = _su[:3] in ("XAU", "XAG", "XPT", "XPD")
+    if _su.endswith(("USDC", "USDT")) and not _is_metal:
+        return out
     try:
         from market_data.yfinance_client import _normalize_symbol
         import yfinance as yf
@@ -238,6 +245,11 @@ def compute_dynamic_threshold(symbol: str) -> Dict[str, Any]:
         "regime": "MEDIUM",
         "threshold": 0.90,
     }
+    # Crypto USDC/USDT pairs are not on Yahoo — skip the slow yfinance call and
+    # use the MEDIUM default (avoids worker-blocking + delisted log spam).
+    _su = str(symbol).upper()
+    if _su.endswith(("USDC", "USDT")) and _su[:3] not in ("XAU", "XAG", "XPT", "XPD"):
+        return default
     try:
         from market_data.yfinance_client import _normalize_symbol
         import yfinance as yf
@@ -738,6 +750,14 @@ class AssetPredictor:
 
     def _fetch_yfinance_closes(self, symbol: str, days: int = 7) -> Optional[List[float]]:
         """Fetch daily closing prices from Yahoo Finance as fallback."""
+        # Crypto USDC pairs live on Binance, not Yahoo. Hitting yfinance for them
+        # triggers slow cookie/crumb handshakes that hang the worker threadpool
+        # (delisted lookups can block 20-30s). Skip them entirely.
+        _su = str(symbol).upper()
+        _is_metal = _su[:3] in ("XAU", "XAG", "XPT", "XPD")
+        _is_crypto = _su.endswith(("USDC", "USDT")) and not _is_metal
+        if _is_crypto:
+            return None
         try:
             from market_data.yfinance_client import _normalize_symbol
             import yfinance as yf
