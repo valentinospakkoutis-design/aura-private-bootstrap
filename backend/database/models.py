@@ -1197,3 +1197,27 @@ class AuditEvent(Base):
     payload_json = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+
+class PaperStrategySnapshot(Base):
+    """Periodic equity/P&L snapshot per paper-trading user, tagged with the
+    user's smart-score threshold so A/B comparison across thresholds is possible."""
+    __tablename__ = "paper_strategy_snapshots"
+    __table_args__ = (
+        Index("ix_paper_snap_user_ts", "user_id", "created_at"),
+        Index("ix_paper_snap_threshold_ts", "threshold", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    threshold = Column(Float, nullable=True)
+    equity = Column(Float, nullable=False)
+    cash = Column(Float, nullable=False)
+    floating_pnl = Column(Float, nullable=False, default=0.0)
+    realized_pnl = Column(Float, nullable=False, default=0.0)
+    total_pnl = Column(Float, nullable=False, default=0.0)
+    n_open = Column(Integer, nullable=False, default=0)
+    n_closed = Column(Integer, nullable=False, default=0)
+    wins = Column(Integer, nullable=False, default=0)
+    losses = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+

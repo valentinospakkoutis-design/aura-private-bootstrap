@@ -1150,8 +1150,25 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+        # Paper A/B strategy snapshots — every 15 minutes
+        def _paper_snapshot_job():
+            try:
+                from services.paper_recorder import record_snapshots
+                n = record_snapshots()
+                logger.info("[scheduler] Paper strategy snapshots written: %s", n)
+            except Exception as e:
+                logger.error(f"[scheduler] Paper snapshot recorder failed: {e}")
+
+        scheduler.add_job(
+            _paper_snapshot_job,
+            trigger=CronTrigger(minute="*/15"),
+            id="paper_strategy_snapshots",
+            name="Paper A/B strategy snapshots (every 15min)",
+            replace_existing=True,
+        )
+
         scheduler.start()
-        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), daily retrain (02:00 UTC), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report generation (Sun 23:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min)")
+        logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), daily retrain (02:00 UTC), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report generation (Sun 23:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min), paper snapshots (*/15min)")
         return scheduler
     except ImportError:
         logger.warning("[trainer] APScheduler not installed, scheduled jobs disabled")
