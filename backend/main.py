@@ -5340,11 +5340,19 @@ def get_auto_trading_paper_portfolio(_user=Depends(require_auth)):
 
     try:
         pf = paper_trading_service.get_portfolio({}, user_id=user_id)
-        pf["mode"] = "paper"
-        return pf
+        # Frontend (dashboard) expects a nested `portfolio` object with
+        # total_value / total_pnl / cash / positions. Wrap accordingly.
+        portfolio = {
+            "total_value": pf.get("total_value", 0.0),
+            "total_pnl": pf.get("total_pnl", 0.0),
+            "total_pnl_percent": pf.get("total_pnl_percent", 0.0),
+            "cash": pf.get("cash", 0.0),
+            "positions": pf.get("positions", []),
+        }
+        return {"portfolio": portfolio, "mode": "paper"}
     except Exception as e:
         print(f"[!] paper-portfolio fetch failed (non-fatal): {e}")
-        return {"positions": [], "total_value": 0.0, "mode": "paper", "error": str(e)}
+        return {"portfolio": None, "mode": "paper", "error": str(e)}
 
 
 @app.post("/api/auto-trading/disable")
