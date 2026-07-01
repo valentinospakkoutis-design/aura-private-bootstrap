@@ -93,19 +93,22 @@ class PredictionOutcomesService:
         finally:
             db.close()
 
-    def _compute_correctness(self, action: str, price_then: float, price_now: float) -> bool:
+    def _compute_correctness(self, action: str, price_then: float, price_now: float) -> Optional[bool]:
         a = (action or "").upper()
         if a == "BUY":
             return price_now > price_then
         if a == "SELL":
             return price_now < price_then
-        return False
+        return None  # HOLD / unknown action: no directional bet, not scored
 
-    def _compute_directional_pnl_pct(self, action: str, price_then: float, price_now: float) -> float:
+    def _compute_directional_pnl_pct(self, action: str, price_then: float, price_now: float) -> Optional[float]:
+        a = (action or "").upper()
+        if a not in ("BUY", "SELL"):
+            return None  # HOLD / unknown action: no position, no directional PnL
         if price_then <= 0:
             return 0.0
         raw = ((price_now - price_then) / price_then) * 100.0
-        if (action or "").upper() == "SELL":
+        if a == "SELL":
             raw = -raw
         return round(raw, 4)
 
@@ -127,6 +130,7 @@ class PredictionOutcomesService:
                     FROM prediction_outcomes
                     WHERE was_correct_7d IS NULL
                       AND created_at <= :cutoff
+                      AND action IN ('BUY','SELL')
                     ORDER BY created_at ASC
                     LIMIT 2000
                     """
@@ -169,6 +173,7 @@ class PredictionOutcomesService:
                     FROM prediction_outcomes
                     WHERE was_correct_30d IS NULL
                       AND created_at <= :cutoff
+                      AND action IN ('BUY','SELL')
                     ORDER BY created_at ASC
                     LIMIT 2000
                     """
