@@ -395,7 +395,13 @@ class ApiClient {
     // Combine portfolio positions with history
     const portfolio = portfolioResponse.data || {};
     const history = historyResponse.data || {};
-    const rawTrades = history.trades || portfolio.positions || [];
+    // NOTE: an empty array is truthy, so `history.trades || portfolio.positions`
+    // would always pick `history.trades` and never fall through to open positions.
+    // Open positions (portfolio.positions) and executed history (history.trades) are
+    // distinct sources — show both.
+    const historyTrades = Array.isArray(history.trades) ? history.trades : [];
+    const openPositions = Array.isArray(portfolio.positions) ? portfolio.positions : [];
+    const rawTrades = [...openPositions, ...historyTrades];
 
     // Map backend fields to frontend PaperTrade interface
     const trades = rawTrades.map((t: any) => ({

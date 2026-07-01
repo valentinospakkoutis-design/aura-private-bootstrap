@@ -452,6 +452,7 @@ class UserProfile(Base):
     morning_briefing_enabled = Column(Boolean, nullable=False, default=True)
     paper_balance = Column(Float, nullable=False, default=10000.0)
     paper_positions = Column(JSON, default=[])
+    paper_trade_history = Column(JSON, default=[])
     behavior_flags_json = Column(JSON, default={})
     notes_json = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)

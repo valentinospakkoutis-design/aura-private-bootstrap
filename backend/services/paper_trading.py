@@ -90,9 +90,12 @@ class PaperTradingService:
             except Exception:
                 continue
 
+        history_raw = profile.paper_trade_history if isinstance(profile.paper_trade_history, list) else []
+
         state["cash"] = balance
         state["current_balance"] = balance
         state["portfolio"] = portfolio
+        state["trade_history"] = history_raw
         return state
 
     def _save_user_state(self, user_id: int, state: Dict):
@@ -121,6 +124,8 @@ class PaperTradingService:
                 for sym, pos in (state.get("portfolio") or {}).items()
                 if float(pos.get("quantity", 0) or 0) > 0
             ]
+            # Persist trade history (capped to last 500 to bound row size).
+            row.paper_trade_history = (state.get("trade_history") or [])[-500:]
             db.commit()
         except Exception:
             db.rollback()
