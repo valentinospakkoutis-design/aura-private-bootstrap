@@ -6,6 +6,7 @@ import yfinance as yf
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 from cache.decorators import cached
+from market_data.symbol_map import YFINANCE_SYMBOL_MAP
 
 
 def _normalize_symbol(symbol: str) -> str:
@@ -14,7 +15,7 @@ def _normalize_symbol(symbol: str) -> str:
     Convert AURA symbols to yfinance format
     """
     symbol = symbol.upper()
-    
+
     # Remove USDC/USDT suffix for crypto
     if symbol.endswith("USDC") or symbol.endswith("USDT"):
         base = symbol[:-4]
@@ -31,14 +32,22 @@ def _normalize_symbol(symbol: str) -> str:
         }
         if base in crypto_map:
             return crypto_map[base]
-    
+
     # Stocks are usually already correct
     # Forex pairs need special handling
     if len(symbol) == 6 and "/" not in symbol:
         # Try as forex pair (e.g., EURUSD -> EURUSD=X)
         if symbol in ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD"]:
             return f"{symbol[:3]}{symbol[3:]}=X"
-    
+
+    # Non-crypto assets (futures/indices/metals/stocks) whose AURA symbol differs
+    # from the yfinance ticker — e.g. SI1!->SI=F, FTSE1!->^FTSE, DAX1!->^GDAXI.
+    # Without this these TradingView-style symbols 404 on yfinance and callers
+    # fall back to a fabricated base_price. Consulted last so crypto/forex above
+    # stay byte-identical.
+    if symbol in YFINANCE_SYMBOL_MAP:
+        return YFINANCE_SYMBOL_MAP[symbol]
+
     return symbol
 
 
