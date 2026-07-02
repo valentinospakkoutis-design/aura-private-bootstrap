@@ -598,6 +598,20 @@ class AutoTradingEngine:
             return None
         symbol = trading_symbol
 
+        # Market-hours gate: non-crypto entries only during their exchange session
+        # (weekends + holidays + DST via pandas_market_calendars). Crypto is 24/7 →
+        # is_tradeable_now returns True, so the crypto path is byte-for-byte unchanged.
+        # (Φ2 is inert: the whitelist above still admits only crypto; this starts
+        # affecting non-crypto in Φ3.) is_tradeable_now is itself fail-closed, so the
+        # only fail-open path here is a hard import error — matching the other gates.
+        try:
+            from services.market_hours import is_tradeable_now
+            if not is_tradeable_now(symbol):
+                self._log_event("SKIP", f"{symbol}: market closed (outside session hours)")
+                return None
+        except Exception as mh_err:
+            logger.debug("[AUTO_TRADE] market-hours check failed for %s: %s", symbol, mh_err)
+
         # Phase V safety layer: anomaly detection before other decision gates.
         try:
             from cache.connection import get_redis
