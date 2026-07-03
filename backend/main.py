@@ -404,17 +404,35 @@ async def startup_event():
     from services.auto_trading_engine import auto_trader as _auto_trader
 
     async def _get_predictions_for_auto_trader(_user_id: int):
-        """Fetch predictions for auto trader loop. Only USDC crypto pairs."""
-        from services.auto_trading_engine import ALLOWED_AUTO_TRADE_SYMBOLS
+        """Fetch predictions for the auto-trader loop.
+
+        Live universe = the 27 USDC crypto pairs. When the user's persisted config
+        has paper_mode=true, the 8 non-crypto paper-only symbols (SI1!, BAC, …) are
+        ALSO evaluated and passed through AS-IS (no USDC suffix). The live path is
+        unchanged — non-crypto is added only in paper mode, and place_auto_order
+        carries an independent live-safety hard block regardless of what surfaces
+        here. paper_mode is resolved via the same _get_user_engine_config the loop
+        feeds into self.config, so the universe and the whitelist gate agree.
+        """
+        from services.auto_trading_engine import ALLOWED_AUTO_TRADE_SYMBOLS, PAPER_ONLY_SYMBOLS
         from ml.predictor import get_ensemble_prediction
         from ml.regime_detector import get_current_regime
+
+        try:
+            paper_mode = bool((_get_user_engine_config(_user_id) or {}).get("paper_mode", False))
+        except Exception:
+            paper_mode = False
+
+        universe = set(ALLOWED_AUTO_TRADE_SYMBOLS)
+        if paper_mode:
+            universe |= set(PAPER_ONLY_SYMBOLS)
 
         result = []
         redis_client = get_redis()
         regime = get_current_regime(redis_client)
         regime_mult = float(regime.get("confidence_multiplier", 0.5) or 0.5)
 
-        for sym in sorted(ALLOWED_AUTO_TRADE_SYMBOLS):
+        for sym in sorted(universe):
             p = get_ensemble_prediction(sym, features={})
             if "error" in p:
                 continue
@@ -427,8 +445,6 @@ async def startup_event():
                 action = "hold"
 
             ap = p.get("raw", {}).get("asset_predictor", {}) if isinstance(p.get("raw"), dict) else {}
-            if sym not in ALLOWED_AUTO_TRADE_SYMBOLS:
-                continue
             result.append({
                 "symbol": sym,
                 "action": action,

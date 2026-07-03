@@ -26,6 +26,20 @@ ALLOWED_AUTO_TRADE_SYMBOLS = {
     "UNIUSDC", "SANDUSDC", "AXSUSDC", "THETAUSDC",
 }
 
+# Paper-only universe (Φ3): non-crypto assets that may be auto-traded ONLY when
+# paper_mode is true. These symbols must NEVER reach the live path — place_auto_order
+# carries an independent live-safety hard block that refuses them whenever
+# paper_mode is false, so even a leaked/misconfigured config cannot open a live
+# non-crypto position. The live universe stays the 27 crypto pairs above,
+# byte-for-byte.
+#
+# Kept as an explicit literal (not derived from a map) so this live-risk boundary is
+# auditable at a glance. Must stay in sync with services.market_hours.EXCHANGE_CALENDAR
+# (identical 8 symbols) — the market-hours gate already knows each one's exchange.
+PAPER_ONLY_SYMBOLS = frozenset({
+    "SI1!", "HG1!", "BAC", "JPM", "ES1!", "YM1!", "DAX1!", "FTSE1!",
+})
+
 
 def save_trade_feedback(symbol, action, entry, exit_price, confidence, features):
     """Persist closed-trade feedback for model self-improvement."""
@@ -276,7 +290,11 @@ class AutoTradingEngine:
             return 1.0
 
     def get_trading_symbol(self, asset_symbol: str) -> str:
-        """Ensure symbol uses USDC pair."""
+        """Ensure crypto symbols use their USDC pair. Paper-only non-crypto symbols
+        (BAC, SI1!, …) are returned verbatim — never USDC-appended — so they flow
+        through as the plain yfinance-backed ticker."""
+        if asset_symbol in PAPER_ONLY_SYMBOLS:
+            return asset_symbol
         if asset_symbol.endswith("USDT"):
             return asset_symbol[:-4] + "USDC"
         return asset_symbol
@@ -591,9 +609,24 @@ class AutoTradingEngine:
             except Exception as cb_err:
                 logger.debug("[AUTO_TRADE] circuit breaker pre-check failed for user %s: %s", user_id, cb_err)
 
-        # Only trade allowed USDC crypto pairs
+        paper_mode = bool(self.config.get("paper_mode", False))
+
+        # ── LIVE-SAFETY HARD BLOCK (Φ3) ──────────────────────────────
+        # Non-crypto (PAPER_ONLY_SYMBOLS) may NEVER touch the live path. Even if a
+        # misconfigured or leaked config flips paper_mode off while a non-crypto
+        # symbol is queued, this refuses it outright before any broker interaction.
+        # Checked on the RAW prediction symbol (pre-USDC-mapping) so nothing can slip
+        # past. The live universe therefore stays exactly the 27 crypto pairs.
+        if symbol in PAPER_ONLY_SYMBOLS and not paper_mode:
+            self._log_event("SKIP", f"{symbol}: non-crypto blocked on live path")
+            return None
+
+        # Whitelist gate. Live = the 27 USDC crypto pairs. Paper additionally admits
+        # the 8 non-crypto paper-only symbols; the live branch is byte-for-byte the
+        # original crypto-only set.
         trading_symbol = self.get_trading_symbol(symbol)
-        if trading_symbol not in ALLOWED_AUTO_TRADE_SYMBOLS:
+        allowed = (ALLOWED_AUTO_TRADE_SYMBOLS | PAPER_ONLY_SYMBOLS) if paper_mode else ALLOWED_AUTO_TRADE_SYMBOLS
+        if trading_symbol not in allowed:
             self._log_event("SKIP", f"{symbol}: not in allowed auto-trade symbols")
             return None
         symbol = trading_symbol
