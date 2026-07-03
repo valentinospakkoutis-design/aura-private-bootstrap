@@ -438,7 +438,15 @@ async def startup_event():
                 continue
 
             raw_conf = float(p.get("confidence", 0.0) or 0.0)
-            conf = max(0.0, min(1.0, raw_conf * regime_mult))
+            # Paper path uses RAW confidence. regime_mult (≈0.5 in LOW regime)
+            # would double-penalize the non-crypto A/B assets, whose raw 0.63-0.82
+            # confidence was designed to clear the fixed 0.60 paper threshold in
+            # place_auto_order — the authoritative paper gate. LIVE keeps the
+            # regime-adjusted confidence byte-for-byte unchanged.
+            if paper_mode:
+                conf = max(0.0, min(1.0, raw_conf))
+            else:
+                conf = max(0.0, min(1.0, raw_conf * regime_mult))
 
             action = str(p.get("action", "HOLD") or "HOLD").lower()
             if conf < 0.60:

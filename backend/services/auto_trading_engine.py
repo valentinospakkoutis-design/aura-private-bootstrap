@@ -1269,9 +1269,15 @@ class AutoTradingEngine:
                     predictions = await get_predictions_func(uid)
                     # Pre-filter at the lowest possible dynamic threshold (LOW regime).
                     # Per-symbol volatility-adjusted gating happens in place_auto_order.
+                    # Paper mode is exempt from this hardcoded floor: its authoritative
+                    # gate is the fixed paper threshold in place_auto_order
+                    # (paper_confidence_threshold, default 0.60), which still rejects
+                    # anything below 0.60 — so nothing opens "for free". LIVE keeps the
+                    # 0.60 pre-filter exactly as before.
+                    _paper_mode = bool(self.config.get("paper_mode", False))
                     high_conf = [
                         p for p in predictions
-                        if p.get("confidence", 0) >= 0.60
+                        if _paper_mode or p.get("confidence", 0) >= 0.60
                     ]
 
                     for prediction in high_conf:
