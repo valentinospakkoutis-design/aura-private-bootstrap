@@ -281,6 +281,18 @@ class SmartScoreCalculator:
 
         signals["news_sentiment"] = self._get_news_sentiment(symbol)
         signals["fear_greed"] = self._get_fear_greed()
+        # F&G is a crypto-market sentiment index. For the non-crypto paper-only
+        # symbols (indices/metals/equities) it is irrelevant, so neutralise it to 50
+        # rather than let the crypto reading skew their composite. Keeps the weights
+        # summing to 1.0 untouched. Crypto path is byte-identical (membership is always
+        # false → the raw crypto F&G flows through exactly as before). Mirrors the
+        # F&G gate exemption in auto_trading_engine.place_auto_order.
+        try:
+            from services.auto_trading_engine import PAPER_ONLY_SYMBOLS
+            if symbol in PAPER_ONLY_SYMBOLS:
+                signals["fear_greed"] = 50.0
+        except Exception:
+            pass
         signals["rsi"] = self._get_rsi_score(symbol)
         signals["volume"] = self._get_volume_score(symbol)
         signals["multi_timeframe"] = self._get_multi_timeframe_score(symbol)

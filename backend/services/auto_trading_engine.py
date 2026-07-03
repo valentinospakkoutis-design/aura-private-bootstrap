@@ -734,6 +734,15 @@ class AutoTradingEngine:
         logger.info(f"[AutoTrading] {symbol} regime={regime} volatility={vol_str} threshold={dynamic_threshold:.2f}")
 
         if confidence < dynamic_threshold:
+            # Confidence skips are otherwise silent in recent_log (only a trust-layer
+            # verdict + return). Surface non-crypto (paper-only) skips explicitly so a
+            # confidence cut is never mistaken for the F&G cut below. Crypto path
+            # unchanged — no _log_event for it, exactly as before.
+            if symbol in PAPER_ONLY_SYMBOLS:
+                self._log_event(
+                    "SKIP",
+                    f"{symbol}: confidence {confidence:.0%} < dynamic {dynamic_threshold:.0%} ({regime}, vol={vol_str})",
+                )
             try:
                 from ai.trust_layer import verdict_from_auto_trader_skip
                 verdict_from_auto_trader_skip(
@@ -765,9 +774,16 @@ class AutoTradingEngine:
         smart_score = score_result.get("smart_score", 0)
         signals = score_result.get("signals", {})
 
-        # Block trades during extreme fear
+        # Block trades during extreme fear — CRYPTO ONLY.
+        # F&G is a crypto-market sentiment index; it must not gate the non-crypto
+        # paper-only symbols (indices/metals/equities) that enter the loop in Φ3.
+        # For crypto the condition is byte-identical to before (PAPER_ONLY_SYMBOLS
+        # membership is always false → same `fear_greed < 25` branch). Non-crypto
+        # skip ONLY this crypto-sentiment cut — market-hours, confidence, anomaly and
+        # smart_score below still apply to them; `fear_greed` is still computed here
+        # because it feeds the smart_score SKIP log and trust-layer verdicts downstream.
         fear_greed = signals.get("fear_greed", {}).get("score", 50)
-        if fear_greed < 25:
+        if symbol not in PAPER_ONLY_SYMBOLS and fear_greed < 25:
             self._log_event("SKIP", f"{symbol}: extreme fear (F&G={fear_greed:.0f}), market too risky")
             try:
                 from ai.trust_layer import verdict_from_auto_trader_skip
