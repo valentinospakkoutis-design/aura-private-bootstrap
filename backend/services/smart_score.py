@@ -243,14 +243,72 @@ class SmartScoreCalculator:
             logger.debug(f"Prediction score failed for {symbol}: {e}")
             return 50.0
 
-    # ── Binance klines helper ────────────────────────────────
+    # ── Klines helper (Binance for crypto, yfinance for non-crypto) ──
+
+    @staticmethod
+    def _is_non_crypto(symbol: str) -> bool:
+        """True for the non-crypto paper-only universe (indices/metals/equities
+        such as SI1!, HG1!, BAC, FTSE1!) that does not exist on Binance.
+
+        Mirrors ai.asset_predictor._fetch_yfinance_closes exactly: crypto == a
+        USDC/USDT pair that is not a metal. Every live crypto auto-trade symbol
+        ends in USDC, so this is False for all of them → the Binance path below
+        stays byte-identical for crypto."""
+        su = str(symbol).upper()
+        is_metal = su[:3] in ("XAU", "XAG", "XPT", "XPD")
+        is_crypto = su.endswith(("USDC", "USDT")) and not is_metal
+        return not is_crypto
+
+    def _fetch_yfinance_klines(self, symbol: str, interval: str, limit: int) -> Optional[List[float]]:
+        """Closing prices from Yahoo Finance for non-crypto symbols.
+
+        Reuses market_data.symbol_map via _normalize_symbol (SI1!->SI=F,
+        FTSE1!->^FTSE, …). yfinance has no native 4h bar, so 4h is pulled as 1h
+        and resampled — keeping the daily-vs-4h comparison in _get_multi_timeframe_score
+        meaningful. Returns closes oldest-first, or None."""
+        try:
+            from market_data.yfinance_client import _normalize_symbol
+            import yfinance as yf
+
+            yf_symbol = _normalize_symbol(symbol)
+            ticker = yf.Ticker(yf_symbol)
+
+            if interval == "4h":
+                # No native 4h candle on yfinance — resample 1h → 4h.
+                hist = ticker.history(period="60d", interval="1h")
+                if hist.empty:
+                    return None
+                series = hist["Close"].resample("4h").last().dropna()
+            else:
+                # Native interval (daily). Pad the window so weekends/holidays
+                # still leave `limit` real closes.
+                hist = ticker.history(period=f"{limit + 15}d", interval=interval)
+                if hist.empty:
+                    return None
+                series = hist["Close"].dropna()
+
+            closes = [float(c) for c in series.values[-limit:]]
+            return closes if len(closes) >= 2 else None
+        except Exception as e:
+            logger.debug(f"yfinance klines failed for {symbol} {interval}: {e}")
+            return None
 
     def _fetch_klines(self, symbol: str, interval: str = "1d", limit: int = 21) -> Optional[List[float]]:
-        """Fetch closing prices from Binance klines."""
+        """Fetch closing prices. Crypto → Binance; non-crypto → Yahoo Finance."""
         cache_key = f"klines:{symbol}:{interval}:{limit}"
         cached = self._cache_get(cache_key, ttl=300)
         if cached is not None:
             return cached
+
+        # Non-crypto (paper-only indices/metals/equities) 404 on Binance, which
+        # left RSI + multi-timeframe stuck at the neutral 50 fallback. Route them
+        # to yfinance. Crypto never enters this branch → the Binance block below
+        # is byte-identical to before.
+        if self._is_non_crypto(symbol):
+            closes = self._fetch_yfinance_klines(symbol, interval, limit)
+            if closes:
+                self._cache_set(cache_key, closes)
+            return closes
 
         try:
             params = {"symbol": symbol.upper(), "interval": interval, "limit": limit}
