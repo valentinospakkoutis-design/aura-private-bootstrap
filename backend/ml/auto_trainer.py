@@ -646,6 +646,7 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         "feature_cols": feature_cols,
         "symbol": symbol,
         "model_type": "xgboost",
+        "target_type": "price",  # Phase 1 no-op: target is still next-day close (absolute price)
         "trained_at": datetime.utcnow().isoformat(),
         "metrics": metrics,
         "data_rows": len(feat),

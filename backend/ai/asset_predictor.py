@@ -335,10 +335,15 @@ def _xgboost_vote(symbol: str, features_df: Optional[pd.DataFrame]) -> Tuple[str
         last_row = full_row
 
     scaled = asset_predictor.scalers[symbol].transform(last_row)
-    predicted_price = float(asset_predictor.models[symbol].predict(scaled)[0])
+    raw_pred = float(asset_predictor.models[symbol].predict(scaled)[0])
     current_price = asset_predictor.get_current_price(symbol)
     if current_price <= 0:
         return "HOLD", 0.0
+    # Interpret model output per target_type: "return" → current*(1+pred), "price" → absolute (legacy default)
+    if asset_predictor.model_target_type.get(symbol, "price") == "return":
+        predicted_price = current_price * (1.0 + raw_pred)
+    else:
+        predicted_price = raw_pred
     pct = (predicted_price - current_price) / current_price * 100.0
     if pct > 0.5:
         signal = "BUY"
@@ -655,6 +660,7 @@ class AssetPredictor:
         self.models = {}
         self.scalers = {}
         self.model_features: Dict[str, List[str]] = {}  # XGBoost feature columns
+        self.model_target_type: Dict[str, str] = {}  # "return" or "price" (default "price" if missing)
         self.ensemble_models: Dict[str, Dict[str, Any]] = {}
         self.lstm_symbols_loaded = set()
         self._load_models()
@@ -685,6 +691,7 @@ class AssetPredictor:
                     self.models[symbol] = model_data["model"]
                     self.scalers[symbol] = model_data["scaler"]
                     self.model_features[symbol] = model_data.get("feature_cols", [])
+                    self.model_target_type[symbol] = model_data.get("target_type", "price")
 
                 print(f"[+] Loaded XGBoost model for {symbol}")
             except Exception as e:
@@ -882,7 +889,12 @@ class AssetPredictor:
 
         scaled = scaler.transform(last_row)
         scaled_df = pd.DataFrame(scaled, columns=feature_cols)
-        predicted_price = float(model.predict(scaled)[0])
+        raw_pred = float(model.predict(scaled)[0])
+        # Interpret model output per target_type: "return" → current*(1+pred), "price" → absolute (legacy default)
+        if self.model_target_type.get(symbol, "price") == "return":
+            predicted_price = current_price * (1.0 + raw_pred)
+        else:
+            predicted_price = raw_pred
         shap_explanation = get_shap_explanation(model, scaled_df)
 
         price_change = predicted_price - current_price
