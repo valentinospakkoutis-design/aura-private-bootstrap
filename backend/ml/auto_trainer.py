@@ -6,6 +6,7 @@ weekly retraining with model versioning.
 """
 
 import os
+import re
 import json
 import pickle
 import logging
@@ -26,6 +27,34 @@ LABEL_THRESHOLD = 0.01  # 1% threshold for UP/DOWN vs SIDEWAYS
 
 BINANCE_BASE = "https://api.binance.com"
 MODELS_DIR = os.environ.get("AURA_MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "models"))
+
+# ── Phase 2: absolute-magnitude / non-stationary feature prune (return target) ──
+# Columns whose values scale with the raw price/volume level. Trees split on these
+# anchor to the training-set range and cap predictions at the ATH (see the
+# noncrypto-ml-skew note) — so they are dropped for non-crypto return-target models.
+# Stationary ratios & oscillators are deliberately NOT matched here and stay in:
+#   return_*, return_lag_*, rsi_*, macd_histogram, bb_position, bb_width,
+#   price_vs_sma_*, sma_*_cross, volume_ratio, roc_*, stoch_*, body/shadow/range.
+_ABSOLUTE_MAGNITUDE_PATTERNS = [
+    re.compile(r"^(?:sma|ema)_\d+$"),   # raw MAs only — NOT *_cross or price_vs_sma_*
+    re.compile(r"^volatility_"),        # rolling std in price units (incl. volatility_4h)
+    re.compile(r"^atr_"),               # average true range, price units
+    re.compile(r"^volume_sma_"),        # raw volume MA — NOT volume_ratio
+    re.compile(r"^obv"),                # obv, obv_sma_14, obv_trend (cumulative volume)
+    re.compile(r"^close_lag_"),         # raw lagged prices — NOT return_lag_*
+]
+# macd/macd_signal are price-scaled EMA differences (non-stationary); macd_histogram
+# is kept as it is the mean-reverting differenced signal.
+_ABSOLUTE_MAGNITUDE_EXACT = {"bb_upper", "bb_lower", "vpt", "macd", "macd_signal"}
+
+
+def _absolute_magnitude_cols(columns) -> List[str]:
+    """Subset of `columns` carrying absolute price/volume magnitude (pruned for return target)."""
+    out = []
+    for c in columns:
+        if c in _ABSOLUTE_MAGNITUDE_EXACT or any(p.match(c) for p in _ABSOLUTE_MAGNITUDE_PATTERNS):
+            out.append(c)
+    return out
 
 # All 27 tradeable USDC crypto pairs (fetched from Binance)
 CRYPTO_SYMBOLS = [
@@ -170,12 +199,19 @@ def fetch_yfinance_ohlcv(symbol: str, days: int = 500) -> Optional[pd.DataFrame]
         return None
 
 
-def engineer_features(df: pd.DataFrame, onchain_data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+def engineer_features(df: pd.DataFrame, onchain_data: Optional[pd.DataFrame] = None,
+                      target_type: str = "price") -> pd.DataFrame:
     """
     Engineer 50+ features from OHLCV data.
     Optionally adds on-chain features (score, sentiment, funding_rate, long_short_ratio).
-    Returns DataFrame with feature columns and a 'target' column
-    (next-day close price).
+    Returns DataFrame with feature columns and a 'target' column.
+
+    target_type controls the label:
+      - "price"  (default): next-day close price (absolute). Legacy/crypto behaviour.
+      - "return":           next-day return, close.pct_change().shift(-1). Non-crypto
+                            (Phase 2) — stationary so trees can't cap at the ATH.
+    Callers that only consume features (serving) can ignore this — the target column
+    is dropped downstream and both branches drop the same trailing NaN row.
     """
     feat = df.copy()
     close = feat["close"]
@@ -294,8 +330,11 @@ def engineer_features(df: pd.DataFrame, onchain_data: Optional[pd.DataFrame] = N
         except Exception as e:
             logger.warning(f"[trainer] Failed to add on-chain features: {e}")
 
-    # ── Target: next-day close ───────────────────────────────
-    feat["target"] = close.shift(-1)
+    # ── Target: next-day close (price) or next-day return ────
+    if target_type == "return":
+        feat["target"] = close.pct_change().shift(-1)
+    else:
+        feat["target"] = close.shift(-1)
 
     # Drop rows with NaN (from rolling windows and target shift)
     feat = feat.dropna()
@@ -447,10 +486,14 @@ def fetch_onchain_history(symbol: str, days: int = 730) -> Optional[pd.DataFrame
         return None
 
 
-def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
+def train_symbol(symbol: str, days: int = 730, promote: bool = True) -> Optional[Dict]:
     """
     Train an XGBoost model for a single symbol using real Binance data.
     Returns training metrics or None on failure.
+
+    When promote is False, only the versioned pkl(s) are written and the
+    `_latest` pointers are left untouched — lets a new (e.g. return-target)
+    model be validated before it goes live.
     """
     try:
         import xgboost as xgb
@@ -479,8 +522,13 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     # Fetch on-chain features (if available for crypto symbols)
     onchain_df = fetch_onchain_history(symbol, days=days)
 
+    # Phase 2: non-crypto learn a stationary return target + a pruned feature set;
+    # crypto stay byte-identical on the legacy absolute-price target + full features.
+    is_noncrypto = symbol in YFINANCE_SYMBOL_MAP
+    target_type = "return" if is_noncrypto else "price"
+
     # Engineer features on daily
-    feat = engineer_features(df, onchain_data=onchain_df)
+    feat = engineer_features(df, onchain_data=onchain_df, target_type=target_type)
 
     # Add 4h aggregated features if available
     if df_4h is not None and len(df_4h) > 50:
@@ -494,9 +542,18 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     exclude_cols = ["target", "label_threshold", "open", "high", "low", "close", "volume",
                     "quote_volume", "trades"]
 
+    # Phase 2 (non-crypto/return only): also drop absolute-magnitude columns so the
+    # return-target trees can't anchor to price levels. Crypto keep the full set.
+    if target_type == "return":
+        exclude_cols = exclude_cols + _absolute_magnitude_cols(feat.columns)
+
     # 3-class threshold labels for classification sidecar:
     # -1 (down), 0 (sideways), 1 (up).
-    future_return = (feat["target"] / feat["close"]) - 1
+    # For a return target feat["target"] already IS the next-day return.
+    if target_type == "return":
+        future_return = feat["target"]
+    else:
+        future_return = (feat["target"] / feat["close"]) - 1
     feat["label_threshold"] = np.where(
         future_return > LABEL_THRESHOLD,
         1,
@@ -598,9 +655,10 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         with open(threshold_model_path, "wb") as f:
             pickle.dump(threshold_model_data, f)
 
-        threshold_latest_path = os.path.join(MODELS_DIR, f"{symbol}_xgboost_threshold_latest.pkl")
-        with open(threshold_latest_path, "wb") as f:
-            pickle.dump(threshold_model_data, f)
+        if promote:
+            threshold_latest_path = os.path.join(MODELS_DIR, f"{symbol}_xgboost_threshold_latest.pkl")
+            with open(threshold_latest_path, "wb") as f:
+                pickle.dump(threshold_model_data, f)
     except Exception as threshold_err:
         logger.warning(
             "[TRAINER] Threshold 3-class training failed for %s, keeping legacy model only: %s",
@@ -613,8 +671,14 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     y_pred_test = model.predict(X_test_scaled)
 
     # Direction accuracy (did we predict up/down correctly?)
-    train_dir = np.sign(y_pred_train[1:] - y_train[:-1]) == np.sign(y_train[1:] - y_train[:-1])
-    test_dir = np.sign(y_pred_test[1:] - y_test[:-1]) == np.sign(y_test[1:] - y_test[:-1])
+    # Return target: the sign of the predicted return IS the direction.
+    # Price target: compare predicted next close vs the previous actual close.
+    if target_type == "return":
+        train_dir = np.sign(y_pred_train) == np.sign(y_train)
+        test_dir = np.sign(y_pred_test) == np.sign(y_test)
+    else:
+        train_dir = np.sign(y_pred_train[1:] - y_train[:-1]) == np.sign(y_train[1:] - y_train[:-1])
+        test_dir = np.sign(y_pred_test[1:] - y_test[:-1]) == np.sign(y_test[1:] - y_test[:-1])
 
     metrics = {
         "train_mae": float(mean_absolute_error(y_train, y_pred_train)),
@@ -628,11 +692,17 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         "training_samples": len(X_train),
         "test_samples": len(X_test),
         "feature_count": len(feature_cols),
+        "target_type": target_type,
     }
 
+    # MAE units differ by target: dollars for "price", fraction (→ %) for "return".
+    if target_type == "return":
+        mae_str = f"MAE={metrics['test_mae'] * 100:.3f}%"
+    else:
+        mae_str = f"MAE=${metrics['test_mae']:.2f}"
     logger.info(f"[trainer] {symbol}: R²={metrics['test_r2']:.3f}, "
                 f"Dir={metrics['test_direction_accuracy']:.1f}%, "
-                f"MAE=${metrics['test_mae']:.2f}")
+                f"{mae_str}")
 
     # Save model with version
     os.makedirs(MODELS_DIR, exist_ok=True)
@@ -646,7 +716,7 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
         "feature_cols": feature_cols,
         "symbol": symbol,
         "model_type": "xgboost",
-        "target_type": "price",  # Phase 1 no-op: target is still next-day close (absolute price)
+        "target_type": target_type,  # Phase 2: "return" for non-crypto, "price" for crypto
         "trained_at": datetime.utcnow().isoformat(),
         "metrics": metrics,
         "data_rows": len(feat),
@@ -656,12 +726,14 @@ def train_symbol(symbol: str, days: int = 730) -> Optional[Dict]:
     with open(model_path, "wb") as f:
         pickle.dump(model_data, f)
 
-    # Also save as "latest" symlink/copy for easy loading
-    latest_path = os.path.join(MODELS_DIR, f"{symbol}_xgboost_latest.pkl")
-    with open(latest_path, "wb") as f:
-        pickle.dump(model_data, f)
+    # Also save as "latest" pointer for easy loading — skipped when promote=False so
+    # a new model can be validated before it replaces the live one.
+    if promote:
+        latest_path = os.path.join(MODELS_DIR, f"{symbol}_xgboost_latest.pkl")
+        with open(latest_path, "wb") as f:
+            pickle.dump(model_data, f)
 
-    logger.info(f"[trainer] Saved {model_filename}")
+    logger.info(f"[trainer] Saved {model_filename}" + ("" if promote else " (versioned only, _latest untouched)"))
 
     return {
         "symbol": symbol,

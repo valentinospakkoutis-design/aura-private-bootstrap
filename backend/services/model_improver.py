@@ -193,6 +193,14 @@ def retrain_with_feedback(symbol: str) -> Dict:
     with open(latest_path, "rb") as f:
         model_data = pickle.load(f)
 
+    # Phase 2 guard: return-target (non-crypto) models are owned solely by
+    # auto_trainer.train_symbol. This feedback path refits on absolute-price targets
+    # (historical close + feedback exit_price) and would corrupt a return model —
+    # its output would be an absolute price while metadata still says "return", so
+    # serving would compute current*(1+price). Leave it to the owner.
+    if model_data.get("target_type") == "return":
+        return {"symbol": symbol, "status": "skipped", "reason": "return_target_owned_by_auto_trainer"}
+
     old_model = model_data.get("model")
     old_scaler = model_data.get("scaler")
     feature_cols = model_data.get("feature_cols") or []

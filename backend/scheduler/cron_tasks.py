@@ -363,6 +363,13 @@ def _record_model_registry(symbol: str, accuracy: float, training_samples: int, 
 
 
 def _train_incremental_ensemble(symbol: str) -> Dict[str, Any]:
+    # Phase 2 guard: non-crypto return-target models are owned solely by
+    # auto_trainer.train_symbol. This incremental path uses a price target and writes
+    # no target_type field, so promoting it would silently revert a non-crypto model
+    # back to absolute-price (breaking the return serving path). Skip them.
+    if symbol in YFINANCE_SYMBOL_MAP:
+        return {"symbol": symbol, "status": "skipped", "reason": "non_crypto_return_target"}
+
     try:
         xgb = importlib.import_module("xgboost")
     except Exception:
