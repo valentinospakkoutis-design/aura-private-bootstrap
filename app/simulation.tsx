@@ -115,7 +115,12 @@ export default function SimulationScreen() {
   };
 
   const normalizeTrades = (raw: any): SimulationTrade[] => {
-    const source = raw?.trades || raw?.data?.trades || [];
+    // An empty array is truthy, so a plain `raw.trades || raw.data.trades`
+    // would keep an empty outer array and never fall through to the nested one.
+    const source =
+      Array.isArray(raw?.trades) && raw.trades.length > 0
+        ? raw.trades
+        : (raw?.data?.trades ?? []);
     if (!Array.isArray(source)) return [];
 
     return source.map((trade: any, index: number) => {
