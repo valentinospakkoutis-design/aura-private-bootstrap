@@ -9,6 +9,7 @@ import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import { api } from '../../mobile/src/services/apiClient';
 import { useLanguage } from '../../mobile/src/hooks/useLanguage';
+import { DateFormatter } from '../../mobile/src/utils/DateFormatter';
 
 const { width } = Dimensions.get('window');
 
@@ -20,6 +21,10 @@ interface QuickAction {
 }
 
 interface NotificationSummary {
+  id?: string;
+  title?: string;
+  message?: string;
+  timestamp?: string;
   read?: boolean;
 }
 
@@ -77,18 +82,20 @@ export default function HomeScreen() {
   const { user } = useAppStore();
   const { t } = useLanguage();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [recentActivity, setRecentActivity] = useState<NotificationSummary[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
   const [portfolio, setPortfolio] = useState<PortfolioStats | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
   const [latestWeeklyReport, setLatestWeeklyReport] = useState<LatestWeeklyReport | null>(null);
   const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'pro' | 'elite'>('free');
 
   useEffect(() => {
-    loadUnreadCount();
+    loadNotifications();
     loadPortfolio();
     loadLatestWeeklyReport();
     loadSubscription();
     const interval = setInterval(() => {
-      loadUnreadCount();
+      loadNotifications();
       loadPortfolio();
       loadLatestWeeklyReport();
       loadSubscription();
@@ -112,16 +119,23 @@ export default function HomeScreen() {
     }
   };
 
-  const loadUnreadCount = async () => {
+  const loadNotifications = async () => {
     try {
       const notifications = await api.getNotifications();
-      const unread = Array.isArray(notifications) 
-        ? notifications.filter((notification: NotificationSummary) => !notification.read).length 
-        : 0;
-      setUnreadCount(unread);
+      const list: NotificationSummary[] = Array.isArray(notifications) ? notifications : [];
+
+      setUnreadCount(list.filter((notification) => !notification.read).length);
+      setRecentActivity(
+        [...list]
+          .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+          .slice(0, 3)
+      );
     } catch (err) {
-      console.error('Error loading unread count:', err);
+      console.error('Error loading notifications:', err);
       setUnreadCount(0);
+      setRecentActivity([]);
+    } finally {
+      setActivityLoading(false);
     }
   };
 
@@ -300,29 +314,31 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.activityItem}>
-            <View style={styles.activityContent}>
-              <Text style={styles.activityTitle}>Νέο Trade: BTC/USD</Text>
-              <Text style={styles.activityDescription}>Αγορά στα $42,500</Text>
-              <Text style={styles.activityTime}>Πριν 2 ώρες</Text>
+          {activityLoading ? (
+            <View style={styles.activityEmpty}>
+              <Text style={styles.activityEmptyText}>Φόρτωση δραστηριότητας...</Text>
             </View>
-          </View>
-
-          <View style={styles.activityItem}>
-            <View style={styles.activityContent}>
-              <Text style={styles.activityTitle}>AI Prediction: ETH/USD</Text>
-              <Text style={styles.activityDescription}>Bullish signal - 85% confidence</Text>
-              <Text style={styles.activityTime}>Πριν 4 ώρες</Text>
+          ) : recentActivity.length > 0 ? (
+            recentActivity.map((item, index) => (
+              <View key={item.id ?? `activity-${index}`} style={styles.activityItem}>
+                <View style={styles.activityContent}>
+                  <Text style={styles.activityTitle}>{item.title}</Text>
+                  {!!item.message && (
+                    <Text style={styles.activityDescription}>{item.message}</Text>
+                  )}
+                  {!!item.timestamp && (
+                    <Text style={styles.activityTime}>
+                      {DateFormatter.toRelativeTime(item.timestamp)}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.activityEmpty}>
+              <Text style={styles.activityEmptyText}>Καμία πρόσφατη δραστηριότητα</Text>
             </View>
-          </View>
-
-          <View style={styles.activityItem}>
-            <View style={styles.activityContent}>
-              <Text style={styles.activityTitle}>Voice Briefing Ready</Text>
-              <Text style={styles.activityDescription}>Το ημερήσιο briefing σου είναι έτοιμο</Text>
-              <Text style={styles.activityTime}>Πριν 6 ώρες</Text>
-            </View>
-          </View>
+          )}
         </AnimatedCard>
 
         <View style={styles.bottomPadding} />
@@ -582,6 +598,15 @@ const styles = StyleSheet.create({
   activityTime: {
     fontSize: theme.typography.sizes.xs,
     color: theme.colors.text.secondary,
+  },
+  activityEmpty: {
+    alignItems: 'center',
+    paddingVertical: theme.spacing.lg,
+  },
+  activityEmptyText: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
   },
   bottomPadding: {
     height: theme.spacing.xl,

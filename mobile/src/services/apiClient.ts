@@ -486,7 +486,9 @@ class ApiClient {
         totalProfit: d.total_pnl ?? d.totalProfit ?? 0,
         profitPercentage: d.total_pnl_percent ?? d.profitPercentage ?? 0,
         openTrades: d.active_positions ?? d.openTrades ?? 0,
-        closedTrades: (d.total_trades ?? 0) - (d.active_positions ?? 0),
+        // total_trades counts BUYs and SELLs, so total - open is not a closed count.
+        // The backend already reports closed positions (one per SELL) directly.
+        closedTrades: d.closed_trades ?? d.closedTrades ?? 0,
         winRate: d.win_rate ?? d.winRate ?? 0,
         mode: d.mode ?? 'paper',
       };
