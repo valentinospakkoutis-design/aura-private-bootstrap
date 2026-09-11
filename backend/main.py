@@ -605,6 +605,11 @@ app.include_router(health_router)
 app.include_router(mettal_router)
 print(f"[+] Loaded mettal endpoints: {len(mettal_router.routes)} routes")
 
+# Include XAGUSD-STD dashboard endpoints
+from api.xag import router as xag_router
+app.include_router(xag_router)
+print(f"[+] Loaded XAG endpoints: {len(xag_router.routes)} routes")
+
 
 def _run_cron_task_sync(task_name: str):
     """Run cron task in a background thread with an isolated asyncio loop."""
@@ -681,7 +686,7 @@ templates = Jinja2Templates(directory=templates_dir)
 # CORS Configuration
 _allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "https://116.203.75.114.nip.io,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006"
+    "https://116.203.75.114.nip.io,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006,http://116.203.75.114:8081,http://localhost:5173"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,
