@@ -957,6 +957,17 @@ def dashboard(request: Request):
     finally:
         db.close()
 
+@app.get("/xag-dashboard", response_class=HTMLResponse)
+def xag_dashboard(request: Request):
+    """
+    XAG trading dashboard — live price, RSI indicators, candlestick chart.
+
+    Phase 2 (current): yfinance / SI=F proxy feed, no auth required.
+    Phase 7: add JWT auth check, same as /dashboard.
+    """
+    return templates.TemplateResponse("xag_dashboard.html", {"request": request})
+
+
 @app.get("/logout")
 def logout(request: Request):
     """Logout endpoint"""
