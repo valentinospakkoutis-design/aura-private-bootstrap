@@ -16,6 +16,8 @@ import asyncio
 import math
 import time
 
+from api import xag_metrics as _m
+
 router = APIRouter(prefix="/api/xag", tags=["xag"])
 
 # ── Cache ────────────────────────────────────────────────────────────────────
@@ -194,6 +196,7 @@ def _fetch_ohlc(tf: str, n: int) -> list[dict]:
     df = df.tail(n)
 
     bars = []
+    invalid = 0
     for ts, row in df.iterrows():
         try:
             o = float(row["Open"])
@@ -203,14 +206,20 @@ def _fetch_ohlc(tf: str, n: int) -> list[dict]:
             v = float(row["Volume"]) if not math.isnan(float(row["Volume"])) else 0
             # Validate OHLC sanity
             if not all(math.isfinite(x) and x > 0 for x in (o, h, l, c)):
+                invalid += 1
                 continue
             if not (l <= o <= h and l <= c <= h):
+                invalid += 1
                 continue
             t = int(ts.timestamp())
             bars.append({"time": t, "open": round(o, 3), "high": round(h, 3),
                          "low": round(l, 3), "close": round(c, 3), "volume": int(v)})
         except Exception:
+            invalid += 1
             continue
+
+    if invalid:
+        _m.inc_invalid_bars(invalid)
 
     return bars
 
@@ -229,22 +238,33 @@ async def snapshot():
     Note: price is from SI=F (CME Silver futures) — a PROXY.
     bid/ask are synthetic (±0.025). Replace with broker feed for execution.
     """
+    _m.inc_snapshot_request()
+
     # Fast path — no lock needed when cache is warm
     now = time.monotonic()
     if _snapshot_cache.get("ts", 0) and (now - _snapshot_cache["ts"]) < _SNAPSHOT_TTL:
+        _m.inc_snapshot_cache_hit()
         return _snapshot_cache["data"]
+
+    _m.inc_snapshot_cache_miss()
 
     async with _snapshot_lock:
         # Re-check inside the lock: another coroutine may have refreshed
         # the cache while we were waiting to acquire it.
         now = time.monotonic()
         if _snapshot_cache.get("ts", 0) and (now - _snapshot_cache["ts"]) < _SNAPSHOT_TTL:
+            _m.inc_snapshot_cache_hit()
             return _snapshot_cache["data"]
 
+        t0 = time.monotonic()
         try:
             data = await run_in_threadpool(_fetch_snapshot)
         except Exception as e:
+            _m.record_snapshot_error()
             raise HTTPException(status_code=502, detail=f"Data fetch failed: {e}")
+
+        latency_ms = (time.monotonic() - t0) * 1000
+        _m.record_snapshot_ok(latency_ms, rsi_1m_is_none=data.get("rsi_1m") is None)
 
         _snapshot_cache["data"] = data
         _snapshot_cache["ts"]   = time.monotonic()
@@ -262,25 +282,35 @@ async def ohlc(
 
     Single-flight: concurrent requests after TTL expiry share one fetch.
     """
+    _m.inc_ohlc_request()
     cache_key = f"{tf}:{n}"
 
     # Fast path — no lock needed when cache is warm
     now    = time.monotonic()
     cached = _ohlc_cache.get(cache_key, {})
     if cached.get("ts", 0) and (now - cached["ts"]) < _OHLC_TTL:
+        _m.inc_ohlc_cache_hit()
         return cached["data"]
+
+    _m.inc_ohlc_cache_miss()
 
     async with _ohlc_lock:
         # Re-check inside the lock
         now    = time.monotonic()
         cached = _ohlc_cache.get(cache_key, {})
         if cached.get("ts", 0) and (now - cached["ts"]) < _OHLC_TTL:
+            _m.inc_ohlc_cache_hit()
             return cached["data"]
 
+        t0 = time.monotonic()
         try:
             bars = await run_in_threadpool(_fetch_ohlc, tf, n)
         except Exception as e:
+            _m.record_ohlc_error()
             raise HTTPException(status_code=502, detail=f"OHLC fetch failed: {e}")
+
+        latency_ms = (time.monotonic() - t0) * 1000
+        _m.record_ohlc_ok(latency_ms)
 
         _ohlc_cache[cache_key] = {"data": bars, "ts": time.monotonic()}
         return bars
