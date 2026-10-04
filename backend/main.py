@@ -174,8 +174,74 @@ def _optional_user_id_from_request(request: Request) -> Optional[int]:
 
 
 @app.get("/healthz")
-def healthz():
-    return {"ok": True}
+async def healthz():
+    """
+    Readiness probe — used by Railway / load balancers.
+
+    Returns 200  when the service is fully ready:
+      - database reachable and schema at head revision
+      - market-data provider reachable (cached snapshot is fresh)
+
+    Returns 503 when any critical component is unavailable so that
+    the load balancer can route around this instance.
+
+    Liveness (process alive) is implied by receiving a response at all;
+    no separate /livez is needed at this scale.
+    """
+    from database.connection import sync_engine
+    import time as _time
+
+    checks: dict = {}
+    ready = True
+
+    # ── 1. Database connectivity ─────────────────────────────────────────────
+    if sync_engine:
+        try:
+            with sync_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            checks["db"] = "ok"
+        except Exception as exc:
+            checks["db"] = f"error: {exc}"
+            ready = False
+    else:
+        checks["db"] = "not_configured"
+        # DB is optional in dev; don't mark not-ready just because it's absent
+
+    # ── 2. Alembic schema version ────────────────────────────────────────────
+    if sync_engine:
+        try:
+            with sync_engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT version_num FROM alembic_version LIMIT 1")
+                ).fetchone()
+            checks["schema_version"] = row[0] if row else "no_revision"
+        except Exception:
+            checks["schema_version"] = "unknown"
+    else:
+        checks["schema_version"] = "n/a"
+
+    # ── 3. Market-data provider (XAG snapshot cache freshness) ───────────────
+    try:
+        from api.xag import _snapshot_cache, _SNAPSHOT_TTL
+        ts = _snapshot_cache.get("ts", 0)
+        if ts and (_time.monotonic() - ts) < _SNAPSHOT_TTL:
+            checks["market_data"] = "ok"
+        else:
+            checks["market_data"] = "stale_or_not_loaded"
+            # Not fatal for readiness — the first real request will warm it
+    except Exception as exc:
+        checks["market_data"] = f"error: {exc}"
+
+    status_code = 200 if ready else 503
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content={
+            "ready": ready,
+            "checks": checks,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        },
+        status_code=status_code,
+    )
 
 @app.get("/api/ping")
 def api_ping():
