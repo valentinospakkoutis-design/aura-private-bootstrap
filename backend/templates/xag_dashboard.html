@@ -458,6 +458,26 @@
       padding: 10px 0 2px;
       text-align: center;
     }
+
+    /* ── WS connection badge ─────────────────────────────────────────────── */
+    .ws-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-dim);
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg-hover);
+      user-select: none;
+    }
+
+    .ws-badge.connected    { color: var(--green);  border-color: #1a4a2a; background: #0d2618; }
+    .ws-badge.reconnecting { color: var(--amber);  border-color: #5a3e00; background: #2d1f00; }
+    .ws-badge.disconnected { color: var(--text-dim); }
+
+    .ws-badge .dot { flex-shrink: 0; }
   </style>
 </head>
 
@@ -485,6 +505,12 @@
   </div>
 
   <div class="header-right">
+    <!-- WebSocket connection state badge -->
+    <div class="ws-badge disconnected" id="ws-badge">
+      <span class="dot" id="dot-ws"></span>
+      <span id="lbl-ws">WS: off</span>
+    </div>
+
     <div class="status-bar">
       <span><span class="dot" id="dot-api"></span> <span id="lbl-last-ok">never</span></span>
       <span id="lbl-source" style="color:var(--text-dim)">—</span>
@@ -615,6 +641,13 @@
   let autoInterval = 60;   // seconds; 0 = off
   let fetchAbort = null;
   let chartLoaded = false;
+
+  // WebSocket state
+  let ws = null;
+  let wsBackoff = 1000;        // ms; doubles on each failure, capped at 30 s
+  const WS_BACKOFF_MAX = 30000;
+  let wsReconnectTimer = null;
+  let wsLive = false;          // true while connected and receiving ticks
 
   // lightweight-charts references
   let chart = null;
@@ -959,12 +992,162 @@
     }
   }
 
-  /* ── Auto-refresh ───────────────────────────────────────────────────── */
+  /* ── WebSocket client ───────────────────────────────────────────────── */
+
+  function setWsBadge(state) {
+    // state: 'connected' | 'reconnecting' | 'disconnected'
+    const badge  = el('ws-badge');
+    const dot    = el('dot-ws');
+    const lbl    = el('lbl-ws');
+    badge.className = `ws-badge ${state}`;
+    switch (state) {
+      case 'connected':
+        dot.style.background = 'var(--green)';
+        lbl.textContent = 'WS: live';
+        break;
+      case 'reconnecting':
+        dot.style.background = 'var(--amber)';
+        lbl.textContent = 'WS: reconnecting…';
+        break;
+      default:
+        dot.style.background = 'var(--text-dim)';
+        lbl.textContent = 'WS: off';
+    }
+  }
+
+  function openWebSocket() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url   = `${proto}//${location.host}/api/xag/ws/tick`;
+    let pingTimer = null;
+
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      console.warn('[xag ws] could not construct WebSocket:', err.message);
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      wsLive    = true;
+      wsBackoff = 1000;  // reset on successful connect
+      setWsBadge('connected');
+
+      // Server sends a ping every 20 s; we reply with pong (handled in onmessage).
+      // Client-side: if we go >25 s without any message, assume dead connection.
+      resetPingWatchdog();
+    };
+
+    ws.onmessage = (evt) => {
+      resetPingWatchdog();
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch { return; }
+
+      if (msg.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
+        return;
+      }
+
+      if (msg.type === 'tick' && msg.data) {
+        const d = msg.data;
+
+        // Update price state
+        if (d.price != null) {
+          price = d.price;
+          bid   = d.bid;
+          ask   = d.ask;
+
+          el('price').textContent  = price.toFixed(3);
+          el('bid-ask').textContent = `bid ${bid != null ? bid.toFixed(3) : '—'} · ask ${ask != null ? ask.toFixed(3) : '—'}`;
+
+          const staleBadge = el('stale-badge');
+          d.stale ? staleBadge.classList.add('visible') : staleBadge.classList.remove('visible');
+
+          if (d.market_asof) {
+            const age = (Date.now() - new Date(d.market_asof).getTime()) / 1000;
+            const ageStr = age < 60 ? `${Math.floor(age)}s` : `${Math.floor(age / 60)}m`;
+            el('asof-label').textContent = `Data age: ${ageStr} · fetched ${formatTime(d.fetched_at)}`;
+          }
+
+          const dot = el('dot-api');
+          dot.className = 'dot ' + (d.stale ? 'warn' : 'ok');
+          el('lbl-last-ok').textContent = formatTime(d.fetched_at);
+
+          // Intrabar chart update
+          updateCurrentBar(price);
+
+          // Live P/L refresh in position table
+          renderPositions();
+        }
+      }
+
+      if (msg.type === 'error') {
+        console.warn('[xag ws] server error:', msg.message);
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose fires right after onerror — handle reconnect there
+    };
+
+    ws.onclose = (evt) => {
+      clearPingWatchdog();
+      wsLive = false;
+      ws = null;
+      if (evt.code === 1000) {
+        // Clean close (page unload) — don't reconnect
+        setWsBadge('disconnected');
+        return;
+      }
+      setWsBadge('reconnecting');
+      scheduleReconnect();
+    };
+
+    // ── Ping watchdog ──────────────────────────────────────────────────────
+    // If no server message arrives in 25 s the connection is stale: close and reconnect.
+    function resetPingWatchdog() {
+      clearPingWatchdog();
+      pingTimer = setTimeout(() => {
+        console.warn('[xag ws] ping timeout — reconnecting');
+        ws && ws.close(4000, 'ping timeout');
+      }, 25_000);
+    }
+
+    function clearPingWatchdog() {
+      if (pingTimer) { clearTimeout(pingTimer); pingTimer = null; }
+    }
+  }
+
+  function scheduleReconnect() {
+    if (wsReconnectTimer) return;
+    wsReconnectTimer = setTimeout(() => {
+      wsReconnectTimer = null;
+      openWebSocket();
+    }, wsBackoff);
+    wsBackoff = Math.min(wsBackoff * 2, WS_BACKOFF_MAX);
+    // Add jitter ±20% so multiple tabs don't all reconnect simultaneously
+    wsBackoff = wsBackoff * (0.8 + Math.random() * 0.4);
+  }
+
+  function closeWebSocket() {
+    if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+    if (ws) { ws.close(1000, 'page unload'); ws = null; }
+    wsLive = false;
+    setWsBadge('disconnected');
+  }
+
+  /* ── Auto-refresh (fallback when WS is down) ────────────────────────── */
   function applyAutoRefresh(seconds) {
     autoInterval = seconds;
     if (autoTimer) clearInterval(autoTimer);
     if (seconds > 0) {
-      autoTimer = setInterval(refreshAll, seconds * 1000);
+      autoTimer = setInterval(() => {
+        // When WS is live, auto-refresh only updates RSI (WS handles price ticks).
+        // When WS is down, auto-refresh is the sole data source.
+        refreshAll();
+      }, seconds * 1000);
     }
   }
 
@@ -1054,6 +1237,7 @@
     window.addEventListener('beforeunload', () => {
       if (autoTimer) clearInterval(autoTimer);
       if (fetchAbort) fetchAbort.abort();
+      closeWebSocket();
     });
   }
 
@@ -1071,10 +1255,16 @@
     // Load chart first (takes longer), then snapshot
     loadChart(currentTf);
 
-    // Apply default auto-refresh (60 s)
+    // Start WebSocket — primary live-price source
+    setWsBadge('reconnecting');
+    openWebSocket();
+
+    // Auto-refresh: runs regardless of WS state.
+    // When WS is live it keeps RSI current (WS only carries price, not RSI).
+    // When WS is down it's the sole data source.
     applyAutoRefresh(autoInterval);
 
-    // First snapshot fetch
+    // First snapshot fetch — gives immediate data while WS is connecting
     refreshAll();
   }
 

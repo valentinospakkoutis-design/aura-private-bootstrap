@@ -674,10 +674,13 @@ print(f"[+] Loaded mettal endpoints: {len(mettal_router.routes)} routes")
 # Include XAGUSD-STD dashboard endpoints
 from api.xag import router as xag_router
 from api.xag_metrics import router as xag_metrics_router
+from api.xag_ws import router as xag_ws_router
 app.include_router(xag_router)
 app.include_router(xag_metrics_router)
+app.include_router(xag_ws_router)
 print(f"[+] Loaded XAG endpoints: {len(xag_router.routes)} routes")
 print(f"[+] Loaded XAG metrics endpoint: {len(xag_metrics_router.routes)} routes")
+print(f"[+] Loaded XAG WebSocket tick stream: /api/xag/ws/tick")
 
 
 def _run_cron_task_sync(task_name: str):
