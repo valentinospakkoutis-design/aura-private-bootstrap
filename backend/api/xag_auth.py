@@ -22,9 +22,8 @@ The limiter requires `request: Request` as the FIRST positional argument in
 every decorated endpoint function (slowapi requirement).
 """
 
-from __future__ import annotations
-
 import os
+from typing import Optional
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

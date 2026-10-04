@@ -96,8 +96,14 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _next_ticket() -> int:
-    """Generate a synthetic ticket number."""
+def _next_ticket_locked() -> int:
+    """
+    Generate a synthetic ticket number.
+
+    MUST be called while _orders_lock is held — reads len(_orders) which is
+    shared mutable state.  Suffix _locked is a naming convention indicating
+    the caller is responsible for holding the lock.
+    """
     return 20000 + len(_orders) + random.randint(1, 9)
 
 
@@ -324,29 +330,31 @@ def place_order(request: Request, body: OrderRequest):
         )
 
     # ── Build order record ────────────────────────────────────────────────────
-    ticket    = _next_ticket()
     fill_price = live_price if body.order_type == "market" else None
     status     = "open"    if body.order_type == "market" else "pending"
 
-    order = {
-        "ticket":          ticket,
-        "symbol":          body.symbol,
-        "side":            body.side,
-        "order_type":      body.order_type,
-        "volume":          body.volume,
-        "price":           body.price,            # limit/stop price (None for market)
-        "fill_price":      fill_price,             # execution price (None for pending)
-        "sl":              body.sl,
-        "tp":              body.tp,
-        "comment":         body.comment,
-        "status":          status,
-        "placed_at":       _utcnow(),
-        "filled_at":       _utcnow() if status == "open" else None,
-        "margin":          req_margin,
-        "idempotency_key": body.idempotency_key,
-    }
-
+    # ticket and append are done together under the lock so that
+    # _next_ticket_locked() sees a stable len(_orders) and the ticket is
+    # unique even under concurrent requests.
     with _orders_lock:
+        ticket = _next_ticket_locked()
+        order = {
+            "ticket":          ticket,
+            "symbol":          body.symbol,
+            "side":            body.side,
+            "order_type":      body.order_type,
+            "volume":          body.volume,
+            "price":           body.price,            # limit/stop price (None for market)
+            "fill_price":      fill_price,             # execution price (None for pending)
+            "sl":              body.sl,
+            "tp":              body.tp,
+            "comment":         body.comment,
+            "status":          status,
+            "placed_at":       _utcnow(),
+            "filled_at":       _utcnow() if status == "open" else None,
+            "margin":          req_margin,
+            "idempotency_key": body.idempotency_key,
+        }
         _orders.append(order)
 
     action = "filled" if status == "open" else "placed (pending)"
