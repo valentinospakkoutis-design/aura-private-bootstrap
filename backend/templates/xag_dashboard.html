@@ -478,6 +478,188 @@
     .ws-badge.disconnected { color: var(--text-dim); }
 
     .ws-badge .dot { flex-shrink: 0; }
+
+    /* ── Order entry panel ───────────────────────────────────────────────── */
+    .order-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 768px) {
+      .order-panel { grid-template-columns: 1fr; }
+    }
+
+    .order-form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .order-side-toggle {
+      display: flex;
+      gap: 0;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .side-btn {
+      flex: 1;
+      padding: 10px 0;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      border: none;
+      cursor: pointer;
+      transition: background .15s;
+      background: var(--bg-hover);
+      color: var(--text-dim);
+    }
+
+    .side-btn.active-buy  { background: #1a4a2a; color: var(--green); }
+    .side-btn.active-sell { background: #3b0000; color: var(--red);   }
+
+    .order-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .order-field label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .order-field input,
+    .order-field select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      padding: 7px 10px;
+      outline: none;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .order-field input:focus,
+    .order-field select:focus {
+      border-color: var(--accent);
+    }
+
+    .order-field input.err {
+      border-color: var(--red);
+    }
+
+    .order-field .field-hint {
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .order-field .field-hint.err {
+      color: var(--red);
+    }
+
+    .margin-preview {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .margin-row {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-dim);
+    }
+
+    .margin-row .mval {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .margin-row.warn .mval { color: var(--amber); }
+    .margin-row.danger .mval { color: var(--red); }
+
+    .btn-submit {
+      padding: 11px 0;
+      font-size: 13px;
+      font-weight: 700;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: opacity .15s;
+      width: 100%;
+    }
+
+    .btn-submit:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-submit.buy  { background: var(--green); color: #0d1117; }
+    .btn-submit.sell { background: var(--red);   color: #fff;    }
+
+    /* Account summary card (right side) */
+    .account-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 12px;
+    }
+
+    .account-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+
+    .account-row:last-child { border-bottom: none; }
+    .account-row .aval { color: var(--text); font-variant-numeric: tabular-nums; }
+    .account-row.pos .aval { color: var(--green); }
+    .account-row.neg .aval { color: var(--red);   }
+
+    /* Toast notification */
+    #order-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      min-width: 280px;
+      max-width: 420px;
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      z-index: 999;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity .25s, transform .25s;
+      pointer-events: none;
+    }
+
+    #order-toast.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    #order-toast.success {
+      background: #0d2618;
+      border: 1px solid #1a4a2a;
+      color: var(--green);
+    }
+
+    #order-toast.error {
+      background: #3b0000;
+      border: 1px solid #5a1f1f;
+      color: var(--red);
+    }
   </style>
 </head>
 
@@ -625,6 +807,122 @@
     </div>
   </div>
 
+  <!-- ── Order entry ────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      New Order — XAGUSD-STD
+    </div>
+
+    <div class="order-panel">
+
+      <!-- Left: form -->
+      <div class="order-form" id="order-form">
+
+        <!-- BUY / SELL toggle -->
+        <div class="order-side-toggle">
+          <button class="side-btn active-buy"  id="btn-side-buy"  data-side="buy">BUY</button>
+          <button class="side-btn"             id="btn-side-sell" data-side="sell">SELL</button>
+        </div>
+
+        <!-- Order type -->
+        <div class="order-field">
+          <label for="order-type">Order type</label>
+          <select id="order-type">
+            <option value="market">Market</option>
+            <option value="limit">Limit</option>
+            <option value="stop">Stop</option>
+            <option value="stop_limit">Stop Limit</option>
+          </select>
+        </div>
+
+        <!-- Volume -->
+        <div class="order-field">
+          <label for="order-volume">Volume (lots)</label>
+          <input type="number" id="order-volume" value="0.10" min="0.01" max="50" step="0.01" placeholder="0.10">
+          <span class="field-hint" id="vol-hint">Min 0.01 · Max 50 · Step 0.01</span>
+        </div>
+
+        <!-- Price (hidden for market orders) -->
+        <div class="order-field" id="price-field" style="display:none">
+          <label for="order-price">Price</label>
+          <input type="number" id="order-price" step="0.001" placeholder="—">
+          <span class="field-hint" id="price-hint">Limit/stop entry price</span>
+        </div>
+
+        <!-- SL -->
+        <div class="order-field">
+          <label for="order-sl">Stop Loss <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+          <input type="number" id="order-sl" step="0.001" placeholder="—">
+          <span class="field-hint" id="sl-hint"></span>
+        </div>
+
+        <!-- TP -->
+        <div class="order-field">
+          <label for="order-tp">Take Profit <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+          <input type="number" id="order-tp" step="0.001" placeholder="—">
+          <span class="field-hint" id="tp-hint"></span>
+        </div>
+
+        <!-- Comment -->
+        <div class="order-field">
+          <label for="order-comment">Comment <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+          <input type="text" id="order-comment" maxlength="128" placeholder="Strategy tag, note…">
+        </div>
+
+        <!-- Margin preview -->
+        <div class="margin-preview" id="margin-preview">
+          <div class="margin-row">
+            <span>Required margin</span>
+            <span class="mval" id="mp-margin">—</span>
+          </div>
+          <div class="margin-row">
+            <span>Free margin</span>
+            <span class="mval" id="mp-free">—</span>
+          </div>
+          <div class="margin-row">
+            <span>After order</span>
+            <span class="mval" id="mp-after">—</span>
+          </div>
+        </div>
+
+        <!-- Submit -->
+        <button class="btn-submit buy" id="btn-place-order" disabled>Place BUY order</button>
+      </div>
+
+      <!-- Right: account summary -->
+      <div>
+        <div class="account-card" id="account-card">
+          <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px" id="account-name">Account</div>
+          <div class="account-row"><span>Balance</span><span class="aval" id="acc-balance">—</span></div>
+          <div class="account-row"><span>Equity</span><span class="aval" id="acc-equity">—</span></div>
+          <div class="account-row"><span>Floating P/L</span><span class="aval" id="acc-floating">—</span></div>
+          <div class="account-row"><span>Margin used</span><span class="aval" id="acc-margin">—</span></div>
+          <div class="account-row"><span>Free margin</span><span class="aval" id="acc-free">—</span></div>
+          <div class="account-row"><span>Margin level</span><span class="aval" id="acc-level">—</span></div>
+          <div class="account-row"><span>Open orders</span><span class="aval" id="acc-orders">—</span></div>
+          <div class="account-row"><span>Leverage</span><span class="aval" id="acc-leverage">—</span></div>
+        </div>
+
+        <div style="margin-top:12px;font-size:11px">
+          <div style="color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Symbol info — XAGUSD-STD</div>
+          <div class="account-card">
+            <div class="account-row"><span>Contract size</span><span class="aval" id="si-contract">—</span></div>
+            <div class="account-row"><span>Volume step</span><span class="aval" id="si-step">—</span></div>
+            <div class="account-row"><span>Tick value</span><span class="aval" id="si-tickval">—</span></div>
+            <div class="account-row"><span>Spread</span><span class="aval" id="si-spread">—</span></div>
+            <div class="account-row"><span>Swap long</span><span class="aval" id="si-swap-long">—</span></div>
+            <div class="account-row"><span>Swap short</span><span class="aval" id="si-swap-short">—</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast for order result -->
+  <div id="order-toast"></div>
+
   <div class="source-note">
     ⚠ Price data from yfinance / SI=F (CME Silver futures proxy). bid/ask are synthetic (±$0.025).
     Not for execution. Replace with live broker feed for trading.
@@ -639,6 +937,8 @@
   /* ── State ──────────────────────────────────────────────────────────── */
   let price = null;
   let bid = null, ask = null;
+  let symbolInfo = null;     // from GET /api/xag/symbol_info
+  let accountData = null;    // from GET /api/xag/account
   let rsiState = { '1m': null, '15m': null, '1h': null };   // { val, fetchedAt }
   let currentTf = '1m';
   let autoTimer = null;
@@ -814,6 +1114,9 @@
 
     // Trigger P/L refresh in position table
     renderPositions();
+
+    // Update margin preview when price ticks
+    updateMarginPreview();
   }
 
   /* ── Render: RSI card ───────────────────────────────────────────────── */
@@ -1157,6 +1460,9 @@
 
           // Live P/L refresh in position table
           renderPositions();
+
+          // Keep margin preview current as price moves
+          updateMarginPreview();
         }
       }
 
@@ -1340,6 +1646,215 @@
     await loadPositions();
   }
 
+  /* ── Order entry ────────────────────────────────────────────────────── */
+
+  let orderSide = 'buy';   // 'buy' | 'sell'
+  let toastTimer = null;
+
+  /** Show a toast notification. kind: 'success' | 'error' */
+  function showToast(msg, kind = 'success', durationMs = 4500) {
+    const toast = el('order-toast');
+    toast.textContent = msg;
+    toast.className = `show ${kind}`;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.className = '';
+      toastTimer = null;
+    }, durationMs);
+  }
+
+  async function loadSymbolInfo() {
+    try {
+      const resp = await fetch('/api/xag/symbol_info');
+      if (!resp.ok) return;
+      symbolInfo = await resp.json();
+      // Populate symbol info card
+      el('si-contract').textContent  = symbolInfo.contract_size.toLocaleString() + ' oz';
+      el('si-step').textContent      = symbolInfo.volume_step;
+      el('si-tickval').textContent   = `$${symbolInfo.tick_value.toFixed(2)}/lot`;
+      el('si-spread').textContent    = `${symbolInfo.spread} pts`;
+      el('si-swap-long').textContent  = `$${symbolInfo.swap_long.toFixed(2)}`;
+      el('si-swap-short').textContent = `$${symbolInfo.swap_short.toFixed(2)}`;
+      // Update volume field constraints
+      const volInput = el('order-volume');
+      volInput.min  = symbolInfo.volume_min;
+      volInput.max  = symbolInfo.volume_max;
+      volInput.step = symbolInfo.volume_step;
+      el('vol-hint').textContent =
+        `Min ${symbolInfo.volume_min} · Max ${symbolInfo.volume_max} · Step ${symbolInfo.volume_step}`;
+    } catch (err) {
+      console.warn('[xag] symbol_info error:', err.message);
+    }
+  }
+
+  async function loadAccount() {
+    try {
+      const resp = await fetch('/api/xag/account');
+      if (!resp.ok) return;
+      accountData = await resp.json();
+      renderAccount();
+      updateMarginPreview();
+    } catch (err) {
+      console.warn('[xag] account error:', err.message);
+    }
+  }
+
+  function renderAccount() {
+    if (!accountData) return;
+    const a = accountData;
+    el('account-name').textContent  = a.name || 'Account';
+    el('acc-balance').textContent   = `$${a.balance.toFixed(2)}`;
+    el('acc-equity').textContent    = `$${a.equity.toFixed(2)}`;
+    el('acc-leverage').textContent  = `1:${a.leverage}`;
+    el('acc-orders').textContent    = a.open_orders ?? '—';
+
+    const floatEl = el('acc-floating');
+    floatEl.textContent = a.floating_pnl != null
+      ? (a.floating_pnl >= 0 ? '+' : '') + `$${a.floating_pnl.toFixed(2)}` : '—';
+    floatEl.parentElement.className = 'account-row' +
+      (a.floating_pnl > 0 ? ' pos' : a.floating_pnl < 0 ? ' neg' : '');
+
+    el('acc-margin').textContent  = `$${a.margin.toFixed(2)}`;
+    el('acc-free').textContent    = `$${a.free_margin.toFixed(2)}`;
+    el('acc-level').textContent   = a.margin_level != null ? `${a.margin_level}%` : '∞';
+  }
+
+  function updateMarginPreview() {
+    const vol   = parseFloat(el('order-volume').value) || 0;
+    const info  = symbolInfo;
+    const acct  = accountData;
+
+    // Use limit price if pending, else live bid/ask
+    const otype  = el('order-type').value;
+    const priceEl = parseFloat(el('order-price').value) || null;
+    const refPrc  = otype === 'market' ? (price || 0) : (priceEl || price || 0);
+
+    const mpMarginEl = el('mp-margin');
+    const mpFreeEl   = el('mp-free');
+    const mpAfterEl  = el('mp-after');
+    const submitBtn  = el('btn-place-order');
+
+    if (!info || vol <= 0 || refPrc <= 0) {
+      mpMarginEl.textContent = '—';
+      mpFreeEl.textContent   = '—';
+      mpAfterEl.textContent  = '—';
+      submitBtn.disabled     = true;
+      return;
+    }
+
+    const reqMargin  = Math.round(vol * info.contract_size * refPrc * info.margin_rate * 100) / 100;
+    const freeMargin = acct ? acct.free_margin : null;
+    const afterMargin = freeMargin != null ? freeMargin - reqMargin : null;
+
+    mpMarginEl.textContent = `$${reqMargin.toFixed(2)}`;
+    mpFreeEl.textContent   = freeMargin != null ? `$${freeMargin.toFixed(2)}` : '—';
+    mpAfterEl.textContent  = afterMargin != null ? `$${afterMargin.toFixed(2)}` : '—';
+
+    // Warn if tight
+    const mpAfterRow = mpAfterEl.closest('.margin-row');
+    if (afterMargin != null) {
+      if (afterMargin < 0) {
+        mpAfterRow.className = 'margin-row danger';
+        submitBtn.disabled = true;
+        return;
+      } else if (afterMargin < reqMargin * 0.2) {
+        mpAfterRow.className = 'margin-row warn';
+      } else {
+        mpAfterRow.className = 'margin-row';
+      }
+    }
+
+    // Volume must be valid
+    if (info && (vol < info.volume_min || vol > info.volume_max)) {
+      submitBtn.disabled = true;
+      return;
+    }
+
+    submitBtn.disabled = false;
+  }
+
+  function setOrderSide(side) {
+    orderSide = side;
+    el('btn-side-buy').className  = 'side-btn' + (side === 'buy'  ? ' active-buy'  : '');
+    el('btn-side-sell').className = 'side-btn' + (side === 'sell' ? ' active-sell' : '');
+    const submit = el('btn-place-order');
+    submit.className = `btn-submit ${side}`;
+    submit.textContent = `Place ${side.toUpperCase()} order`;
+    updateMarginPreview();
+  }
+
+  function togglePriceField() {
+    const otype = el('order-type').value;
+    const pf    = el('price-field');
+    pf.style.display = otype === 'market' ? 'none' : '';
+    if (otype !== 'market') {
+      const cur = price || 0;
+      if (!el('order-price').value && cur > 0) {
+        el('order-price').value = cur.toFixed(3);
+      }
+      el('price-hint').textContent =
+        otype === 'limit'      ? 'Entry price (limit order)' :
+        otype === 'stop'       ? 'Entry price (stop order)'  : 'Stop-limit trigger price';
+    }
+    updateMarginPreview();
+  }
+
+  async function submitOrder() {
+    const btn    = el('btn-place-order');
+    const vol    = parseFloat(el('order-volume').value);
+    const otype  = el('order-type').value;
+    const priceV = parseFloat(el('order-price').value) || undefined;
+    const slV    = parseFloat(el('order-sl').value) || undefined;
+    const tpV    = parseFloat(el('order-tp').value) || undefined;
+    const comment = el('order-comment').value.trim() || undefined;
+
+    // Confirm step
+    const refPrc = otype === 'market' ? price : (priceV || price);
+    const prcStr = refPrc ? `@ ${refPrc.toFixed(3)}` : '(market)';
+    if (!confirm(`${orderSide.toUpperCase()} ${vol} XAGUSD-STD ${prcStr}\nProceed?`)) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Placing…';
+
+    const idempotencyKey = crypto.randomUUID();
+
+    try {
+      const body = {
+        symbol:          'XAGUSD-STD',
+        side:            orderSide,
+        order_type:      otype,
+        volume:          vol,
+        idempotency_key: idempotencyKey,
+      };
+      if (priceV) body.price = priceV;
+      if (slV)    body.sl    = slV;
+      if (tpV)    body.tp    = tpV;
+      if (comment) body.comment = comment;
+
+      const resp = await fetch('/api/xag/order', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+
+      const data = await resp.json();
+
+      if (resp.ok && data.ok) {
+        showToast(`✓ ${data.message}`, 'success');
+        // Refresh positions and account after success
+        await Promise.all([loadPositions(), loadAccount()]);
+      } else {
+        const errMsg = data.detail || data.message || `HTTP ${resp.status}`;
+        showToast(`✗ Order rejected: ${errMsg}`, 'error', 7000);
+      }
+    } catch (err) {
+      showToast(`✗ Network error: ${err.message}`, 'error', 7000);
+    } finally {
+      btn.disabled = false;
+      setOrderSide(orderSide);   // restore button label
+    }
+  }
+
   /* ── Event wiring ───────────────────────────────────────────────────── */
   function wire() {
     // Refresh button
@@ -1399,6 +1914,21 @@
     el('btn-close-selected').addEventListener('click', closeSelected);
     el('btn-close-all').addEventListener('click', closeAll);
 
+    // Order entry: side toggle
+    el('btn-side-buy').addEventListener('click',  () => setOrderSide('buy'));
+    el('btn-side-sell').addEventListener('click', () => setOrderSide('sell'));
+
+    // Order entry: type change (show/hide price field)
+    el('order-type').addEventListener('change', togglePriceField);
+
+    // Order entry: live margin preview on input
+    ['order-volume', 'order-price'].forEach(id => {
+      el(id).addEventListener('input', updateMarginPreview);
+    });
+
+    // Order entry: place button
+    el('btn-place-order').addEventListener('click', submitOrder);
+
     // Cleanup on page unload
     window.addEventListener('beforeunload', () => {
       if (autoTimer) clearInterval(autoTimer);
@@ -1410,7 +1940,9 @@
   /* ── Bootstrap ──────────────────────────────────────────────────────── */
   function bootstrap() {
     wire();
-    loadPositions();   // async: fetches from GET /api/xag/positions
+    loadPositions();    // async: fetches from GET /api/xag/positions
+    loadSymbolInfo();   // async: populates symbol info card + constraints
+    loadAccount();      // async: populates account summary + margin preview
     updateControls();
 
     // Initial RSI card render (no data yet)
