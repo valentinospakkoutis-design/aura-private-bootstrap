@@ -654,15 +654,32 @@
   let candleSeries = null;
   let chartBars = [];      // [{time, open, high, low, close, volume}]
 
-  // Sample positions (Phase 2: no real position endpoint yet)
-  // Positions with symbol === 'XAGUSD-STD' get live P/L updates
-  const positions = [
-    { ticket: 11001, symbol: 'XAGUSD-STD', side: 'buy',  volume: 0.50, openPrice: 29.842, openedAt: '2026-10-04T07:15:00Z' },
-    { ticket: 11002, symbol: 'XAGUSD-STD', side: 'sell', volume: 0.25, openPrice: 30.175, openedAt: '2026-10-04T08:42:00Z' },
-    { ticket: 10893, symbol: 'XAUUSD-STD', side: 'buy',  volume: 0.10, openPrice: 2687.50, openedAt: '2026-10-03T14:20:00Z', currentPrice: 2701.30 },
-    { ticket: 10744, symbol: 'EURUSD',     side: 'sell', volume: 1.00, openPrice: 1.08520, openedAt: '2026-10-03T09:05:00Z', currentPrice: 1.08360 },
-    { ticket: 10612, symbol: 'BTCUSD',     side: 'buy',  volume: 0.01, openPrice: 68250.00, openedAt: '2026-10-02T22:30:00Z', currentPrice: 69450.00 },
-  ];
+  // Positions are populated from GET /api/xag/positions
+  let positions = [];
+
+  /** Fetch open positions from the backend and re-render the table. */
+  async function loadPositions() {
+    try {
+      const resp = await fetch('/api/xag/positions');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      // Normalise snake_case API fields to camelCase for the render helpers
+      positions = (data.positions || []).map(p => ({
+        ticket:       p.ticket,
+        symbol:       p.symbol,
+        side:         p.side,
+        volume:       p.volume,
+        openPrice:    p.open_price,
+        currentPrice: p.current_price,
+        openedAt:     p.opened_at,
+        pnl:          p.pnl,      // pre-computed by backend (XAGUSD-STD uses live cache)
+      }));
+      renderPositions();
+    } catch (err) {
+      console.error('[xag] positions load error:', err);
+      // Don't wipe the existing table on a transient error — keep stale data shown
+    }
+  }
 
   const selected = new Set();
 
@@ -684,11 +701,21 @@
   }
 
   function computePnl(pos) {
-    const cur = pos.symbol === 'XAGUSD-STD' ? price : (pos.currentPrice || null);
+    // For XAGUSD-STD use the live WS price so P/L ticks in real-time.
+    // For other symbols prefer the server-computed pnl; fall back to local calc.
+    if (pos.symbol === 'XAGUSD-STD') {
+      const cur = price;
+      if (cur == null) return pos.pnl ?? null;
+      const diff = pos.side === 'buy' ? cur - pos.openPrice : pos.openPrice - cur;
+      return diff * pos.volume * 5000;
+    }
+    // Use pre-computed value from backend when available
+    if (pos.pnl != null) return pos.pnl;
+    const cur = pos.currentPrice || null;
     if (cur == null) return null;
     const diff = pos.side === 'buy' ? cur - pos.openPrice : pos.openPrice - cur;
-    const contractSize = pos.symbol === 'XAGUSD-STD' ? 5000 : (pos.symbol === 'XAUUSD-STD' ? 100 : 100000);
-    return diff * pos.volume * (pos.symbol === 'EURUSD' ? 100000 : contractSize);
+    const contractSize = { 'XAUUSD-STD': 100, 'EURUSD': 100000, 'BTCUSD': 1 }[pos.symbol] ?? 1;
+    return diff * pos.volume * contractSize;
   }
 
   function fmtPnl(val) {
@@ -1151,27 +1178,109 @@
     }
   }
 
-  /* ── Position actions (Phase 2: UI-only, no backend endpoint yet) ── */
-  function closePosition(ticket) {
+  /* ── Position actions ───────────────────────────────────────────────── */
+
+  /**
+   * Optimistic single close: grey the row immediately, then call the backend.
+   * On success, reload the position list. On failure, restore the row.
+   */
+  async function closePosition(ticket) {
     const tr = document.querySelector(`tr[data-ticket="${ticket}"]`);
     if (tr) tr.classList.add('closing');
 
-    // Simulate close (no real endpoint in Phase 2)
-    setTimeout(() => {
-      const idx = positions.findIndex(p => p.ticket === ticket);
-      if (idx !== -1) positions.splice(idx, 1);
+    try {
+      const resp = await fetch(`/api/xag/positions/${ticket}/close`, { method: 'POST' });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        const msg = body.detail || `HTTP ${resp.status}`;
+        console.error(`[xag] close ${ticket} failed: ${msg}`);
+        if (tr) tr.classList.remove('closing');
+        showError(`Close failed for ticket ${ticket}: ${msg}`);
+        return;
+      }
       selected.delete(ticket);
-      renderPositions();
-    }, 400);
+    } catch (err) {
+      console.error(`[xag] close ${ticket} error:`, err);
+      if (tr) tr.classList.remove('closing');
+      showError(`Close error for ticket ${ticket}: ${err.message}`);
+      return;
+    }
+
+    // Reload fresh list from backend
+    await loadPositions();
   }
 
-  function closeSelected() {
-    [...selected].forEach(closePosition);
+  async function closeSelected() {
+    const tickets = [...selected];
+    if (tickets.length === 0) return;
+
+    // Optimistic: grey all selected rows
+    tickets.forEach(t => {
+      const tr = document.querySelector(`tr[data-ticket="${t}"]`);
+      if (tr) tr.classList.add('closing');
+    });
+
+    try {
+      const resp = await fetch('/api/xag/positions/close_bulk', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tickets }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        showError(`Bulk close failed: ${body.detail || `HTTP ${resp.status}`}`);
+        // Restore rows — reload will show current state
+        await loadPositions();
+        return;
+      }
+      const data = await resp.json();
+      // Report any per-ticket failures
+      const failed = (data.results || []).filter(r => !r.ok);
+      if (failed.length) {
+        showError(`${failed.length} ticket(s) could not be closed: ${failed.map(r => r.ticket).join(', ')}`);
+      }
+      selected.clear();
+    } catch (err) {
+      console.error('[xag] bulk close error:', err);
+      showError(`Bulk close error: ${err.message}`);
+    }
+
+    await loadPositions();
   }
 
-  function closeAll() {
+  async function closeAll() {
     if (!confirm(`Close all ${positions.length} open positions? This cannot be undone.`)) return;
-    [...positions.map(p => p.ticket)].forEach(closePosition);
+    const tickets = positions.map(p => p.ticket);
+
+    // Optimistic: grey all rows
+    tickets.forEach(t => {
+      const tr = document.querySelector(`tr[data-ticket="${t}"]`);
+      if (tr) tr.classList.add('closing');
+    });
+
+    try {
+      const resp = await fetch('/api/xag/positions/close_bulk', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tickets }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        showError(`Close-all failed: ${body.detail || `HTTP ${resp.status}`}`);
+        await loadPositions();
+        return;
+      }
+      const data = await resp.json();
+      if (data.failed > 0) {
+        showError(`${data.failed} position(s) could not be closed.`);
+      }
+      selected.clear();
+    } catch (err) {
+      console.error('[xag] close-all error:', err);
+      showError(`Close-all error: ${err.message}`);
+    }
+
+    await loadPositions();
   }
 
   /* ── Event wiring ───────────────────────────────────────────────────── */
@@ -1244,7 +1353,7 @@
   /* ── Bootstrap ──────────────────────────────────────────────────────── */
   function bootstrap() {
     wire();
-    renderPositions();
+    loadPositions();   // async: fetches from GET /api/xag/positions
     updateControls();
 
     // Initial RSI card render (no data yet)
