@@ -34,10 +34,17 @@ from datetime import datetime, timezone
 from threading import Lock
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/xag", tags=["xag-positions"])
+from api.xag_auth import xag_limiter, xag_require_auth
+from api.xag_logging import xag_log, xag_warn
+
+router = APIRouter(
+    prefix="/api/xag",
+    tags=["xag-positions"],
+    dependencies=[Depends(xag_require_auth)],
+)
 
 # ── In-process position store ─────────────────────────────────────────────────
 # Each position: ticket(int), symbol, side("buy"|"sell"), volume, open_price,
@@ -186,7 +193,8 @@ def _log_audit(action: str, tickets: list[int], note: str | None = None):
 # ── GET /api/xag/positions ────────────────────────────────────────────────────
 
 @router.get("/positions")
-def get_positions():
+@xag_limiter.limit("120/minute")
+def get_positions(request: Request):
     """
     Return all open positions, enriched with live current_price and P/L
     for XAGUSD-STD.
@@ -209,7 +217,9 @@ def get_positions():
 # ── POST /api/xag/positions/{ticket}/close ────────────────────────────────────
 
 @router.post("/positions/{ticket}/close")
+@xag_limiter.limit("30/minute")
 def close_position(
+    request: Request,
     ticket: int = Path(..., ge=1, description="MT5 position ticket number"),
 ):
     """
@@ -240,6 +250,7 @@ def close_position(
         pos["close_note"] = "closed via dashboard (Phase 2 simulation)"
 
     _log_audit("close", [ticket], "dashboard close")
+    xag_log("position.closed", ticket=ticket)
 
     return {
         "ok":      True,
@@ -255,7 +266,8 @@ class CloseBulkRequest(BaseModel):
 
 
 @router.post("/positions/close_bulk")
-def close_bulk(body: CloseBulkRequest):
+@xag_limiter.limit("10/minute")
+def close_bulk(request: Request, body: CloseBulkRequest):
     """
     Close multiple positions in one request.
 
@@ -295,7 +307,10 @@ def close_bulk(body: CloseBulkRequest):
             closed_count += 1
 
     if closed_count:
-        _log_audit("close_bulk", [r["ticket"] for r in results if r["ok"]], "dashboard bulk close")
+        closed_tickets = [r["ticket"] for r in results if r["ok"]]
+        _log_audit("close_bulk", closed_tickets, "dashboard bulk close")
+        xag_log("position.closed_bulk", count=closed_count, failed=failed_count,
+                tickets=closed_tickets)
 
     return {
         "results": results,
@@ -307,7 +322,8 @@ def close_bulk(body: CloseBulkRequest):
 # ── GET /api/xag/audit (Phase 7 — read-only, no auth yet) ─────────────────────
 
 @router.get("/audit")
-def get_audit(limit: int = 50):
+@xag_limiter.limit("30/minute")
+def get_audit(request: Request, limit: int = 50):
     """Return the last N audit log entries (newest first)."""
     with _store_lock:
         entries = list(reversed(_audit[-limit:]))

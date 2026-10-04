@@ -660,6 +660,31 @@
       border: 1px solid #5a1f1f;
       color: var(--red);
     }
+
+    /* ── Stale data grey-out ──────────────────────────────────────────── */
+    /* Applied to <body> when no WS tick received for > 60 s              */
+    body.stale-prices #price,
+    body.stale-prices #bid-ask,
+    body.stale-prices .pnl,
+    body.stale-prices .price-cell,
+    body.stale-prices #mp-margin,
+    body.stale-prices #mp-free,
+    body.stale-prices #mp-after,
+    body.stale-prices #acc-equity,
+    body.stale-prices #acc-floating,
+    body.stale-prices #acc-margin,
+    body.stale-prices #acc-free,
+    body.stale-prices #acc-level {
+      opacity: 0.4;
+      filter: grayscale(0.6);
+      transition: opacity 0.4s, filter 0.4s;
+    }
+
+    body.stale-prices #price::after {
+      content: ' ⏸';
+      font-size: 0.75em;
+      color: var(--amber);
+    }
   </style>
 </head>
 
@@ -952,6 +977,11 @@
   const WS_BACKOFF_MAX = 30000;
   let wsReconnectTimer = null;
   let wsLive = false;          // true while connected and receiving ticks
+
+  // Stale data detection: grey-out prices if no WS tick for > STALE_MS
+  let lastTickAt = 0;          // performance.now() timestamp of last tick
+  const STALE_MS = 60_000;     // 60 s without a tick → grey-out
+  let staleCheckTimer = null;  // setInterval handle
 
   // lightweight-charts references
   let chart = null;
@@ -1435,6 +1465,7 @@
 
         // Update price state
         if (d.price != null) {
+          lastTickAt = performance.now();    // reset stale clock
           price = d.price;
           bid   = d.bid;
           ask   = d.ask;
@@ -1855,6 +1886,69 @@
     }
   }
 
+  /* ── Stale data grey-out ────────────────────────────────────────────── */
+  /**
+   * Called every 5 s.  If the last WS tick was > STALE_MS ago (or never),
+   * adds .stale-prices to <body> which dims all price / P/L cells.
+   * Removed as soon as a fresh tick arrives.
+   */
+  function checkStaleness() {
+    const age = lastTickAt ? performance.now() - lastTickAt : Infinity;
+    if (age > STALE_MS) {
+      document.body.classList.add('stale-prices');
+    } else {
+      document.body.classList.remove('stale-prices');
+    }
+  }
+
+  function startStaleCheck() {
+    if (staleCheckTimer) clearInterval(staleCheckTimer);
+    staleCheckTimer = setInterval(checkStaleness, 5000);
+  }
+
+  /* ── Error boundary ─────────────────────────────────────────────────── */
+  /**
+   * Catch unhandled JS errors and show a user-friendly banner instead of
+   * silently breaking the dashboard.  The banner auto-hides after 8 s.
+   */
+  (function installErrorBoundary() {
+    let errorBannerTimer = null;
+
+    function showErrorBanner(msg) {
+      let banner = document.getElementById('error-boundary-banner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'error-boundary-banner';
+        banner.style.cssText = [
+          'position:fixed', 'bottom:16px', 'left:50%', 'transform:translateX(-50%)',
+          'z-index:9999', 'background:#3b1a1a', 'color:#f85149',
+          'border:1px solid #f85149', 'border-radius:6px',
+          'padding:10px 18px', 'font-size:13px', 'max-width:90vw',
+          'box-shadow:0 4px 16px rgba(0,0,0,.6)',
+        ].join(';');
+        document.body.appendChild(banner);
+      }
+      banner.textContent = '⚠ ' + msg;
+      banner.style.display = 'block';
+      clearTimeout(errorBannerTimer);
+      errorBannerTimer = setTimeout(() => { banner.style.display = 'none'; }, 8000);
+    }
+
+    window.addEventListener('error', (evt) => {
+      console.error('[xag dashboard] unhandled error:', evt.error || evt.message);
+      showErrorBanner('Dashboard error — data may be stale. Refreshing…');
+    });
+
+    window.addEventListener('unhandledrejection', (evt) => {
+      const reason = evt.reason;
+      const msg = reason instanceof Error ? reason.message : String(reason ?? 'unknown');
+      // Ignore benign fetch aborts
+      if (msg === 'AbortError' || msg.includes('abort')) return;
+      console.error('[xag dashboard] unhandled promise rejection:', reason);
+      showErrorBanner('Network error — ' + msg.slice(0, 80));
+    });
+  })();
+
   /* ── Event wiring ───────────────────────────────────────────────────── */
   function wire() {
     // Refresh button
@@ -1952,6 +2046,9 @@
 
     // Load chart first (takes longer), then snapshot
     loadChart(currentTf);
+
+    // Start stale-data grey-out watchdog
+    startStaleCheck();
 
     // Start WebSocket — primary live-price source
     setWsBadge('reconnecting');

@@ -36,10 +36,17 @@ from datetime import datetime, timezone
 from threading import Lock
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
-router = APIRouter(prefix="/api/xag", tags=["xag-orders"])
+from api.xag_auth import xag_limiter, xag_require_auth
+from api.xag_logging import xag_log, xag_warn, xag_error
+
+router = APIRouter(
+    prefix="/api/xag",
+    tags=["xag-orders"],
+    dependencies=[Depends(xag_require_auth)],
+)
 
 # ── Symbol spec (Phase 2: static for XAGUSD-STD; Phase 6: mt5.symbol_info()) ──
 
@@ -175,7 +182,8 @@ class OrderRequest(BaseModel):
 # ── GET /api/xag/symbol_info ──────────────────────────────────────────────────
 
 @router.get("/symbol_info")
-def get_symbol_info():
+@xag_limiter.limit("60/minute")
+def get_symbol_info(request: Request):
     """
     Return contract specification for XAGUSD-STD.
 
@@ -188,7 +196,8 @@ def get_symbol_info():
 # ── GET /api/xag/account ─────────────────────────────────────────────────────
 
 @router.get("/account")
-def get_account():
+@xag_limiter.limit("60/minute")
+def get_account(request: Request = None):
     """
     Return account snapshot: balance, equity, margin, free margin.
 
@@ -232,7 +241,8 @@ def get_account():
 # ── POST /api/xag/order ───────────────────────────────────────────────────────
 
 @router.post("/order")
-def place_order(body: OrderRequest):
+@xag_limiter.limit("10/minute")
+def place_order(request: Request, body: OrderRequest):
     """
     Place a new order.
 
@@ -320,8 +330,20 @@ def place_order(body: OrderRequest):
         _orders.append(order)
 
     action = "filled" if status == "open" else "placed (pending)"
-    print(f"[xag_orders] {body.side.upper()} {body.volume} {body.symbol} @ "
-          f"{'market' if body.order_type == 'market' else body.price} → ticket {ticket} {action}")
+    xag_log(
+        "order.placed",
+        ticket=ticket,
+        symbol=body.symbol,
+        side=body.side,
+        order_type=body.order_type,
+        volume=body.volume,
+        fill_price=fill_price,
+        limit_price=body.price,
+        sl=body.sl,
+        tp=body.tp,
+        status=status,
+        margin=req_margin,
+    )
 
     return {
         "ok":      True,
@@ -335,7 +357,8 @@ def place_order(body: OrderRequest):
 # ── GET /api/xag/orders ───────────────────────────────────────────────────────
 
 @router.get("/orders")
-def get_orders(status: str = "open"):
+@xag_limiter.limit("60/minute")
+def get_orders(request: Request, status: str = "open"):
     """
     Return orders filtered by status ('open', 'pending', 'all').
     Phase 2: in-memory store.

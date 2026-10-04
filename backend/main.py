@@ -677,16 +677,24 @@ from api.xag_metrics import router as xag_metrics_router
 from api.xag_ws import router as xag_ws_router
 from api.xag_positions import router as xag_positions_router
 from api.xag_orders import router as xag_orders_router
+from api.xag_healthz import router as xag_healthz_router
+from api.xag_auth import xag_limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler as _xag_rate_handler
 app.include_router(xag_router)
 app.include_router(xag_metrics_router)
 app.include_router(xag_ws_router)
 app.include_router(xag_positions_router)
 app.include_router(xag_orders_router)
+app.include_router(xag_healthz_router)
+app.state.xag_limiter = xag_limiter
+app.add_exception_handler(RateLimitExceeded, _xag_rate_handler)
 print(f"[+] Loaded XAG endpoints: {len(xag_router.routes)} routes")
 print(f"[+] Loaded XAG metrics endpoint: {len(xag_metrics_router.routes)} routes")
 print(f"[+] Loaded XAG WebSocket tick stream: /api/xag/ws/tick")
 print(f"[+] Loaded XAG position endpoints: {len(xag_positions_router.routes)} routes")
 print(f"[+] Loaded XAG order endpoints: {len(xag_orders_router.routes)} routes")
+print(f"[+] Loaded XAG health check: /api/xag/healthz")
 
 
 def _run_cron_task_sync(task_name: str):
