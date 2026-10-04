@@ -1,7 +1,7 @@
 #!/bin/bash
-
-# Exit on error
-set -e
+# AURA Backend startup script
+# Aborts immediately on any error — including failed Alembic migrations.
+set -euo pipefail
 
 echo "🚀 Starting AURA Backend..."
 
@@ -11,12 +11,14 @@ if [ ! -f "main.py" ]; then
     exit 1
 fi
 
-# Run database migrations (if needed)
+# Run database migrations — HARD FAIL if they don't apply cleanly.
+# Never start the server on a corrupt or stale schema.
 if [ -f "alembic.ini" ]; then
     echo "📦 Running database migrations..."
-    alembic upgrade head || echo "⚠️ Migration failed or not configured"
+    alembic upgrade head
+    echo "✅ Migrations applied."
 fi
 
 # Start the application
 echo "✅ Starting Uvicorn server..."
-uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+exec uvicorn main:app --host 0.0.0.0 --port "${PORT:-8000}"

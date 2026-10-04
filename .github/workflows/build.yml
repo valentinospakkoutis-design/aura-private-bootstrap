@@ -1,5 +1,6 @@
 # GitHub Actions Workflow for AURA
 # Builds and tests the application
+# CI POLICY: any step failure FAILS the workflow — no silent || echo bypasses.
 
 name: Build and Test
 
@@ -13,64 +14,63 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run linter
-        run: npm run lint || echo "Linter not configured"
-      
+        run: npm run lint
+
       - name: Run tests
-        run: npm test || echo "Tests not configured"
+        run: npm test
 
   build-check:
     name: Check Build
     runs-on: ubuntu-latest
-    
+    needs: test
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Check build
-        run: |
-          npm run build || npx expo export --platform web || echo "Build check completed"
+        run: npm run build
 
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
-      - name: Run security audit
-        run: npm audit --audit-level=moderate || true
 
+      - name: Run security audit
+        run: npm audit --audit-level=moderate
