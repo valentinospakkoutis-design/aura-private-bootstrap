@@ -94,6 +94,23 @@ def _tick_payload(data: dict) -> str:
     })
 
 
+def _bar_close_payload(market_asof: str) -> str:
+    """
+    Notify the client that a new 1-minute bar has closed.
+
+    The dashboard listens for this to trigger a position refresh (backend
+    re-enriches XAGUSD-STD P/L from the latest snapshot).  The timeframe
+    is always '1m' here because our snapshot gives 1-minute resolution;
+    finer-grained bar_close events (5m, 15m, 1h) can be added when the
+    OHLC stream is wired.
+    """
+    return json.dumps({
+        "type":        "bar_close",
+        "timeframe":   "1m",
+        "market_asof": market_asof,
+    })
+
+
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
 
 @router.websocket("/ws/tick")
@@ -115,7 +132,8 @@ async def ws_tick(websocket: WebSocket):
 
     async def send_loop():
         nonlocal closed, tick_count
-        last_ping = time.monotonic()
+        last_ping     = time.monotonic()
+        last_bar_asof: Optional[str] = None   # last seen market_asof value
 
         # Send an immediate tick on connect so the client has data right away.
         data = await _get_or_refresh_snapshot()
@@ -123,6 +141,7 @@ async def ws_tick(websocket: WebSocket):
             try:
                 await websocket.send_text(_tick_payload(data))
                 tick_count += 1
+                last_bar_asof = data.get("market_asof")
             except Exception:
                 closed = True
                 return
@@ -153,6 +172,12 @@ async def ws_tick(websocket: WebSocket):
                 return
 
             try:
+                # Detect bar close: market_asof changed → new 1m bar opened
+                current_asof = data.get("market_asof")
+                if current_asof and last_bar_asof and current_asof != last_bar_asof:
+                    await websocket.send_text(_bar_close_payload(current_asof))
+                last_bar_asof = current_asof
+
                 await websocket.send_text(_tick_payload(data))
                 tick_count += 1
             except Exception:

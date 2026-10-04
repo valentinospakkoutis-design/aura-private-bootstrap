@@ -56,13 +56,31 @@ class TestGetPositions:
     def test_position_fields_present(self):
         client, _ = _make_app()
         pos = client.get("/api/xag/positions").json()["positions"][0]
-        assert "ticket" in pos
-        assert "symbol" in pos
-        assert "side" in pos
-        assert "volume" in pos
-        assert "open_price" in pos
-        assert "opened_at" in pos
-        assert "closed" in pos
+        assert "ticket"      in pos
+        assert "symbol"      in pos
+        assert "side"        in pos
+        assert "volume"      in pos
+        assert "open_price"  in pos
+        assert "opened_at"   in pos
+        assert "closed"      in pos
+        assert "swap"        in pos
+        assert "commission"  in pos
+        assert "pnl_net"     in pos
+
+    def test_swap_commission_values(self):
+        client, _ = _make_app()
+        positions = client.get("/api/xag/positions").json()["positions"]
+        # ticket 11001: swap=-1.25, commission=-2.50
+        pos = next(p for p in positions if p["ticket"] == 11001)
+        assert pos["swap"]       == pytest.approx(-1.25)
+        assert pos["commission"] == pytest.approx(-2.50)
+
+    def test_pnl_net_includes_swap_commission(self):
+        client, _ = _make_app()
+        positions = client.get("/api/xag/positions").json()["positions"]
+        # ticket 11001: pnl=395.0, swap=-1.25, comm=-2.50 → net=391.25
+        pos = next(p for p in positions if p["ticket"] == 11001)
+        assert pos["pnl_net"] == pytest.approx(391.25, abs=0.01)
 
     def test_xagusd_current_price_filled_from_cache(self):
         client, _ = _make_app()

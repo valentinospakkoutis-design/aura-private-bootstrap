@@ -55,6 +55,8 @@ _positions: list[dict] = [
         "open_price":    29.842,
         "current_price": None,          # filled live from snapshot cache
         "opened_at":     "2026-10-04T07:15:00Z",
+        "swap":          -1.25,         # overnight financing charge (USD)
+        "commission":    -2.50,         # broker commission (USD)
         "closed":        False,
         "closed_at":     None,
         "close_note":    None,
@@ -67,6 +69,8 @@ _positions: list[dict] = [
         "open_price":    30.175,
         "current_price": None,
         "opened_at":     "2026-10-04T08:42:00Z",
+        "swap":          -0.62,
+        "commission":    -1.25,
         "closed":        False,
         "closed_at":     None,
         "close_note":    None,
@@ -79,6 +83,8 @@ _positions: list[dict] = [
         "open_price":    2687.50,
         "current_price": 2701.30,
         "opened_at":     "2026-10-03T14:20:00Z",
+        "swap":          -3.80,
+        "commission":    -5.00,
         "closed":        False,
         "closed_at":     None,
         "close_note":    None,
@@ -91,6 +97,8 @@ _positions: list[dict] = [
         "open_price":    1.08520,
         "current_price": 1.08360,
         "opened_at":     "2026-10-03T09:05:00Z",
+        "swap":          1.10,          # positive swap on short EUR/USD
+        "commission":    -7.00,
         "closed":        False,
         "closed_at":     None,
         "close_note":    None,
@@ -103,6 +111,8 @@ _positions: list[dict] = [
         "open_price":    68250.00,
         "current_price": 69450.00,
         "opened_at":     "2026-10-02T22:30:00Z",
+        "swap":          -8.40,
+        "commission":    -0.50,
         "closed":        False,
         "closed_at":     None,
         "close_note":    None,
@@ -127,7 +137,7 @@ def _open_positions() -> list[dict]:
 def _enrich(pos: dict) -> dict:
     """
     Fill current_price for live-priced symbols from the snapshot cache,
-    and compute unrealised P/L for display.
+    and compute unrealised P/L, net P/L (after swap + commission) for display.
     """
     from api.xag import _snapshot_cache
 
@@ -139,19 +149,26 @@ def _enrich(pos: dict) -> dict:
         if snap and snap.get("price") is not None:
             p["current_price"] = snap["price"]
 
-    # Compute P/L
+    # Contract sizes per symbol
+    contract_size = {
+        "XAGUSD-STD": 5000,
+        "XAUUSD-STD": 100,
+        "EURUSD":     100000,
+        "BTCUSD":     1,
+    }.get(p["symbol"], 1)
+
+    # Gross unrealised P/L (price movement only)
     cur = p.get("current_price")
     if cur is not None:
-        contract_size = {
-            "XAGUSD-STD": 5000,
-            "XAUUSD-STD": 100,
-            "EURUSD":     100000,
-            "BTCUSD":     1,
-        }.get(p["symbol"], 1)
         diff = cur - p["open_price"] if p["side"] == "buy" else p["open_price"] - cur
         p["pnl"] = round(diff * p["volume"] * contract_size, 2)
     else:
         p["pnl"] = None
+
+    # Net P/L = gross + swap + commission (swap/commission are already signed)
+    swap       = p.get("swap", 0.0) or 0.0
+    commission = p.get("commission", 0.0) or 0.0
+    p["pnl_net"] = round(p["pnl"] + swap + commission, 2) if p["pnl"] is not None else None
 
     return p
 

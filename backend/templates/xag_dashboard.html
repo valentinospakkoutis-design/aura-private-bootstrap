@@ -610,13 +610,17 @@
             <th>Open price</th>
             <th>Current price</th>
             <th>P/L</th>
+            <th>Swap</th>
+            <th>Comm</th>
+            <th>Net P/L</th>
             <th>Opened at</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="positions-tbody">
-          <tr><td colspan="10" style="text-align:center;color:var(--text-dim);padding:30px">Loading positions…</td></tr>
+          <tr><td colspan="13" style="text-align:center;color:var(--text-dim);padding:30px">Loading positions…</td></tr>
         </tbody>
+        <tfoot id="positions-tfoot"></tfoot>
       </table>
     </div>
   </div>
@@ -672,7 +676,10 @@
         openPrice:    p.open_price,
         currentPrice: p.current_price,
         openedAt:     p.opened_at,
+        swap:         p.swap         ?? 0,
+        commission:   p.commission   ?? 0,
         pnl:          p.pnl,      // pre-computed by backend (XAGUSD-STD uses live cache)
+        pnlNet:       p.pnl_net,
       }));
       renderPositions();
     } catch (err) {
@@ -834,10 +841,27 @@
   }
 
   /* ── Render: positions table ────────────────────────────────────────── */
+  function fmtCharge(val) {
+    // swap / commission — always show sign, dim if zero
+    if (val == null) return '<span style="color:var(--text-dim)">—</span>';
+    const cls = val > 0 ? 'pos' : val < 0 ? 'neg' : 'zero';
+    const sign = val > 0 ? '+' : '';
+    return `<span class="pnl ${cls}">${sign}${val.toFixed(2)}</span>`;
+  }
+
+  function computeNetPnl(pos) {
+    const gross = computePnl(pos);
+    if (gross == null) return null;
+    return gross + (pos.swap ?? 0) + (pos.commission ?? 0);
+  }
+
   function renderPositions() {
     const tbody = el('positions-tbody');
+    const tfoot = el('positions-tfoot');
+
     if (positions.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-dim);padding:30px">No open positions</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--text-dim);padding:30px">No open positions</td></tr>';
+      tfoot.innerHTML = '';
       updateControls();
       return;
     }
@@ -845,7 +869,8 @@
     const cur = price;   // live XAG price
 
     tbody.innerHTML = positions.map(pos => {
-      const pnl = computePnl(pos);
+      const pnl    = computePnl(pos);
+      const netPnl = computeNetPnl(pos);
       const curStr = pos.symbol === 'XAGUSD-STD'
         ? (cur != null ? cur.toFixed(digitsFor(pos.symbol)) : '…')
         : fmt(pos.currentPrice, pos.symbol);
@@ -859,10 +884,35 @@
         <td>${fmt(pos.openPrice, pos.symbol)}</td>
         <td>${curStr}</td>
         <td>${fmtPnl(pnl)}</td>
+        <td>${fmtCharge(pos.swap)}</td>
+        <td>${fmtCharge(pos.commission)}</td>
+        <td>${fmtPnl(netPnl)}</td>
         <td>${formatTime(pos.openedAt)}</td>
         <td><button class="btn-secondary btn-close-one" data-ticket="${pos.ticket}" style="padding:3px 10px;font-size:11px">Close</button></td>
       </tr>`;
     }).join('');
+
+    // ── Totals row ────────────────────────────────────────────────────────
+    let totalPnl  = 0, totalSwap = 0, totalComm = 0, totalNet = 0, hasPnl = false;
+    positions.forEach(pos => {
+      const pnl = computePnl(pos);
+      if (pnl != null) { totalPnl += pnl; hasPnl = true; }
+      totalSwap += pos.swap       ?? 0;
+      totalComm += pos.commission ?? 0;
+    });
+    totalNet = totalPnl + totalSwap + totalComm;
+
+    const totPnlHtml = hasPnl ? fmtPnl(totalPnl) : '<span style="color:var(--text-dim)">—</span>';
+    const totNetHtml = hasPnl ? fmtPnl(totalNet)  : '<span style="color:var(--text-dim)">—</span>';
+
+    tfoot.innerHTML = `<tr style="border-top:1px solid var(--border);font-weight:600">
+      <td colspan="7" style="padding:8px 12px;color:var(--text-dim);font-size:12px">${positions.length} open position${positions.length !== 1 ? 's' : ''}</td>
+      <td>${totPnlHtml}</td>
+      <td>${fmtCharge(totalSwap)}</td>
+      <td>${fmtCharge(totalComm)}</td>
+      <td>${totNetHtml}</td>
+      <td colspan="2"></td>
+    </tr>`;
 
     updateControls();
   }
@@ -1108,6 +1158,13 @@
           // Live P/L refresh in position table
           renderPositions();
         }
+      }
+
+      if (msg.type === 'bar_close') {
+        // A new 1m bar has opened on the server side.
+        // Reload positions so P/L and enriched prices are refreshed
+        // (especially useful for non-XAGUSD symbols that don't update via tick).
+        loadPositions();
       }
 
       if (msg.type === 'error') {
