@@ -78,3 +78,4 @@ coverage/
 # External projects
 mettal-app/
 
+backend/models/
