@@ -12,6 +12,7 @@ Phase 2: no auth, no MT5. Auth added in Phase 7.
 from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timezone
+import asyncio
 import math
 import time
 
@@ -20,9 +21,11 @@ router = APIRouter(prefix="/api/xag", tags=["xag"])
 # ── Cache ────────────────────────────────────────────────────────────────────
 _snapshot_cache: dict = {}
 _SNAPSHOT_TTL = 10  # seconds
+_snapshot_lock = asyncio.Lock()   # single-flight: at most one yfinance call at a time
 
 _ohlc_cache: dict = {}
 _OHLC_TTL = 60  # seconds (closed bars don't change)
+_ohlc_lock = asyncio.Lock()       # single-flight for OHLC fetches
 
 
 # ── RSI(14) — pure pandas, no pandas-ta dependency ──────────────────────────
@@ -219,22 +222,33 @@ async def snapshot():
     Returns current silver price + RSI(14) on 1m / 15m / 1h.
     Cached for 10 seconds to avoid hammering yfinance.
 
+    Single-flight: if the cache has expired and multiple requests arrive
+    concurrently, only ONE triggers a yfinance fetch; the rest wait and
+    then read the freshly-populated cache (no stampede).
+
     Note: price is from SI=F (CME Silver futures) — a PROXY.
     bid/ask are synthetic (±0.025). Replace with broker feed for execution.
     """
+    # Fast path — no lock needed when cache is warm
     now = time.monotonic()
-    cached_ts = _snapshot_cache.get("ts", 0)
-    if cached_ts and (now - cached_ts) < _SNAPSHOT_TTL:
+    if _snapshot_cache.get("ts", 0) and (now - _snapshot_cache["ts"]) < _SNAPSHOT_TTL:
         return _snapshot_cache["data"]
 
-    try:
-        data = await run_in_threadpool(_fetch_snapshot)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Data fetch failed: {e}")
+    async with _snapshot_lock:
+        # Re-check inside the lock: another coroutine may have refreshed
+        # the cache while we were waiting to acquire it.
+        now = time.monotonic()
+        if _snapshot_cache.get("ts", 0) and (now - _snapshot_cache["ts"]) < _SNAPSHOT_TTL:
+            return _snapshot_cache["data"]
 
-    _snapshot_cache["data"] = data
-    _snapshot_cache["ts"]   = time.monotonic()
-    return data
+        try:
+            data = await run_in_threadpool(_fetch_snapshot)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Data fetch failed: {e}")
+
+        _snapshot_cache["data"] = data
+        _snapshot_cache["ts"]   = time.monotonic()
+        return data
 
 
 @router.get("/ohlc")
@@ -245,17 +259,28 @@ async def ohlc(
     """
     Returns up to n historical OHLC bars for the given timeframe.
     Closed bars are cached for 60 seconds.
+
+    Single-flight: concurrent requests after TTL expiry share one fetch.
     """
     cache_key = f"{tf}:{n}"
-    now       = time.monotonic()
-    cached    = _ohlc_cache.get(cache_key, {})
+
+    # Fast path — no lock needed when cache is warm
+    now    = time.monotonic()
+    cached = _ohlc_cache.get(cache_key, {})
     if cached.get("ts", 0) and (now - cached["ts"]) < _OHLC_TTL:
         return cached["data"]
 
-    try:
-        bars = await run_in_threadpool(_fetch_ohlc, tf, n)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"OHLC fetch failed: {e}")
+    async with _ohlc_lock:
+        # Re-check inside the lock
+        now    = time.monotonic()
+        cached = _ohlc_cache.get(cache_key, {})
+        if cached.get("ts", 0) and (now - cached["ts"]) < _OHLC_TTL:
+            return cached["data"]
 
-    _ohlc_cache[cache_key] = {"data": bars, "ts": time.monotonic()}
-    return bars
+        try:
+            bars = await run_in_threadpool(_fetch_ohlc, tf, n)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"OHLC fetch failed: {e}")
+
+        _ohlc_cache[cache_key] = {"data": bars, "ts": time.monotonic()}
+        return bars

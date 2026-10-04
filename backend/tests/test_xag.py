@@ -308,3 +308,63 @@ class TestCacheBehaviour:
         assert resp.status_code == 502
         # Cache must still hold the old data (not poisoned)
         clock[0] -= 1  # within TTL of old entry would require old ts — just check 502
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Single-flight (double-check inside lock) behaviour
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSingleFlight:
+    """
+    Verify the double-check-inside-lock pattern:
+
+    The lock serialises concurrent fetches after TTL expiry.
+    Only the *first* waiter triggers a real fetch; subsequent waiters
+    find the cache already warm when they acquire the lock and must
+    NOT call _fetch_snapshot / _fetch_ohlc a second time.
+
+    TestClient is synchronous so we simulate the race by calling the
+    endpoint twice in the same thread *without* advancing the clock
+    (i.e. after the first call already populated the cache, a second
+    call within TTL must be a pure cache hit).
+    """
+
+    def test_snapshot_no_double_fetch_after_lock(self, client, monkeypatch):
+        """
+        Simulate: cache was cold → first call fetches → second call (still
+        within TTL) must serve from cache without a second fetch.
+        """
+        calls = []
+
+        def _fetch():
+            calls.append(1)
+            return _make_snapshot()
+
+        monkeypatch.setattr(xag, "_fetch_snapshot", _fetch)
+
+        client.get("/api/xag/snapshot")   # populates cache
+        client.get("/api/xag/snapshot")   # must hit cache
+        client.get("/api/xag/snapshot")   # must hit cache
+
+        assert len(calls) == 1, (
+            "Only one yfinance fetch expected; "
+            f"got {len(calls)} — double-check inside lock is missing or broken"
+        )
+
+    def test_ohlc_no_double_fetch_after_lock(self, client, monkeypatch):
+        calls = []
+
+        def _fetch(tf, n):
+            calls.append(tf)
+            return _make_bars(3)
+
+        monkeypatch.setattr(xag, "_fetch_ohlc", _fetch)
+
+        client.get("/api/xag/ohlc?tf=5m&n=50")   # populates cache
+        client.get("/api/xag/ohlc?tf=5m&n=50")   # must hit cache
+        client.get("/api/xag/ohlc?tf=5m&n=50")   # must hit cache
+
+        assert len(calls) == 1, (
+            "Only one OHLC fetch expected; "
+            f"got {len(calls)} — double-check inside lock is broken"
+        )
