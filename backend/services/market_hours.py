@@ -46,6 +46,7 @@ EXCHANGE_CALENDAR = {
     "ES1!": "CME_Equity",
     "YM1!": "CME_Equity",
     "SI1!": "CMEGlobex_SI",
+    "XAGUSDC": "CMEGlobex_SI",
     "HG1!": "CMEGlobex_HG",
     "FTSE1!": "LSE",
     "DAX1!": "XETR",

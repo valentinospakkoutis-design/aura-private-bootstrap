@@ -37,7 +37,7 @@ ALLOWED_AUTO_TRADE_SYMBOLS = {
 # auditable at a glance. Must stay in sync with services.market_hours.EXCHANGE_CALENDAR
 # (identical 8 symbols) — the market-hours gate already knows each one's exchange.
 PAPER_ONLY_SYMBOLS = frozenset({
-    "SI1!", "HG1!", "BAC", "JPM", "ES1!", "YM1!", "DAX1!", "FTSE1!",
+    "SI1!", "HG1!", "BAC", "JPM", "ES1!", "YM1!", "DAX1!", "FTSE1!", "XAGUSDC",
 })
 
 

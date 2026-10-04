@@ -1,33 +1,24 @@
 """
 api/xag.py — XAGUSD-STD snapshot + OHLC endpoints
-Data source: yfinance (SI=F = Silver futures, PROXY for XAGUSD-STD)
-
-⚠️  SI=F is a CME Silver futures contract, NOT a spot XAG/USD feed.
-    bid/ask are synthetic (price ± 0.025) — do NOT use for execution.
-    Replace with a real broker feed before live trading.
-
+Data source: yfinance (SI=F = Silver futures, proxy for XAGUSD-STD)
 Phase 2: no auth, no MT5. Auth added in Phase 7.
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timezone
-import asyncio
-import math
 import time
-
-from api import xag_metrics as _m
 
 router = APIRouter(prefix="/api/xag", tags=["xag"])
 
 # ── Cache ────────────────────────────────────────────────────────────────────
 _snapshot_cache: dict = {}
 _SNAPSHOT_TTL = 10  # seconds
-_snapshot_lock = asyncio.Lock()   # single-flight: at most one yfinance call at a time
 
 _ohlc_cache: dict = {}
 _OHLC_TTL = 60  # seconds (closed bars don't change)
-_ohlc_lock = asyncio.Lock()       # single-flight for OHLC fetches
+
+_positions_cache: dict = {}
+_POSITIONS_TTL = 60  # seconds
 
 
 # ── RSI(14) — pure pandas, no pandas-ta dependency ──────────────────────────
@@ -47,17 +38,10 @@ def _rsi14(closes: list[float]) -> float | None:
     for i in range(15, len(closes)):
         avg_gain = (avg_gain * 13 + gain.iloc[i]) / 14
         avg_loss = (avg_loss * 13 + loss.iloc[i]) / 14
-    # Edge cases: flat series → neutral 50; no losses → overbought 100
-    if avg_gain == 0 and avg_loss == 0:
-        return 50.0
     if avg_loss == 0:
         return 100.0
     rs = avg_gain / avg_loss
-    result = round(100 - (100 / (1 + rs)), 2)
-    # Guard against NaN/Inf that could slip through with bad data
-    if not math.isfinite(result):
-        return None
-    return result
+    return round(100 - (100 / (1 + rs)), 2)
 
 
 # ── yfinance helpers ─────────────────────────────────────────────────────────
@@ -72,90 +56,48 @@ def _fetch_rsi(symbol: str, interval: str, period: str) -> float | None:
             return None
         closes = df["Close"].dropna().tolist()
         # flatten if yfinance returns multi-level columns
-        if closes and isinstance(closes[0], (list, tuple)):
+        if isinstance(closes[0], (list, tuple)):
             closes = [c[0] for c in closes]
-        floats = [float(c) for c in closes if math.isfinite(float(c))]
-        return _rsi14(floats)
+        return _rsi14([float(c) for c in closes])
     except Exception as e:
         print(f"[xag] RSI fetch error {symbol}/{interval}: {e}")
         return None
 
 
 def _fetch_snapshot() -> dict:
-    """
-    Fetch spot price + RSI for 1m, 15m, 1h.
-
-    Returns three timestamps:
-      fetched_at   — UTC wall-clock when this function completed
-      market_asof  — timestamp of the last bar yfinance returned (data age)
-      stale        — True if market_asof is >15 min old (weekend / market closed)
-    """
+    """Fetch spot price + RSI for 1m, 15m, 1h."""
     import yfinance as yf
 
     tick = yf.Ticker("SI=F")
     info = tick.fast_info
-
-    market_asof: str | None = None
-
     # fast_info gives last_price; fallback to history
     try:
         price = float(info.last_price)
-        # Attempt to get the timestamp of the last trade
-        try:
-            raw_ts = getattr(info, "last_volume_traded", None) or None
-            # fast_info doesn't expose timestamp directly; use 1m history
-            hist1m = tick.history(period="1d", interval="1m")
-            if not hist1m.empty:
-                last_bar_ts = hist1m.index[-1]
-                market_asof = last_bar_ts.tz_convert("UTC").isoformat()
-        except Exception:
-            pass
     except Exception:
         hist = tick.history(period="1d", interval="1m")
         if hist.empty:
             raise ValueError("yfinance returned no price data for SI=F")
         price = float(hist["Close"].iloc[-1])
-        last_bar_ts = hist.index[-1]
-        market_asof = last_bar_ts.tz_convert("UTC").isoformat()
-
-    # Validate price
-    if not math.isfinite(price) or price <= 0:
-        raise ValueError(f"Invalid price from yfinance: {price}")
 
     rsi_1m  = _fetch_rsi("SI=F", "1m",  "1d")
     rsi_15m = _fetch_rsi("SI=F", "15m", "5d")
     rsi_1h  = _fetch_rsi("SI=F", "1h",  "30d")
 
-    fetched_at = datetime.now(timezone.utc).isoformat()
-
-    # Determine staleness: >15 min since last bar
-    stale = False
-    if market_asof:
-        try:
-            from datetime import timedelta
-            bar_dt = datetime.fromisoformat(market_asof)
-            now_utc = datetime.now(timezone.utc)
-            stale = (now_utc - bar_dt) > timedelta(minutes=15)
-        except Exception:
-            stale = True  # conservative: unknown age → treat as stale
-
     return {
-        "symbol":      "XAGUSD-STD",
-        "source":      "yfinance/SI=F (proxy — synthetic bid/ask)",
-        "price":       round(price, 3),
-        "bid":         round(price - 0.025, 3),   # synthetic — not for execution
-        "ask":         round(price + 0.025, 3),   # synthetic — not for execution
-        "rsi_1m":      rsi_1m,
-        "rsi_15m":     rsi_15m,
-        "rsi_1h":      rsi_1h,
-        "fetched_at":  fetched_at,    # when this response was produced
-        "market_asof": market_asof,   # age of the underlying price data
-        "stale":       stale,         # True when market is closed / data is old
+        "symbol":  "XAGUSD-STD",
+        "price":   round(price, 3),
+        "bid":     round(price - 0.025, 3),
+        "ask":     round(price + 0.025, 3),
+        "rsi_1m":  rsi_1m,
+        "rsi_15m": rsi_15m,
+        "rsi_1h":  rsi_1h,
+        "asof":    datetime.now(timezone.utc).isoformat(),
+        "source":  "yfinance/SI=F",
     }
 
 
 def _fetch_ohlc(tf: str, n: int) -> list[dict]:
-    """Fetch historical OHLC bars (closed bars only)."""
+    """Fetch historical OHLC bars."""
     import yfinance as yf
 
     tf_map = {
@@ -171,104 +113,111 @@ def _fetch_ohlc(tf: str, n: int) -> list[dict]:
     df = yf.download("SI=F", interval=interval, period=period,
                      progress=False, auto_adjust=True,
                      multi_level_index=False)
-    if df is None or df.empty:
+    if df.empty:
         return []
-
-    # Normalise columns (guard against MultiIndex)
-    if hasattr(df.columns, "levels"):
-        df.columns = df.columns.get_level_values(0)
-
-    required = {"Open", "High", "Low", "Close", "Volume"}
-    if not required.issubset(set(df.columns)):
-        return []
-
-    # Sort and drop duplicates
-    df = df.sort_index()
-    df = df[~df.index.duplicated(keep="last")]
-
-    # Drop rows with NaN OHLC
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-
-    # Exclude the last (potentially open/incomplete) bar
-    if len(df) > 1:
-        df = df.iloc[:-1]
 
     df = df.tail(n)
-
     bars = []
-    invalid = 0
     for ts, row in df.iterrows():
         try:
-            o = float(row["Open"])
-            h = float(row["High"])
-            l = float(row["Low"])
-            c = float(row["Close"])
-            v = float(row["Volume"]) if not math.isnan(float(row["Volume"])) else 0
-            # Validate OHLC sanity
-            if not all(math.isfinite(x) and x > 0 for x in (o, h, l, c)):
-                invalid += 1
-                continue
-            if not (l <= o <= h and l <= c <= h):
-                invalid += 1
-                continue
+            # handle both single and multi-level columns
+            o = float(row["Open"].iloc[0]   if hasattr(row["Open"], "iloc")   else row["Open"])
+            h = float(row["High"].iloc[0]   if hasattr(row["High"], "iloc")   else row["High"])
+            l = float(row["Low"].iloc[0]    if hasattr(row["Low"], "iloc")    else row["Low"])
+            c = float(row["Close"].iloc[0]  if hasattr(row["Close"], "iloc")  else row["Close"])
+            v = int(row["Volume"].iloc[0]   if hasattr(row["Volume"], "iloc") else row["Volume"])
             t = int(ts.timestamp())
-            bars.append({"time": t, "open": round(o, 3), "high": round(h, 3),
-                         "low": round(l, 3), "close": round(c, 3), "volume": int(v)})
+            bars.append({"time": t, "open": round(o,3), "high": round(h,3),
+                         "low": round(l,3), "close": round(c,3), "volume": v})
         except Exception:
-            invalid += 1
             continue
-
-    if invalid:
-        _m.inc_invalid_bars(invalid)
 
     return bars
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+async def _warmup_positions_cache():
+    """Background warmup — runs once at startup to pre-fill positions cache."""
+    import asyncio
+    await asyncio.sleep(90)  # wait for uvicorn + DB to settle
+    try:
+        import yfinance as yf
+        from services.paper_trading import PaperTradingService
+        svc = PaperTradingService()
+        raw = svc.get_portfolio(user_id=1)
+        symbols = [p["symbol"] for p in raw.get("positions", [])]
+        _sym_map = {
+            "ES1!": "ES=F", "YM1!": "YM=F", "DAX1!": "^GDAXI",
+            "NQ1!": "NQ=F", "CL1!": "CL=F", "GC1!": "GC=F",
+            "SI1!": "SI=F", "XAGUSD": "SI=F", "XAGUSDC": "SI=F",
+            "ALGOUSDC": "ALGO-USD", "BTCUSDC": "BTC-USD",
+            "ETHUSDC": "ETH-USD", "SOLUSDC": "SOL-USD",
+            "ADAUSDC": "ADA-USD", "DOTUSDC": "DOT-USD",
+            "LINKUSDC": "LINK-USD", "LTCUSDC": "LTC-USD",
+            "UNIUSDC": "UNI-USD", "TRXUSDC": "TRX-USD",
+        }
+        current_prices = {}
+        for sym in symbols:
+            ticker = _sym_map.get(sym, sym)
+            try:
+                info = yf.Ticker(ticker).fast_info
+                price = float(info.last_price)
+                if price and price > 0:
+                    current_prices[sym] = price
+            except Exception:
+                pass
+        portfolio = svc.get_portfolio(user_id=1, current_prices=current_prices)
+        positions = []
+        for pos in portfolio.get("positions", []):
+            positions.append({
+                "symbol":   pos["symbol"],
+                "side":     "BUY",
+                "quantity": round(float(pos["quantity"]), 4),
+                "entry":    round(float(pos["avg_price"]), 3),
+                "current":  round(float(pos["current_price"]), 3),
+                "value":    round(float(pos["value"]), 2),
+                "pnl":      round(float(pos["pnl"]), 2),
+                "pnl_pct":  round(float(pos["pnl_percent"]), 2),
+            })
+        result = {
+            "positions":   positions,
+            "total_value": round(float(portfolio["total_value"]), 2),
+            "cash":        round(float(portfolio["cash"]), 2),
+            "total_pnl":   round(float(portfolio["total_pnl"]), 2),
+            "count":       len(positions),
+        }
+        import time
+        _positions_cache["data"] = result
+        _positions_cache["ts"]   = time.time()
+        print("[xag] positions cache warmed up")
+    except Exception as e:
+        print(f"[xag] warmup failed: {e}")
+
+
+@router.on_event("startup")
+async def startup_warmup():
+    import asyncio
+    asyncio.create_task(_warmup_positions_cache())
+
+
 @router.get("/snapshot")
 async def snapshot():
     """
     Returns current silver price + RSI(14) on 1m / 15m / 1h.
     Cached for 10 seconds to avoid hammering yfinance.
-
-    Single-flight: if the cache has expired and multiple requests arrive
-    concurrently, only ONE triggers a yfinance fetch; the rest wait and
-    then read the freshly-populated cache (no stampede).
-
-    Note: price is from SI=F (CME Silver futures) — a PROXY.
-    bid/ask are synthetic (±0.025). Replace with broker feed for execution.
     """
-    _m.inc_snapshot_request()
-
-    # Fast path — no lock needed when cache is warm
-    now = time.monotonic()
-    if _snapshot_cache.get("ts", 0) and (now - _snapshot_cache["ts"]) < _SNAPSHOT_TTL:
-        _m.inc_snapshot_cache_hit()
+    now = time.time()
+    if _snapshot_cache.get("ts", 0) + _SNAPSHOT_TTL > now:
         return _snapshot_cache["data"]
 
-    _m.inc_snapshot_cache_miss()
+    try:
+        data = _fetch_snapshot()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Data fetch failed: {e}")
 
-    async with _snapshot_lock:
-        # Re-check inside the lock: another coroutine may have refreshed
-        # the cache while we were waiting to acquire it.
-        now = time.monotonic()
-        if _snapshot_cache.get("ts", 0) and (now - _snapshot_cache["ts"]) < _SNAPSHOT_TTL:
-            _m.inc_snapshot_cache_hit()
-            return _snapshot_cache["data"]
-
-        t0 = time.monotonic()
-        try:
-            data = await run_in_threadpool(_fetch_snapshot)
-        except Exception as e:
-            _m.record_snapshot_error()
-            raise HTTPException(status_code=502, detail=f"Data fetch failed: {e}")
-
-        latency_ms = (time.monotonic() - t0) * 1000
-        _m.record_snapshot_ok(latency_ms, rsi_1m_is_none=data.get("rsi_1m") is None)
-
-        _snapshot_cache["data"] = data
-        _snapshot_cache["ts"]   = time.monotonic()
-        return data
+    _snapshot_cache["data"] = data
+    _snapshot_cache["ts"]   = now
+    return data
 
 
 @router.get("/ohlc")
@@ -279,38 +228,165 @@ async def ohlc(
     """
     Returns up to n historical OHLC bars for the given timeframe.
     Closed bars are cached for 60 seconds.
-
-    Single-flight: concurrent requests after TTL expiry share one fetch.
     """
-    _m.inc_ohlc_request()
     cache_key = f"{tf}:{n}"
+    now       = time.time()
+    if _ohlc_cache.get(cache_key, {}).get("ts", 0) + _OHLC_TTL > now:
+        return _ohlc_cache[cache_key]["data"]
 
-    # Fast path — no lock needed when cache is warm
-    now    = time.monotonic()
-    cached = _ohlc_cache.get(cache_key, {})
-    if cached.get("ts", 0) and (now - cached["ts"]) < _OHLC_TTL:
-        _m.inc_ohlc_cache_hit()
-        return cached["data"]
+    try:
+        bars = _fetch_ohlc(tf, n)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OHLC fetch failed: {e}")
 
-    _m.inc_ohlc_cache_miss()
+    _ohlc_cache[cache_key] = {"data": bars, "ts": now}
+    return bars
 
-    async with _ohlc_lock:
-        # Re-check inside the lock
-        now    = time.monotonic()
-        cached = _ohlc_cache.get(cache_key, {})
-        if cached.get("ts", 0) and (now - cached["ts"]) < _OHLC_TTL:
-            _m.inc_ohlc_cache_hit()
-            return cached["data"]
+@router.get("/signal")
+async def xag_signal():
+    """Current Aura signal for XAGUSD-STD (via XAGUSDC model)."""
+    try:
+        from ai.asset_predictor import asset_predictor
+        sig = asset_predictor.predict_price("XAGUSDC")
+        return {
+            "signal":           sig.get("recommendation"),
+            "strength":         sig.get("recommendation_strength"),
+            "confidence":       sig.get("confidence"),
+            "trend":            sig.get("trend"),
+            "regime":           sig.get("market_regime", {}).get("regime"),
+            "price_change_pct": sig.get("price_change_percent"),
+            "timestamp":        sig.get("timestamp"),
+        }
+    except Exception as e:
+        return {"signal": None, "error": str(e)}
 
-        t0 = time.monotonic()
-        try:
-            bars = await run_in_threadpool(_fetch_ohlc, tf, n)
-        except Exception as e:
-            _m.record_ohlc_error()
-            raise HTTPException(status_code=502, detail=f"OHLC fetch failed: {e}")
+@router.get("/smart-score")
+async def xag_smart_score():
+    """Smart Score για XAGUSDC χωρίς auth (dashboard use)."""
+    try:
+        from services.smart_score import smart_score_calculator
+        result = smart_score_calculator.calculate_smart_score("XAGUSDC")
+        return {
+            "smart_score": round(result.get("smart_score", 0), 1),
+            "recommendation": result.get("recommendation", "WAIT"),
+            "rsi": round(result.get("signals", {}).get("rsi", {}).get("score", 50), 1),
+            "mtf": round(result.get("signals", {}).get("multi_timeframe", {}).get("score", 50), 1),
+            "threshold": 75,
+        }
+    except Exception as e:
+        return {"smart_score": None, "error": str(e)}
 
-        latency_ms = (time.monotonic() - t0) * 1000
-        _m.record_ohlc_ok(latency_ms)
+@router.get("/paper-positions")
+async def xag_paper_positions():
+    """Paper trading positions για dashboard (no auth)."""
+    try:
+        import yfinance as yf
+        from services.paper_trading import PaperTradingService
 
-        _ohlc_cache[cache_key] = {"data": bars, "ts": time.monotonic()}
-        return bars
+        # Return cached if fresh
+        now = time.time()
+        if _positions_cache.get("ts", 0) + _POSITIONS_TTL > now:
+            return _positions_cache["data"]
+
+        svc = PaperTradingService()
+        # First pass: get positions to know which symbols we need
+        raw = svc.get_portfolio(user_id=1)
+        symbols = [p["symbol"] for p in raw.get("positions", [])]
+
+        # Fetch live prices via yfinance
+        # Map broker symbols to yfinance tickers
+        _sym_map = {
+            "ES1!": "ES=F", "YM1!": "YM=F", "DAX1!": "^GDAXI",
+            "NQ1!": "NQ=F", "CL1!": "CL=F", "GC1!": "GC=F",
+            "SI1!": "SI=F", "XAGUSD": "SI=F", "XAGUSDC": "SI=F",
+            "ALGOUSDC": "ALGO-USD", "BTCUSDC": "BTC-USD",
+            "ETHUSDC": "ETH-USD", "SOLUSDC": "SOL-USD",
+            "ADAUSDC": "ADA-USD", "DOTUSDC": "DOT-USD",
+            "LINKUSDC": "LINK-USD", "LTCUSDC": "LTC-USD",
+            "UNIUSDC": "UNI-USD", "TRXUSDC": "TRX-USD",
+        }
+        current_prices = {}
+        for sym in symbols:
+            ticker = _sym_map.get(sym, sym)
+            try:
+                info = yf.Ticker(ticker).fast_info
+                price = float(info.last_price)
+                if price and price > 0:
+                    current_prices[sym] = price
+            except Exception:
+                pass
+
+        # Second pass: get portfolio with live prices
+        portfolio = svc.get_portfolio(user_id=1, current_prices=current_prices)
+
+        positions = []
+        for pos in portfolio.get("positions", []):
+            positions.append({
+                "symbol":   pos["symbol"],
+                "side":     "BUY",
+                "quantity": round(float(pos["quantity"]), 4),
+                "entry":    round(float(pos["avg_price"]), 3),
+                "current":  round(float(pos["current_price"]), 3),
+                "value":    round(float(pos["value"]), 2),
+                "pnl":      round(float(pos["pnl"]), 2),
+                "pnl_pct":  round(float(pos["pnl_percent"]), 2),
+            })
+
+        result = {
+            "positions":   positions,
+            "total_value": round(float(portfolio["total_value"]), 2),
+            "cash":        round(float(portfolio["cash"]), 2),
+            "total_pnl":   round(float(portfolio["total_pnl"]), 2),
+            "count":       len(positions),
+        }
+        _positions_cache["data"] = result
+        _positions_cache["ts"]   = time.time()
+        return result
+    except Exception as e:
+        return {"positions": [], "error": str(e)}
+
+
+_signals_cache: dict = {}
+_SIGNALS_TTL = 300  # 5 λεπτά
+
+@router.get("/signals-bulk")
+async def signals_bulk():
+    """Smart Score signals για τα paper positions."""
+    try:
+        import time as _time
+        now = _time.time()
+        if _signals_cache.get("ts", 0) + _SIGNALS_TTL > now:
+            return _signals_cache["data"]
+        from services.smart_score import smart_score_calculator
+        symbols = [
+            "AAPL","AAVEUSDC","ADAUSDC","ALGOUSDC","AMZN","ASML","ATOMUSDC",
+            "AVAXUSDC","AXSUSDC","BAC","BCHUSDC","BNBUSDC","BTCUSDC","CL1!",
+            "DAX1!","DOGEUSDC","DOTUSDC","ES1!","ETCUSDC","ETHUSDC","FILUSDC",
+            "FTSE1!","GC1!","GOOGL","HG1!","ICPUSDC","JPM","LINKUSDC","LTCUSDC",
+            "LVMH","META","MSFT","N2251!","NEARUSDC","NG1!","NQ1!","NVDA",
+            "OILUSD","POLUSDC","SANDUSDC","SAP","SHIBUSDC","SI1!","SOLUSDC",
+            "THETAUSDC","TRXUSDC","TSLA","UNIUSDC","US100","US30","US500",
+            "XAGUSDC","XAUUSDC","XBRUSD","XLMUSDC","XPDUSDC","XPTUSDC","XRPUSDC",
+            "YM1!","ZC1!","ZS1!",
+        ]
+        results = {}
+        for sym in symbols:
+            try:
+                r = smart_score_calculator.calculate_smart_score(sym)
+                sigs = r.get("signals", {})
+                results[sym] = {
+                    "signal":     r.get("recommendation", "HOLD"),
+                    "score":      round(r.get("smart_score", 0), 1),
+                    "rsi":        round(sigs.get("rsi", {}).get("score", 0), 1),
+                    "sentiment":  round(sigs.get("news_sentiment", {}).get("score", 0), 1),
+                    "prediction": round(sigs.get("prediction", {}).get("score", 0), 1),
+                    "volume":     round(sigs.get("volume", {}).get("score", 0), 1),
+                    "fear_greed": round(sigs.get("fear_greed", {}).get("score", 0), 1),
+                }
+            except Exception:
+                results[sym] = {"signal": "N/A", "score": None}
+        _signals_cache["data"] = results
+        _signals_cache["ts"] = _time.time()
+        return results
+    except Exception as e:
+        return {"error": str(e)}

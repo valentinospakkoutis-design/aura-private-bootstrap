@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, Form, WebSocket, Depends, Q
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -696,6 +697,10 @@ print(f"[+] Loaded XAG position endpoints: {len(xag_positions_router.routes)} ro
 print(f"[+] Loaded XAG order endpoints: {len(xag_orders_router.routes)} routes")
 print(f"[+] Loaded XAG health check: /api/xag/healthz")
 
+# Serve the frontend dashboard at /dashboard
+app.mount("/monitor", StaticFiles(directory="/root/aura-frontend", html=True), name="monitor")
+app.mount("/scanner", StaticFiles(directory="/root/aura-scanner", html=True), name="scanner")
+
 
 def _run_cron_task_sync(task_name: str):
     """Run cron task in a background thread with an isolated asyncio loop."""
@@ -772,12 +777,12 @@ templates = Jinja2Templates(directory=templates_dir)
 # CORS Configuration
 _allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "https://116.203.75.114.nip.io,http://localhost:3000,http://localhost:8081,http://localhost:8082,http://localhost:19006,http://116.203.75.114:8081,http://localhost:5173"
+    "*"
 ).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
