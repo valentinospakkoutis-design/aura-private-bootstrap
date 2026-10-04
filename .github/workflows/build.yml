@@ -11,6 +11,31 @@ on:
     branches: [main, develop]
 
 jobs:
+  backend-tests:
+    name: Backend Tests (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      JWT_SECRET_KEY: ci-only-not-a-production-secret-replace-in-prod
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: pip install --break-system-packages -r requirements.txt pytest pytest-cov
+
+      - name: Run backend tests
+        run: python -m pytest tests -q --cov=api --cov-branch
+        # NOTE: XAG_DEV_NO_AUTH is intentionally NOT set here.
+        # Tests must pass with real JWT auth enabled.
+
   test:
     name: Run Tests
     runs-on: ubuntu-latest

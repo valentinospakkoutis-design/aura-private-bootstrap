@@ -13,12 +13,17 @@ from utils.error_handler import AuthenticationError
 
 
 # JWT Configuration
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "xlLxv4LhQM04QAP6nCOT_3KL-idCdJ2mozfEgkbimKA6HhrOga2DMtCsfxhQdeGQM9k8Uwu6m2EbpcJ5TzfwIg")
+_raw_secret = os.environ.get("JWT_SECRET_KEY", "")
+if not _raw_secret.strip():
+    raise RuntimeError(
+        "JWT_SECRET_KEY environment variable is not set or is empty. "
+        "Set it to a strong random secret before starting the server."
+    )
+SECRET_KEY = _raw_secret
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 REFRESH_TOKEN_EXPIRE_DAYS = 90  # 90 days
-
-print(f"[JWT] Using secret key: {SECRET_KEY[:10]}...")
 
 
 def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -92,11 +97,17 @@ def verify_token(token: str, token_type: str = "access") -> Dict:
     """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        
+
+        # Require mandatory claims
+        if not payload.get("sub"):
+            raise AuthenticationError("Token missing required claim: sub")
+        if "exp" not in payload:
+            raise AuthenticationError("Token missing required claim: exp")
+
         # Verify token type
         if payload.get("type") != token_type:
             raise AuthenticationError("Invalid token type")
-        
+
         return payload
     except jwt.ExpiredSignatureError:
         raise AuthenticationError("Token has expired")

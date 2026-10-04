@@ -28,8 +28,6 @@ GET  /api/xag/orders
      Return the in-memory order book (open sim orders).
 """
 
-from __future__ import annotations
-
 import random
 import uuid
 from datetime import datetime, timezone
@@ -193,20 +191,20 @@ def get_symbol_info(request: Request):
     return _SYMBOL_INFO
 
 
-# ── GET /api/xag/account ─────────────────────────────────────────────────────
+# ── Account snapshot helper ───────────────────────────────────────────────────
 
-@router.get("/account")
-@xag_limiter.limit("60/minute")
-def get_account(request: Request = None):
+def _account_snapshot() -> dict:
     """
-    Return account snapshot: balance, equity, margin, free margin.
+    Compute and return the current account snapshot (balance, equity, margin,
+    free margin, floating P/L) from the in-memory state and live price cache.
 
-    Phase 2: static + dynamic margin from in-memory orders.
-    Phase 6+: replace with mt5.account_info()._asdict()
+    Called by get_account() and directly by place_order() so that the
+    decorated endpoint is never called outside a real Request context.
+
+    Phase 6+: replace body with mt5.account_info()._asdict() enrichment.
     """
     from api.xag import _snapshot_cache
 
-    # Recompute margin from open sim orders using live price
     snap = _snapshot_cache.get("data")
     live_price = snap["price"] if snap else None
 
@@ -216,26 +214,48 @@ def get_account(request: Request = None):
     total_margin = 0.0
     floating_pnl = 0.0
     for o in open_orders:
-        ref = live_price if o["symbol"] == "XAGUSD-STD" and live_price else o.get("fill_price", o.get("price", 0))
+        ref = (
+            live_price
+            if o["symbol"] == "XAGUSD-STD" and live_price
+            else o.get("fill_price", o.get("price", 0))
+        )
         total_margin += _margin_required(o["volume"], ref)
         if live_price and o["symbol"] == "XAGUSD-STD":
-            diff = (live_price - o["fill_price"]) if o["side"] == "buy" else (o["fill_price"] - live_price)
+            diff = (
+                (live_price - o["fill_price"])
+                if o["side"] == "buy"
+                else (o["fill_price"] - live_price)
+            )
             floating_pnl += diff * o["volume"] * _SYMBOL_INFO["contract_size"]
 
-    equity       = round(_account["balance"] + floating_pnl, 2)
-    free_margin  = round(equity - total_margin, 2)
+    equity      = round(_account["balance"] + floating_pnl, 2)
+    free_margin = round(equity - total_margin, 2)
     margin_level = round(equity / total_margin * 100, 1) if total_margin > 0 else None
 
     return {
         **_account,
-        "equity":        equity,
-        "margin":        round(total_margin, 2),
-        "free_margin":   free_margin,
-        "margin_level":  margin_level,
-        "floating_pnl":  round(floating_pnl, 2),
-        "open_orders":   len(open_orders),
-        "as_of":         _utcnow(),
+        "equity":       equity,
+        "margin":       round(total_margin, 2),
+        "free_margin":  free_margin,
+        "margin_level": margin_level,
+        "floating_pnl": round(floating_pnl, 2),
+        "open_orders":  len(open_orders),
+        "as_of":        _utcnow(),
     }
+
+
+# ── GET /api/xag/account ─────────────────────────────────────────────────────
+
+@router.get("/account")
+@xag_limiter.limit("60/minute")
+def get_account(request: Request):
+    """
+    Return account snapshot: balance, equity, margin, free margin.
+
+    Phase 2: static + dynamic margin from in-memory orders.
+    Phase 6+: replace with mt5.account_info()._asdict()
+    """
+    return _account_snapshot()
 
 
 # ── POST /api/xag/order ───────────────────────────────────────────────────────
@@ -295,7 +315,7 @@ def place_order(request: Request, body: OrderRequest):
 
     # ── Margin check ──────────────────────────────────────────────────────────
     req_margin = _margin_required(body.volume, ref_price)
-    account_snap = get_account()
+    account_snap = _account_snapshot()
     if req_margin > account_snap["free_margin"]:
         raise HTTPException(
             status_code=422,

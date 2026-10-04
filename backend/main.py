@@ -688,8 +688,13 @@ app.include_router(xag_ws_router)
 app.include_router(xag_positions_router)
 app.include_router(xag_orders_router)
 app.include_router(xag_healthz_router)
-app.state.xag_limiter = xag_limiter
-app.add_exception_handler(RateLimitExceeded, _xag_rate_handler)
+# xag_limiter uses a separate Limiter instance so XAG limits can be tuned
+# independently. SlowAPI resolves @xag_limiter.limit() decorators via the
+# limiter object bound to each decorator — no app.state override needed.
+# The RateLimitExceeded exception handler is already registered above (line 82)
+# and covers both the main limiter and xag_limiter.
+# IMPORTANT: do NOT set app.state.limiter = xag_limiter here — that would
+# break all @limiter.limit() decorators in mettal_endpoints and elsewhere.
 print(f"[+] Loaded XAG endpoints: {len(xag_router.routes)} routes")
 print(f"[+] Loaded XAG metrics endpoint: {len(xag_metrics_router.routes)} routes")
 print(f"[+] Loaded XAG WebSocket tick stream: /api/xag/ws/tick")

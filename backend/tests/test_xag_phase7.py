@@ -56,7 +56,7 @@ def _make_xag_app(*, warm_snapshot: bool = True):
     from slowapi import _rate_limit_exceeded_handler
 
     app = FastAPI()
-    app.state.xag_limiter = auth_mod.xag_limiter
+    app.state.limiter = auth_mod.xag_limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.include_router(healthz_mod.router)
     app.include_router(orders_mod.router)

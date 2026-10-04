@@ -27,8 +27,6 @@ POST /api/xag/positions/close_bulk
      Response: {"results": [...per-ticket result...], "closed": N, "failed": N}
 """
 
-from __future__ import annotations
-
 import time
 from datetime import datetime, timezone
 from threading import Lock
