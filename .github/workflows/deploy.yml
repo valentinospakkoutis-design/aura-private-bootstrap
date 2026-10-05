@@ -77,6 +77,13 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Deploy backend to Railway
+        run: |
+          npm install -g @railway/cli
+          railway up --service backend --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
