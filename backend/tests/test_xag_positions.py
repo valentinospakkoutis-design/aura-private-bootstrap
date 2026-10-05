@@ -25,17 +25,29 @@ from fastapi import FastAPI
 
 def _make_app():
     """
-    Build a minimal FastAPI app with only the xag_positions router.
+    Build a minimal FastAPI app with xag + xag_auth + xag_positions routers.
     Also mocks _snapshot_cache in api.xag so _enrich() can read a price.
+    Dev-bypass is enabled so business-logic tests run without JWT overhead.
     """
     import api.xag as xag_mod
-    xag_mod._snapshot_cache["data"] = {"price": 30.00}
+    xag_mod._snapshot_cache["data"] = {"price": 30.00, "bid": 29.99, "ask": 30.01}
     xag_mod._snapshot_cache["ts"] = 1.0  # non-zero so _cache_age check passes
+
+    import api.xag_auth as auth_mod
+    importlib.reload(auth_mod)
+    # Bypass JWT for business-logic tests — auth enforcement tested in test_xag_phase7.py
+    auth_mod._DEV_NO_AUTH = True
 
     import api.xag_positions as pos_mod
     importlib.reload(pos_mod)            # fresh store for each test
 
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
     app = FastAPI()
+    app.state.limiter = auth_mod.xag_limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.include_router(xag_mod.router)
     app.include_router(pos_mod.router)
     return TestClient(app), pos_mod
 
