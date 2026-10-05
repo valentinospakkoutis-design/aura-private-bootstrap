@@ -13,11 +13,16 @@ from utils.error_handler import AuthenticationError
 
 
 # JWT Configuration
-_raw_secret = os.environ.get("JWT_SECRET_KEY", "")
-if not _raw_secret.strip():
+_raw_secret = os.environ.get("JWT_SECRET_KEY", "").strip()
+if not _raw_secret:
     raise RuntimeError(
         "JWT_SECRET_KEY environment variable is not set or is empty. "
-        "Set it to a strong random secret before starting the server."
+        "Set it to a strong random secret (minimum 32 characters) before starting the server."
+    )
+if len(_raw_secret) < 32:
+    raise RuntimeError(
+        f"JWT_SECRET_KEY is too short ({len(_raw_secret)} chars). "
+        "Use at least 32 characters for adequate security."
     )
 SECRET_KEY = _raw_secret
 

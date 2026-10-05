@@ -5,9 +5,10 @@ Phase 7: JWT authentication on all /api/xag/* routes.
 
 Dev bypass
 ----------
-Set env var  XAG_DEV_NO_AUTH=1  to skip JWT checks without removing the
-Depends() from endpoint signatures.  This is the ONLY way to disable auth;
-never ship without confirming the env var is unset in production.
+Set env vars  APP_ENV=development  AND  XAG_DEV_NO_AUTH=1  to skip JWT
+checks without removing the Depends() from endpoint signatures.
+Both env vars must be set simultaneously — XAG_DEV_NO_AUTH alone in a
+non-development environment raises RuntimeError at import time.
 
 Usage in routers
 ----------------
@@ -23,7 +24,6 @@ every decorated endpoint function (slowapi requirement).
 """
 
 import os
-from typing import Optional
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -31,8 +31,20 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 # ── Dev bypass ────────────────────────────────────────────────────────────────
+# XAG_DEV_NO_AUTH=1 is allowed ONLY when APP_ENV=development.
+# Any other combination raises a hard error at startup so the bypass can never
+# silently leak into staging or production containers.
 
-_DEV_NO_AUTH: bool = os.environ.get("XAG_DEV_NO_AUTH", "").strip() in ("1", "true", "yes")
+_APP_ENV: str = os.environ.get("APP_ENV", "production").strip().lower()
+_DEV_NO_AUTH: bool = os.environ.get("XAG_DEV_NO_AUTH", "").strip().lower() in (
+    "1", "true", "yes"
+)
+
+if _DEV_NO_AUTH and _APP_ENV != "development":
+    raise RuntimeError(
+        "XAG_DEV_NO_AUTH=1 is not allowed outside APP_ENV=development. "
+        "Set APP_ENV=development explicitly, or unset XAG_DEV_NO_AUTH."
+    )
 
 if _DEV_NO_AUTH:
     import warnings
@@ -47,7 +59,7 @@ if _DEV_NO_AUTH:
 # the rest of Aura; we keep a separate one so XAG limits can be tuned
 # independently.  Key: remote IP address.
 
-xag_limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+xag_limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 # ── JWT auth dependency ───────────────────────────────────────────────────────
 
@@ -55,7 +67,6 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def xag_require_auth(
-    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ):
     """
@@ -65,7 +76,7 @@ def xag_require_auth(
 
     Returns the decoded JWT payload (dict) on success.
     Raises HTTP 401 if the token is missing or invalid.
-    Skipped entirely when XAG_DEV_NO_AUTH=1.
+    Skipped entirely when XAG_DEV_NO_AUTH=1 AND APP_ENV=development.
     """
     if _DEV_NO_AUTH:
         return {"sub": "dev", "email": "dev@local", "dev": True}
@@ -79,12 +90,10 @@ def xag_require_auth(
 
     try:
         from auth.jwt_handler import verify_token
-        payload = verify_token(credentials.credentials, "access")
+        return verify_token(credentials.credentials, "access")
     except Exception:
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return payload
+        ) from None

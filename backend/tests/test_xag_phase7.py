@@ -369,3 +369,88 @@ class TestXagLimiter:
         from api.xag_auth import xag_limiter
         # key_func should be the remote-address helper
         assert xag_limiter._key_func is get_remote_address
+
+
+# ── TestXagRoutesCoverage ─────────────────────────────────────────────────────
+
+class TestXagRoutesCoverage:
+    """
+    Επαληθεύει ότι ΟΛΕΣ οι data routes απαιτούν auth.
+    Χρησιμοποιεί secured_client (bypass=False) και ελέγχει 401 χωρίς token.
+    Το /healthz είναι σκόπιμα public — ελέγχεται ξεχωριστά.
+    """
+
+    # Endpoints από xag_orders.py / xag_positions.py (ήδη στο router_prefix)
+    # και από xag.py (νέο auth)
+    @pytest.mark.parametrize("path", [
+        # xag_orders.py routes
+        "/api/xag/symbol_info",
+        "/api/xag/account",
+        "/api/xag/orders",
+        # xag_positions.py routes
+        "/api/xag/positions",
+        "/api/xag/audit",
+        # xag.py routes (νέο auth — Phase 7 round 2)
+        "/api/xag/snapshot",
+        "/api/xag/ohlc",
+        "/api/xag/signal",
+        "/api/xag/smart-score",
+        "/api/xag/paper-positions",
+        "/api/xag/signals-bulk",
+    ])
+    def test_data_route_requires_auth(self, secured_client, path):
+        """Κάθε data route πρέπει να επιστρέφει 401 χωρίς Authorization header."""
+        r = secured_client.get(path)
+        assert r.status_code == 401, (
+            f"{path} επέστρεψε {r.status_code} αντί 401 — ελέγξτε ότι έχει dependencies=[Depends(xag_require_auth)]"
+        )
+
+    def test_healthz_remains_public(self, secured_client):
+        """Το /healthz είναι σκόπιμα public — δεν πρέπει να απαιτεί token."""
+        r = secured_client.get("/api/xag/healthz")
+        assert r.status_code != 401, "/healthz δεν πρέπει να απαιτεί auth"
+
+
+# ── TestXagAuthEnvGuard ───────────────────────────────────────────────────────
+
+class TestXagAuthEnvGuard:
+    """
+    Επαληθεύει ότι XAG_DEV_NO_AUTH=1 χωρίς APP_ENV=development
+    πυροδοτεί RuntimeError κατά την εισαγωγή του module.
+    """
+
+    def test_bypass_without_dev_env_raises(self, monkeypatch):
+        """
+        XAG_DEV_NO_AUTH=1 + APP_ENV=production (default) → RuntimeError.
+        Εξασφαλίζει ότι το bypass δεν μπορεί να ενεργοποιηθεί τυχαία σε production.
+        """
+        import importlib
+        import api.xag_auth as auth_mod
+
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
+        monkeypatch.setenv("APP_ENV", "production")
+
+        with pytest.raises(RuntimeError, match="XAG_DEV_NO_AUTH"):
+            importlib.reload(auth_mod)
+
+    def test_bypass_with_dev_env_allowed(self, monkeypatch):
+        """
+        XAG_DEV_NO_AUTH=1 + APP_ENV=development → επιτρέπεται (με warning).
+        """
+        import importlib
+        import warnings
+        import api.xag_auth as auth_mod
+
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
+        monkeypatch.setenv("APP_ENV", "development")
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            reloaded = importlib.reload(auth_mod)
+
+        assert reloaded._DEV_NO_AUTH is True
+
+        # Restore για να μην μολύνει άλλα tests
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "0")
+        monkeypatch.setenv("APP_ENV", "production")
+        importlib.reload(auth_mod)

@@ -1,12 +1,16 @@
 """
 api/xag.py — XAGUSD-STD snapshot + OHLC endpoints
 Data source: yfinance (SI=F = Silver futures, proxy for XAGUSD-STD)
-Phase 2: no auth, no MT5. Auth added in Phase 7.
+Phase 7: all routes require JWT auth except /healthz (handled separately).
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
 import time
+
+from api.xag_auth import xag_require_auth
+
+_AUTH = [Depends(xag_require_auth)]
 
 router = APIRouter(prefix="/api/xag", tags=["xag"])
 
@@ -200,7 +204,7 @@ async def startup_warmup():
     asyncio.create_task(_warmup_positions_cache())
 
 
-@router.get("/snapshot")
+@router.get("/snapshot", dependencies=_AUTH)
 async def snapshot():
     """
     Returns current silver price + RSI(14) on 1m / 15m / 1h.
@@ -220,7 +224,7 @@ async def snapshot():
     return data
 
 
-@router.get("/ohlc")
+@router.get("/ohlc", dependencies=_AUTH)
 async def ohlc(
     tf: str = Query("1m", pattern="^(1m|5m|15m|1h)$"),
     n:  int = Query(200,  ge=1, le=500),
@@ -242,7 +246,7 @@ async def ohlc(
     _ohlc_cache[cache_key] = {"data": bars, "ts": now}
     return bars
 
-@router.get("/signal")
+@router.get("/signal", dependencies=_AUTH)
 async def xag_signal():
     """Current Aura signal for XAGUSD-STD (via XAGUSDC model)."""
     try:
@@ -260,7 +264,7 @@ async def xag_signal():
     except Exception as e:
         return {"signal": None, "error": str(e)}
 
-@router.get("/smart-score")
+@router.get("/smart-score", dependencies=_AUTH)
 async def xag_smart_score():
     """Smart Score για XAGUSDC χωρίς auth (dashboard use)."""
     try:
@@ -276,7 +280,7 @@ async def xag_smart_score():
     except Exception as e:
         return {"smart_score": None, "error": str(e)}
 
-@router.get("/paper-positions")
+@router.get("/paper-positions", dependencies=_AUTH)
 async def xag_paper_positions():
     """Paper trading positions για dashboard (no auth)."""
     try:
@@ -349,7 +353,7 @@ async def xag_paper_positions():
 _signals_cache: dict = {}
 _SIGNALS_TTL = 300  # 5 λεπτά
 
-@router.get("/signals-bulk")
+@router.get("/signals-bulk", dependencies=_AUTH)
 async def signals_bulk():
     """Smart Score signals για τα paper positions."""
     try:

@@ -1,7 +1,11 @@
 """
 api/xag_ws.py — WebSocket tick stream for the XAG dashboard.
 
-Endpoint:  WS /api/xag/ws/tick
+Endpoint:  WS /api/xag/ws/tick?token=<JWT>
+
+Auth: JWT Bearer token passed as `token` query parameter (WebSocket clients
+cannot set Authorization headers). Connections without a valid access token
+are closed immediately with code 4001 (mirrors the main /ws endpoint).
 
 Behaviour:
   - On connect, sends the current snapshot immediately so the client has a
@@ -25,7 +29,7 @@ each WS client gets its own send loop.  There is no broadcast (each client
 reads the shared in-process cache independently) — broadcasting is left for
 a future Redis pub/sub integration.
 
-Phase 2: no auth.  Phase 7: add JWT query-param check, same pattern as /ws.
+Phase 7: JWT query-param auth enforced, same pattern as the main /ws endpoint.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 # Re-use the in-process snapshot cache built by xag.py (same Python process,
 # same object in memory — no IPC needed).
@@ -114,9 +118,15 @@ def _bar_close_payload(market_asof: str) -> str:
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
 
 @router.websocket("/ws/tick")
-async def ws_tick(websocket: WebSocket):
+async def ws_tick(
+    websocket: WebSocket,
+    token: str | None = Query(default=None),
+):
     """
     Live tick stream for the XAG dashboard.
+
+    Requires a valid JWT access token as ?token=<JWT> query parameter.
+    Connections without a valid token are closed with code 4001.
 
     Client receives:
       {"type": "tick",  "data": {price, bid, ask, stale, market_asof, fetched_at}}
@@ -126,6 +136,19 @@ async def ws_tick(websocket: WebSocket):
     Client may send:
       {"type": "ping"}  → server replies {"type": "pong"}
     """
+    # ── JWT auth ──────────────────────────────────────────────────────────────
+    from api.xag_auth import _DEV_NO_AUTH
+    if not _DEV_NO_AUTH:
+        if not token:
+            await websocket.close(code=4001, reason="Missing token")
+            return
+        try:
+            from auth.jwt_handler import verify_token
+            verify_token(token, "access")
+        except Exception:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+
     await websocket.accept()
     closed = False
     tick_count = 0
