@@ -14,27 +14,53 @@ jobs:
   backend-tests:
     name: Backend Tests (Python)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
     env:
       JWT_SECRET_KEY: ci-only-not-a-production-secret-replace-in-prod
+      XAG_DEV_NO_AUTH: "0"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
       - name: Install backend dependencies
-        run: pip install --break-system-packages -r requirements.txt pytest pytest-cov
+        run: |
+          python -m pip install -r requirements.txt pytest pytest-cov
+          python -m pip check
 
-      - name: Run backend tests
-        run: python -m pytest tests -q --cov=api --cov-branch
-        # NOTE: XAG_DEV_NO_AUTH is intentionally NOT set here.
-        # Tests must pass with real JWT auth enabled.
+      - name: Verify authentication default
+        run: |
+          python -c "from api.xag_auth import _DEV_NO_AUTH; assert not _DEV_NO_AUTH, 'XAG_DEV_NO_AUTH must be 0 in CI'"
+
+      - name: Run Phase 7 tests explicitly
+        run: |
+          python -m pytest tests/test_xag_phase7.py -q \
+            --junitxml=phase7-results.xml
+
+      - name: Run complete backend suite
+        run: |
+          python -m pytest tests -q --cov=api --cov-branch \
+            --cov-report=term-missing --cov-report=xml:coverage.xml \
+            --junitxml=backend-results.xml
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-${{ github.sha }}
+          path: |
+            backend/*results.xml
+            backend/coverage.xml
+          if-no-files-found: warn
 
   test:
     name: Run Tests
@@ -42,12 +68,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -56,8 +82,11 @@ jobs:
       - name: Run linter
         run: npm run lint
 
+      - name: Run typecheck
+        run: npm run typecheck
+
       - name: Run tests
-        run: npm test
+        run: npx jest --ci
 
   build-check:
     name: Check Build
@@ -66,12 +95,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -86,12 +115,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies

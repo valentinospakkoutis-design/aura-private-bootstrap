@@ -3,16 +3,15 @@ tests/test_xag_phase7.py — Phase 7 hardening tests.
 
 Covers:
   - GET /api/xag/healthz   (unauthenticated, HTTP 200 / 503)
-  - Auth bypass via XAG_DEV_NO_AUTH=1 env var
-  - Auth enforcement (401 without token when dev bypass is OFF)
+  - Auth bypass via XAG_DEV_NO_AUTH=1 env var (monkeypatched per-test, not global)
+  - Auth enforcement: 401 without token, expired/malformed/wrong-type tokens
+  - HTTP 429 on real rate-limit breach (61 requests against 60/minute limit)
   - Structured JSON logging (xag_log emits valid JSON to stdout)
   - Rate limiter wiring (xag_limiter is a slowapi Limiter)
 
 Run:
-    cd backend && XAG_DEV_NO_AUTH=1 pytest tests/test_xag_phase7.py -q
+    cd backend && JWT_SECRET_KEY=ci-only pytest tests/test_xag_phase7.py -q
 """
-
-from __future__ import annotations
 
 import importlib
 import json
@@ -149,11 +148,18 @@ class TestHealthz:
 # ── TestDevNoAuth ─────────────────────────────────────────────────────────────
 
 class TestDevNoAuth:
-    """XAG_DEV_NO_AUTH=1 bypasses JWT on all XAG endpoints."""
+    """XAG_DEV_NO_AUTH=1 bypasses JWT on all XAG endpoints.
 
-    def setup_method(self):
-        # Env var set by test runner (XAG_DEV_NO_AUTH=1 from conftest or CLI)
+    The bypass is monkeypatched per-test — no global env var required.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_bypass(self, monkeypatch):
         self.client = _make_xag_app(warm_snapshot=True)
+        import api.xag_auth as auth
+        monkeypatch.setattr(auth, "_DEV_NO_AUTH", True)
+        yield
+        self.client.close()
 
     def test_symbol_info_reachable_without_token(self):
         r = self.client.get("/api/xag/symbol_info")
@@ -180,6 +186,110 @@ class TestDevNoAuth:
         })
         assert r.status_code == 200
         assert r.json()["ok"] is True
+
+
+# ── Helpers for auth tests ────────────────────────────────────────────────────
+
+@pytest.fixture
+def secured_client(monkeypatch):
+    """TestClient με πραγματικό JWT auth (no bypass) και reset limiter."""
+    client = _make_xag_app(warm_snapshot=True)
+    import api.xag_auth as auth
+    monkeypatch.setattr(auth, "_DEV_NO_AUTH", False)
+    # Reset rate-limit counters so tests start from 0
+    auth.xag_limiter.reset()
+    yield client
+    auth.xag_limiter.reset()
+    client.close()
+
+
+def _signed_token(**overrides) -> str:
+    """Δημιουργεί υπογεγραμμένο JWT με default valid claims."""
+    import jwt as pyjwt
+    from auth.jwt_handler import SECRET_KEY, ALGORITHM
+    claims = {
+        "sub": "phase7-test-user",
+        "type": "access",
+        "exp": int(time.time()) + 3600,
+    }
+    claims.update(overrides)
+    return pyjwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
+
+
+# ── TestAuthEnforcement ───────────────────────────────────────────────────────
+
+class TestAuthEnforcement:
+    """JWT auth ενεργό — 401 χωρίς/με invalid token, 200 με valid token."""
+
+    @pytest.mark.parametrize("path", [
+        "/api/xag/symbol_info",
+        "/api/xag/account",
+        "/api/xag/positions",
+        "/api/xag/orders",
+    ])
+    def test_missing_token_rejected(self, secured_client, path):
+        assert secured_client.get(path).status_code == 401
+
+    @pytest.mark.parametrize("token", [
+        "not-a-jwt",
+        "",
+        "Bearer eyJhbGciOiJIUzI1NiJ9.e30.invalid",
+    ])
+    def test_malformed_token_rejected(self, secured_client, token):
+        r = secured_client.get(
+            "/api/xag/symbol_info",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 401
+
+    @pytest.mark.parametrize("overrides,label", [
+        ({"exp": 1}, "expired"),
+        ({"type": "refresh"}, "wrong_type"),
+        ({"sub": ""}, "empty_sub"),
+    ])
+    def test_invalid_claims_rejected(self, secured_client, overrides, label):
+        r = secured_client.get(
+            "/api/xag/symbol_info",
+            headers={"Authorization": f"Bearer {_signed_token(**overrides)}"},
+        )
+        assert r.status_code == 401, f"Expected 401 for {label} token"
+
+    def test_valid_token_accepted(self, secured_client):
+        r = secured_client.get(
+            "/api/xag/symbol_info",
+            headers={"Authorization": f"Bearer {_signed_token()}"},
+        )
+        assert r.status_code == 200
+
+    def test_healthz_public_with_auth_enabled(self, secured_client):
+        """Healthz δεν απαιτεί token ακόμα και με auth ενεργό."""
+        assert secured_client.get("/api/xag/healthz").status_code == 200
+
+
+# ── TestRateLimitHTTP429 ──────────────────────────────────────────────────────
+
+class TestRateLimitHTTP429:
+    """Επαληθεύει ότι το rate limit επιστρέφει πραγματικό HTTP 429."""
+
+    def test_real_rate_limit_returns_429(self, secured_client):
+        """
+        61 αιτήματα στο /api/xag/symbol_info:
+          - Πρώτα 60 → 200 OK
+          - 61ο → 429 Too Many Requests
+        """
+        headers = {"Authorization": f"Bearer {_signed_token()}"}
+        statuses = [
+            secured_client.get(
+                "/api/xag/symbol_info", headers=headers
+            ).status_code
+            for _ in range(61)
+        ]
+        assert statuses[:60] == [200] * 60, (
+            f"Κάποιο από τα πρώτα 60 requests δεν επέστρεψε 200: {statuses[:60]}"
+        )
+        assert statuses[60] == 429, (
+            f"Το 61ο request έπρεπε να επιστρέψει 429, επέστρεψε {statuses[60]}"
+        )
 
 
 # ── TestStructuredLogging ─────────────────────────────────────────────────────
