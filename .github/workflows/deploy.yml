@@ -77,6 +77,29 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Deploy backend to Hetzner
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+        run: |
+          echo "$SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            root@116.203.75.114 \
+            "cd /root/aura-private-bootstrap && \
+             git fetch origin && \
+             git checkout ${DEPLOY_SHA} && \
+             DEPLOY_SHA=${DEPLOY_SHA} \
+             tmux new-session -d -s ci-deploy \
+               'bash deploy.sh 2>&1 | tee /tmp/ci-deploy.log; echo EXIT:\$? >> /tmp/ci-deploy.log' && \
+             sleep 10 && \
+             tail -30 /tmp/ci-deploy.log"
+
+          rm -f /tmp/deploy_key
+
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
