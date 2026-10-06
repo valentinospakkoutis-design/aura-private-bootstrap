@@ -47,17 +47,19 @@ jobs:
           fi
           echo "SHA verified: $DEPLOY_SHA"
 
+      - name: Load SSH key into agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
+
+      - name: Add Hetzner host to known_hosts
+        run: ssh-keyscan -H 116.203.75.114 >> ~/.ssh/known_hosts
+
       - name: Deploy backend to Hetzner via SSH
         env:
-          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
         run: |
-          echo "$SSH_KEY" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-
-          ssh -i /tmp/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=30 \
+          ssh -o ConnectTimeout=30 \
             root@116.203.75.114 \
             "cd /root/aura-private-bootstrap && \
              git fetch origin && \
@@ -67,8 +69,6 @@ jobs:
                'bash deploy.sh 2>&1 | tee /tmp/ci-deploy.log; echo EXIT:\$? >> /tmp/ci-deploy.log' && \
              sleep 10 && \
              tail -30 /tmp/ci-deploy.log"
-
-          rm -f /tmp/deploy_key
 
   deploy-staging:
     name: Deploy to Staging (Hetzner)
@@ -97,17 +97,19 @@ jobs:
           fi
           echo "SHA verified: $DEPLOY_SHA"
 
+      - name: Load SSH key into agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
+
+      - name: Add Hetzner host to known_hosts
+        run: ssh-keyscan -H 116.203.75.114 >> ~/.ssh/known_hosts
+
       - name: Deploy backend to Hetzner staging via SSH
         env:
-          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
         run: |
-          echo "$SSH_KEY" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-
-          ssh -i /tmp/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=30 \
+          ssh -o ConnectTimeout=30 \
             root@116.203.75.114 \
             "cd /root/aura-private-bootstrap && \
              git fetch origin && \
@@ -117,5 +119,3 @@ jobs:
                'bash deploy.sh 2>&1 | tee /tmp/ci-deploy-staging.log; echo EXIT:\$? >> /tmp/ci-deploy-staging.log' && \
              sleep 10 && \
              tail -30 /tmp/ci-deploy-staging.log"
-
-          rm -f /tmp/deploy_key
