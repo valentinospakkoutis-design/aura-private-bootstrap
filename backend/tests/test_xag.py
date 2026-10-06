@@ -7,6 +7,7 @@ Run from backend/:
 All yfinance / network calls are mocked — CI never hits Yahoo Finance.
 """
 
+import importlib
 import math
 import time
 from unittest.mock import MagicMock, patch
@@ -35,8 +36,16 @@ def clear_cache():
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    import api.xag_auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_DEV_NO_AUTH", True)
+
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
     app = FastAPI()
+    app.state.limiter = auth_mod.xag_limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.include_router(xag.router)
     with TestClient(app) as c:
         yield c

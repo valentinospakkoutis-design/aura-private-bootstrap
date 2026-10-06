@@ -43,7 +43,7 @@ def _rsi14(closes: list[float]) -> float | None:
         avg_gain = (avg_gain * 13 + gain.iloc[i]) / 14
         avg_loss = (avg_loss * 13 + loss.iloc[i]) / 14
     if avg_loss == 0:
-        return 100.0
+        return 50.0 if avg_gain == 0 else 100.0
     rs = avg_gain / avg_loss
     return round(100 - (100 / (1 + rs)), 2)
 

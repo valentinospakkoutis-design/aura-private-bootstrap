@@ -5,8 +5,8 @@ import { theme } from '../../mobile/src/constants/theme';
 export default function TabLayout() {
   return (
     <Tabs
-      sceneContainerStyle={{ paddingBottom: 54 }}
       screenOptions={{
+        contentStyle: { paddingBottom: 54 },
         headerStyle: {
           backgroundColor: theme.colors.ui.cardBackground,
         },

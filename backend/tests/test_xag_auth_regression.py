@@ -51,6 +51,7 @@ def client(monkeypatch):
     app = FastAPI()
     app.state.limiter = xag_auth.xag_limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.include_router(xag_mod.router)
     app.include_router(xag_orders.router)
     app.include_router(xag_positions.router)
 
