@@ -1,5 +1,5 @@
 # GitHub Actions Workflow for AURA Deployment
-# Deploys to EAS Build and publishes updates.
+# Deploys backend to Hetzner VPS via SSH after a successful Build and Test run.
 # CI POLICY: deploy only runs after a successful Build and Test workflow.
 #            Deploy triggers ONLY via workflow_run — never directly on push.
 #            The checked-out SHA is pinned to the SHA that passed CI.
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   deploy-production:
-    name: Deploy to Production
+    name: Deploy to Production (Hetzner)
     runs-on: ubuntu-latest
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
@@ -47,37 +47,7 @@ jobs:
           fi
           echo "SHA verified: $DEPLOY_SHA"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
-
-      - name: Configure EAS
-        run: eas build:configure
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Build for Production
-        run: eas build --profile production --platform all --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Publish OTA Update
-        run: |
-          eas update --branch production \
-            --message "Production update: $DEPLOY_SHA" \
-            --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Deploy backend to Hetzner
+      - name: Deploy backend to Hetzner via SSH
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
           DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
@@ -101,7 +71,7 @@ jobs:
           rm -f /tmp/deploy_key
 
   deploy-staging:
-    name: Deploy to Staging
+    name: Deploy to Staging (Hetzner)
     runs-on: ubuntu-latest
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
@@ -127,22 +97,25 @@ jobs:
           fi
           echo "SHA verified: $DEPLOY_SHA"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
-
-      - name: Publish Staging Update
-        run: |
-          eas update --branch staging \
-            --message "Staging update: $DEPLOY_SHA" \
-            --non-interactive
+      - name: Deploy backend to Hetzner staging via SSH
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+        run: |
+          echo "$SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            root@116.203.75.114 \
+            "cd /root/aura-private-bootstrap && \
+             git fetch origin && \
+             git checkout ${DEPLOY_SHA} && \
+             DEPLOY_SHA=${DEPLOY_SHA} APP_ENV=staging \
+             tmux new-session -d -s ci-deploy-staging \
+               'bash deploy.sh 2>&1 | tee /tmp/ci-deploy-staging.log; echo EXIT:\$? >> /tmp/ci-deploy-staging.log' && \
+             sleep 10 && \
+             tail -30 /tmp/ci-deploy-staging.log"
+
+          rm -f /tmp/deploy_key
