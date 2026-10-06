@@ -244,7 +244,7 @@ class TestCacheBehaviour:
     def test_snapshot_cache_refresh_after_ttl(self, client, monkeypatch):
         calls = []
         clock = [1000.0]
-        monkeypatch.setattr(xag.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(xag.time, "time", lambda: clock[0])
 
         def _fetch():
             calls.append(1)
@@ -273,7 +273,7 @@ class TestCacheBehaviour:
     def test_ohlc_cache_refresh_after_ttl(self, client, monkeypatch):
         calls = []
         clock = [1000.0]
-        monkeypatch.setattr(xag.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(xag.time, "time", lambda: clock[0])
 
         def _fetch(tf, n):
             calls.append((tf, n))
@@ -300,7 +300,7 @@ class TestCacheBehaviour:
     def test_ohlc_cache_miss_on_failed_refresh_does_not_cache(self, client, monkeypatch):
         """A failed fetch must not populate the cache with empty/error data."""
         clock = [1000.0]
-        monkeypatch.setattr(xag.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(xag.time, "time", lambda: clock[0])
         calls = []
 
         def _fetch(tf, n):

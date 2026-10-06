@@ -6,7 +6,6 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        contentStyle: { paddingBottom: 54 },
         headerStyle: {
           backgroundColor: theme.colors.ui.cardBackground,
         },

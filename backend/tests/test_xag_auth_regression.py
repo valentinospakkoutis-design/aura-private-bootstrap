@@ -170,11 +170,14 @@ def test_rate_limit_60_per_minute_on_symbol_info(client):
     /api/xag/symbol_info has @xag_limiter.limit("60/minute").
     Requests 1-60 must succeed; request 61 must return 429.
 
-    NOTE: symbol_info has no auth dependency, so no token needed here.
-    This test deliberately exercises only the limiter — not the auth stack.
+    NOTE: xag_orders router has a router-level auth dependency, so a valid
+    token is required even for symbol_info.  This test exercises the limiter;
+    auth correctness is covered by the other tests above.
     """
+    token = create_access_token({"sub": "rate-limit-test-user"})
+    headers = {"Authorization": f"Bearer {token}"}
     responses = [
-        client.get("/api/xag/symbol_info")
+        client.get("/api/xag/symbol_info", headers=headers)
         for _ in range(61)
     ]
     # First 60 should be 200
