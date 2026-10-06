@@ -1,7 +1,52 @@
 // AURA Security Utilities - Test Suite
 // Tests for encryption/decryption functions
 
+// ── Mock native Expo modules (unavailable in Node/Jest CI) ───────────────────
+
+// SecureStore mock: in-memory Map, state lives inside the module factory so it
+// survives jest.mock() hoisting.  Exported as __store so beforeEach can clear it.
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    __store: store,
+    getItemAsync: jest.fn(async (key) => store.get(key) ?? null),
+    setItemAsync: jest.fn(async (key, value) => { store.set(key, value); }),
+    deleteItemAsync: jest.fn(async (key) => { store.delete(key); }),
+  };
+});
+
+// Crypto mock: real Node crypto → randomness works + SHA-256 matches real values
+jest.mock('expo-crypto', () => {
+  const nodeCrypto = require('crypto');
+  return {
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    getRandomBytesAsync: jest.fn(async (length) => {
+      const buf = nodeCrypto.randomBytes(length);
+      // Expose .toString('hex') so security.js can call iv.toString('hex')
+      const arr = new Uint8Array(buf);
+      arr.toString = (enc) => {
+        if (enc === 'hex') return buf.toString('hex');
+        return buf.toString(enc || 'utf8');
+      };
+      return arr;
+    }),
+    digestStringAsync: jest.fn(async (_algo, data) =>
+      nodeCrypto.createHash('sha256').update(data).digest('hex')
+    ),
+  };
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+import * as SecureStoreMock from 'expo-secure-store';
 import { encryptData, decryptData, storeApiKey, getApiKey, deleteApiKey } from '../security';
+
+beforeEach(() => {
+  // Clear the in-memory store between tests so device keys don't persist across
+  // tests.  Each test gets a fresh device key, so encrypt+decrypt stay
+  // consistent within a test but isolated from others.
+  SecureStoreMock.__store.clear();
+});
 
 describe('Security Utilities', () => {
   describe('encryptData / decryptData', () => {
