@@ -48,98 +48,75 @@ def _rsi14(closes: list[float]) -> float | None:
     return round(100 - (100 / (1 + rs)), 2)
 
 
-# ── yfinance helpers ─────────────────────────────────────────────────────────
-def _fetch_rsi(symbol: str, interval: str, period: str) -> float | None:
-    """Fetch OHLCV from yfinance and compute RSI(14) on close prices."""
+
+import httpx as _httpx
+_BRIDGE_URL = __import__('os').getenv("MT5_BRIDGE_URL", "")
+_BRIDGE_TIMEOUT = 5.0
+
+def _bridge_get(path, params=None):
+    if not _BRIDGE_URL:
+        return None
     try:
-        import yfinance as yf
-        df = yf.download(symbol, interval=interval, period=period,
-                         progress=False, auto_adjust=True,
-                         multi_level_index=False)
-        if df.empty or len(df) < 15:
-            return None
-        closes = df["Close"].dropna().tolist()
-        # flatten if yfinance returns multi-level columns
-        if isinstance(closes[0], (list, tuple)):
-            closes = [c[0] for c in closes]
-        return _rsi14([float(c) for c in closes])
+        r = _httpx.get(f"{_BRIDGE_URL}{path}", params=params, timeout=_BRIDGE_TIMEOUT)
+        r.raise_for_status()
+        return r.json()
     except Exception as e:
-        print(f"[xag] RSI fetch error {symbol}/{interval}: {e}")
+        print(f"[xag] bridge error {path}: {e}")
         return None
 
-
-def _fetch_snapshot() -> dict:
-    """Fetch spot price + RSI for 1m, 15m, 1h."""
+def _fetch_snapshot():
+    from datetime import datetime, timezone
+    data = _bridge_get("/api/xag/snapshot")
+    if data and data.get("price"):
+        return {"symbol": "SILVER", "price": data["price"],
+                "bid": data.get("bid", data["price"]-0.02),
+                "ask": data.get("ask", data["price"]+0.02),
+                "spread": data.get("spread"),
+                "rsi_1m": data.get("rsi_1m"), "rsi_15m": data.get("rsi_15m"),
+                "rsi_1h": data.get("rsi_1h"), "asof": data.get("asof"),
+                "source": "mt5_bridge"}
+    print("[xag] bridge unavailable, falling back to yfinance")
     import yfinance as yf
-
     tick = yf.Ticker("SI=F")
-    info = tick.fast_info
-    # fast_info gives last_price; fallback to history
     try:
-        price = float(info.last_price)
+        price = float(tick.fast_info.last_price)
     except Exception:
         hist = tick.history(period="1d", interval="1m")
-        if hist.empty:
-            raise ValueError("yfinance returned no price data for SI=F")
         price = float(hist["Close"].iloc[-1])
+    return {"symbol": "XAGUSD-STD", "price": round(price,3),
+            "bid": round(price-0.025,3), "ask": round(price+0.025,3),
+            "rsi_1m": None, "rsi_15m": None, "rsi_1h": None,
+            "asof": datetime.now(timezone.utc).isoformat(), "source": "yfinance/SI=F"}
 
-    rsi_1m  = _fetch_rsi("SI=F", "1m",  "1d")
-    rsi_15m = _fetch_rsi("SI=F", "15m", "5d")
-    rsi_1h  = _fetch_rsi("SI=F", "1h",  "30d")
-
-    return {
-        "symbol":  "XAGUSD-STD",
-        "price":   round(price, 3),
-        "bid":     round(price - 0.025, 3),
-        "ask":     round(price + 0.025, 3),
-        "rsi_1m":  rsi_1m,
-        "rsi_15m": rsi_15m,
-        "rsi_1h":  rsi_1h,
-        "asof":    datetime.now(timezone.utc).isoformat(),
-        "source":  "yfinance/SI=F",
-    }
-
-
-def _fetch_ohlc(tf: str, n: int) -> list[dict]:
-    """Fetch historical OHLC bars."""
+def _fetch_ohlc(tf, n):
+    data = _bridge_get("/api/xag/ohlc", params={"tf": tf, "n": n})
+    if data and isinstance(data, list) and len(data) > 0:
+        return data
     import yfinance as yf
-
-    tf_map = {
-        "1m":  ("1m",  "1d"),
-        "5m":  ("5m",  "5d"),
-        "15m": ("15m", "10d"),
-        "1h":  ("1h",  "30d"),
-    }
+    tf_map = {"1m":("1m","1d"),"5m":("5m","5d"),"15m":("15m","10d"),"1h":("1h","30d")}
     if tf not in tf_map:
         raise ValueError(f"Unknown timeframe: {tf}")
-
     interval, period = tf_map[tf]
-    df = yf.download("SI=F", interval=interval, period=period,
-                     progress=False, auto_adjust=True,
-                     multi_level_index=False)
+    df = yf.download("SI=F", interval=interval, period=period, progress=False,
+                     auto_adjust=True, multi_level_index=False)
     if df.empty:
         return []
-
-    df = df.tail(n)
     bars = []
-    for ts, row in df.iterrows():
+    for ts, row in df.tail(n).iterrows():
         try:
-            # handle both single and multi-level columns
-            o = float(row["Open"].iloc[0]   if hasattr(row["Open"], "iloc")   else row["Open"])
-            h = float(row["High"].iloc[0]   if hasattr(row["High"], "iloc")   else row["High"])
-            l = float(row["Low"].iloc[0]    if hasattr(row["Low"], "iloc")    else row["Low"])
-            c = float(row["Close"].iloc[0]  if hasattr(row["Close"], "iloc")  else row["Close"])
-            v = int(row["Volume"].iloc[0]   if hasattr(row["Volume"], "iloc") else row["Volume"])
-            t = int(ts.timestamp())
-            bars.append({"time": t, "open": round(o,3), "high": round(h,3),
-                         "low": round(l,3), "close": round(c,3), "volume": v})
+            o=float(row["Open"].iloc[0] if hasattr(row["Open"],"iloc") else row["Open"])
+            h=float(row["High"].iloc[0] if hasattr(row["High"],"iloc") else row["High"])
+            l=float(row["Low"].iloc[0] if hasattr(row["Low"],"iloc") else row["Low"])
+            c=float(row["Close"].iloc[0] if hasattr(row["Close"],"iloc") else row["Close"])
+            v=int(row["Volume"].iloc[0] if hasattr(row["Volume"],"iloc") else row["Volume"])
+            bars.append({"time":int(ts.timestamp()),"open":round(o,3),"high":round(h,3),
+                         "low":round(l,3),"close":round(c,3),"volume":v})
         except Exception:
             continue
-
     return bars
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
+# ── Endpoints# ── Endpoints ────────────────────────────────────────────────────────────────
 async def _warmup_positions_cache():
     """Background warmup — runs once at startup to pre-fill positions cache."""
     import asyncio

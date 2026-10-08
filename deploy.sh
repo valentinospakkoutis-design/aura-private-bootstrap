@@ -78,3 +78,10 @@ echo "--- [6/6] Pruning old images..."
 docker image prune -f
 
 echo "=== Deploy complete: $(date) ==="
+
+# Post-deploy: copy XAG Phase 7 files (not in image)
+echo "--- [7/7] Copying XAG Phase 7 files into container..."
+for f in xag.py xag_auth.py xag_orders.py xag_positions.py xag_healthz.py xag_logging.py xag_metrics.py xag_ws.py; do
+  docker cp "/root/aura-private-bootstrap/backend/api/$f" "aura-backend:/app/api/$f"
+done
+echo "✅ XAG files copied"
