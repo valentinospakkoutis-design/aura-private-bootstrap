@@ -554,10 +554,17 @@ def train_symbol(symbol: str, days: int = 730, promote: bool = True) -> Optional
         future_return = feat["target"]
     else:
         future_return = (feat["target"] / feat["close"]) - 1
+    # Dynamic per-symbol threshold: based on median absolute daily return.
+    # Avoids the global 1% being too tight for volatile assets (SHIB ~8%/day)
+    # and too loose for stable ones (EURUSD ~0.3%/day).
+    _sym_vol = float(np.median(np.abs(future_return.dropna())))
+    _label_threshold = max(_sym_vol * 0.5, 0.002)  # floor at 0.2% to avoid noise
+    logger.info(f"[TRAINER] {symbol} label_threshold={_label_threshold:.4f} (vol={_sym_vol:.4f})")
+
     feat["label_threshold"] = np.where(
-        future_return > LABEL_THRESHOLD,
+        future_return > _label_threshold,
         1,
-        np.where(future_return < -LABEL_THRESHOLD, -1, 0),
+        np.where(future_return < -_label_threshold, -1, 0),
     )
 
     feature_cols = [c for c in feat.columns if c not in exclude_cols]
@@ -647,7 +654,7 @@ def train_symbol(symbol: str, days: int = 730, promote: bool = True) -> Optional
             "symbol": symbol,
             "model_type": "xgboost_threshold_classifier",
             "label_col": "label_threshold",
-            "threshold": LABEL_THRESHOLD,
+            "threshold": _label_threshold,
             "trained_at": datetime.utcnow().isoformat(),
             "metrics": threshold_metrics,
         }
