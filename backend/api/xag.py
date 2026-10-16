@@ -7,6 +7,7 @@ Phase 7: all routes require JWT auth except /healthz (handled separately).
 from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
 import time
+from typing import Any
 
 from api.xag_auth import xag_require_auth
 
@@ -21,7 +22,7 @@ _SNAPSHOT_TTL = 10  # seconds
 _ohlc_cache: dict = {}
 _OHLC_TTL = 60  # seconds (closed bars don't change)
 
-_positions_cache: dict = {}
+_positions_cache: dict[int, dict[str, Any]] = {}  # keyed by user_id
 _POSITIONS_TTL = 60  # seconds
 
 
@@ -117,15 +118,21 @@ def _fetch_ohlc(tf, n):
 
 
 # ── Endpoints# ── Endpoints ────────────────────────────────────────────────────────────────
+_WARMUP_USER_ID = 1  # startup warmup only — not tied to any authenticated request
+
 async def _warmup_positions_cache():
-    """Background warmup — runs once at startup to pre-fill positions cache."""
+    """Background warmup — runs once at startup to pre-fill positions cache for user 1.
+
+    This is a best-effort optimisation; the per-user authenticated endpoint
+    will populate the correct cache entry for each user on first request.
+    """
     import asyncio
     await asyncio.sleep(90)  # wait for uvicorn + DB to settle
     try:
         import yfinance as yf
         from services.paper_trading import PaperTradingService
         svc = PaperTradingService()
-        raw = svc.get_portfolio(user_id=1)
+        raw = svc.get_portfolio(user_id=_WARMUP_USER_ID)
         symbols = [p["symbol"] for p in raw.get("positions", [])]
         _sym_map = {
             "ES1!": "ES=F", "YM1!": "YM=F", "DAX1!": "^GDAXI",
@@ -147,7 +154,7 @@ async def _warmup_positions_cache():
                     current_prices[sym] = price
             except Exception:
                 pass
-        portfolio = svc.get_portfolio(user_id=1, current_prices=current_prices)
+        portfolio = svc.get_portfolio(user_id=_WARMUP_USER_ID, current_prices=current_prices)
         positions = []
         for pos in portfolio.get("positions", []):
             positions.append({
@@ -168,8 +175,7 @@ async def _warmup_positions_cache():
             "count":       len(positions),
         }
         import time
-        _positions_cache["data"] = result
-        _positions_cache["ts"]   = time.time()
+        _positions_cache[_WARMUP_USER_ID] = {"data": result, "ts": time.time()}
         print("[xag] positions cache warmed up")
     except Exception as e:
         print(f"[xag] warmup failed: {e}")
@@ -257,21 +263,35 @@ async def xag_smart_score():
     except Exception as e:
         return {"smart_score": None, "error": str(e)}
 
-@router.get("/paper-positions", dependencies=_AUTH)
-async def xag_paper_positions():
-    """Paper trading positions για dashboard (no auth)."""
+@router.get("/paper-positions")
+async def xag_paper_positions(token_data: dict = Depends(xag_require_auth)):
+    """Paper trading positions for the authenticated user's portfolio."""
+    # Extract and validate user_id from JWT sub claim — outside the catch-all
+    # so HTTPException propagates correctly instead of being swallowed as a 200.
+    raw_sub = token_data.get("sub")
+    if raw_sub is None:
+        raise HTTPException(status_code=401, detail="Token missing sub claim")
+    try:
+        user_id = int(raw_sub)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid sub claim in token: {raw_sub!r} (expected integer user_id)",
+        )
+
     try:
         import yfinance as yf
         from services.paper_trading import PaperTradingService
 
-        # Return cached if fresh
+        # Return per-user cached entry if fresh
         now = time.time()
-        if _positions_cache.get("ts", 0) + _POSITIONS_TTL > now:
-            return _positions_cache["data"]
+        cached = _positions_cache.get(user_id, {})
+        if cached.get("ts", 0) + _POSITIONS_TTL > now:
+            return cached["data"]
 
         svc = PaperTradingService()
         # First pass: get positions to know which symbols we need
-        raw = svc.get_portfolio(user_id=1)
+        raw = svc.get_portfolio(user_id=user_id)
         symbols = [p["symbol"] for p in raw.get("positions", [])]
 
         # Fetch live prices via yfinance
@@ -298,7 +318,7 @@ async def xag_paper_positions():
                 pass
 
         # Second pass: get portfolio with live prices
-        portfolio = svc.get_portfolio(user_id=1, current_prices=current_prices)
+        portfolio = svc.get_portfolio(user_id=user_id, current_prices=current_prices)
 
         positions = []
         for pos in portfolio.get("positions", []):
@@ -320,8 +340,7 @@ async def xag_paper_positions():
             "total_pnl":   round(float(portfolio["total_pnl"]), 2),
             "count":       len(positions),
         }
-        _positions_cache["data"] = result
-        _positions_cache["ts"]   = time.time()
+        _positions_cache[user_id] = {"data": result, "ts": time.time()}
         return result
     except Exception as e:
         return {"positions": [], "error": str(e)}

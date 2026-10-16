@@ -28,7 +28,6 @@ GET  /api/xag/orders
      Return the in-memory order book (open sim orders).
 """
 
-import random
 import uuid
 from datetime import datetime, timezone
 from threading import Lock
@@ -86,8 +85,11 @@ _account: dict = {
 _orders_lock = Lock()
 _orders: list[dict] = []
 
-# Idempotency: set of idempotency keys already processed this session
-_processed_keys: set[str] = set()
+# Monotonic ticket counter — starts at 20001, increments by 1 per order.
+# Guarantees uniqueness within a single process lifetime (in-memory simulation).
+# NOTE: resets on process restart; no cross-worker or cross-restart guarantee.
+# For production persistence, replace with a DB-backed SEQUENCE + UNIQUE constraint.
+_ticket_counter: int = 20000
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -98,13 +100,14 @@ def _utcnow() -> str:
 
 def _next_ticket_locked() -> int:
     """
-    Generate a synthetic ticket number.
+    Generate a guaranteed-unique synthetic ticket number for this process.
 
-    MUST be called while _orders_lock is held — reads len(_orders) which is
-    shared mutable state.  Suffix _locked is a naming convention indicating
-    the caller is responsible for holding the lock.
+    MUST be called while _orders_lock is held.
+    Uses a monotonic counter — no random component, no collision possible.
     """
-    return 20000 + len(_orders) + random.randint(1, 9)
+    global _ticket_counter
+    _ticket_counter += 1
+    return _ticket_counter
 
 
 def _margin_required(volume: float, price: float) -> float:
@@ -285,18 +288,7 @@ def place_order(request: Request, body: OrderRequest):
             detail=f"Symbol {body.symbol!r} not supported in Phase 2 (only XAGUSD-STD)",
         )
 
-    # ── Idempotency ───────────────────────────────────────────────────────────
-    if body.idempotency_key:
-        with _orders_lock:
-            existing = next(
-                (o for o in _orders if o.get("idempotency_key") == body.idempotency_key),
-                None,
-            )
-        if existing:
-            return {"ok": True, "ticket": existing["ticket"],
-                    "message": f"Order {existing['ticket']} (idempotent replay)"}
-
-    # ── Volume validation ─────────────────────────────────────────────────────
+    # ── Volume validation (before lock — pure computation, no shared state) ─────
     vol_err = _validate_volume(body.volume)
     if vol_err:
         raise HTTPException(status_code=422, detail=vol_err)
@@ -329,14 +321,26 @@ def place_order(request: Request, body: OrderRequest):
                    f"free ${account_snap['free_margin']:.2f}",
         )
 
-    # ── Build order record ────────────────────────────────────────────────────
+    # ── Atomic idempotency check + insert (single critical section) ───────────
+    # Both the duplicate check and the insert happen under ONE lock acquisition.
+    # This eliminates the TOCTOU window where two concurrent requests with the
+    # same idempotency_key could both pass the check and both insert an order.
     fill_price = live_price if body.order_type == "market" else None
     status     = "open"    if body.order_type == "market" else "pending"
 
-    # ticket and append are done together under the lock so that
-    # _next_ticket_locked() sees a stable len(_orders) and the ticket is
-    # unique even under concurrent requests.
     with _orders_lock:
+        # Idempotency check — inside the lock so no concurrent request can
+        # sneak an insert between our check and our own insert.
+        if body.idempotency_key:
+            existing = next(
+                (o for o in _orders if o.get("idempotency_key") == body.idempotency_key),
+                None,
+            )
+            if existing:
+                return {"ok": True, "ticket": existing["ticket"],
+                        "message": f"Order {existing['ticket']} (idempotent replay)"}
+
+        # Generate ticket and append — both under the same lock.
         ticket = _next_ticket_locked()
         order = {
             "ticket":          ticket,
