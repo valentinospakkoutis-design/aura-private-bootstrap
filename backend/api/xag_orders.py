@@ -42,6 +42,19 @@ P0-F (Ticket persistence): The monotonic counter guarantees uniqueness only
      across Uvicorn workers.  This is a known limitation of the in-memory
      simulation and must NOT be used as a production order-ID mechanism.
      For production, replace with a DB-backed SEQUENCE + UNIQUE constraint.
+
+Simulation account model (intentional design choice):
+     _account is a single shared balance ($25,000) representing ONE demo
+     account for the whole simulation process.  _compute_margin_snapshot()
+     aggregates margin across ALL users' open orders against this single
+     balance.  This means User A's open orders reduce the free_margin
+     available to User B — cross-user margin contention is expected in this
+     simulation and is NOT a bug.
+
+     P0-D isolation is *visibility* isolation only: each user sees and can
+     cancel only their own orders.  Margin is NOT per-user in this
+     simulation.  For per-user margin isolation a separate _account dict
+     per user_id would be required — that is a Phase 6+ concern.
 """
 
 import uuid
