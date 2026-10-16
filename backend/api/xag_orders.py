@@ -25,7 +25,23 @@ POST /api/xag/order
      Error:    {"ok": false, "message": "...", "detail": "..."}  HTTP 422 / 400
 
 GET  /api/xag/orders
-     Return the in-memory order book (open sim orders).
+     Return the in-memory order book (open sim orders) — filtered to the
+     authenticated user's own orders only.
+
+P0-D (Order isolation): Every order stores the user_id from the JWT sub claim.
+     GET /orders returns only that user's orders.  Idempotency keys are scoped
+     per user — two different users may use the same key independently.
+
+P0-E (Atomic margin reservation): The margin check and the order insert both
+     happen inside _orders_lock, eliminating the TOCTOU race where two
+     concurrent requests could both pass the free-margin check and together
+     overcommit available margin.
+
+P0-F (Ticket persistence): The monotonic counter guarantees uniqueness only
+     within a single process lifetime.  It resets on restart and is not shared
+     across Uvicorn workers.  This is a known limitation of the in-memory
+     simulation and must NOT be used as a production order-ID mechanism.
+     For production, replace with a DB-backed SEQUENCE + UNIQUE constraint.
 """
 
 import uuid
@@ -177,13 +193,33 @@ class OrderRequest(BaseModel):
     tp:             Optional[float] = Field(None, description="Take-profit price (optional)")
     comment:        Optional[str]   = Field(None, max_length=128)
     idempotency_key: Optional[str] = Field(None, max_length=64,
-                                           description="Client-generated UUID; same key = same result")
+                                           description="Client-generated UUID; same key = same result. "
+                                                       "Scoped per user — different users may use the same key independently.")
 
     @model_validator(mode="after")
     def price_required_for_pending(self) -> "OrderRequest":
         if self.order_type != "market" and self.price is None:
             raise ValueError("price is required for limit / stop / stop_limit orders")
         return self
+
+
+def _extract_user_id(token_data: dict) -> int:
+    """
+    Extract and validate the integer user_id from the JWT token_data dict.
+
+    Raises HTTPException 401 if sub is missing or not a valid integer.
+    Called by every order endpoint that needs to enforce ownership.
+    """
+    raw_sub = token_data.get("sub")
+    if raw_sub is None:
+        raise HTTPException(status_code=401, detail="Token missing sub claim")
+    try:
+        return int(raw_sub)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid sub claim: {raw_sub!r} (expected integer user_id)",
+        )
 
 
 # ── GET /api/xag/symbol_info ──────────────────────────────────────────────────
@@ -202,24 +238,16 @@ def get_symbol_info(request: Request):
 
 # ── Account snapshot helper ───────────────────────────────────────────────────
 
-def _account_snapshot() -> dict:
+def _compute_margin_snapshot(open_orders: list[dict], live_price: float | None) -> dict:
     """
-    Compute and return the current account snapshot (balance, equity, margin,
-    free margin, floating P/L) from the in-memory state and live price cache.
+    Pure computation: calculate margin, floating P/L and equity from a snapshot
+    of open orders and a live price.  Does NOT acquire any lock — the caller
+    must hold _orders_lock (or pass a stable copy of _orders).
 
-    Called by get_account() and directly by place_order() so that the
-    decorated endpoint is never called outside a real Request context.
-
-    Phase 6+: replace body with mt5.account_info()._asdict() enrichment.
+    P0-E: This helper is designed to be called INSIDE _orders_lock when used
+    during order placement, so that the computed free_margin reflects all orders
+    already in the list at the moment of the check.
     """
-    from api.xag import _snapshot_cache
-
-    snap = _snapshot_cache.get("data")
-    live_price = snap["price"] if snap else None
-
-    with _orders_lock:
-        open_orders = [o for o in _orders if o["status"] == "open"]
-
     total_margin = 0.0
     floating_pnl = 0.0
     for o in open_orders:
@@ -237,18 +265,50 @@ def _account_snapshot() -> dict:
             )
             floating_pnl += diff * o["volume"] * _SYMBOL_INFO["contract_size"]
 
-    equity      = round(_account["balance"] + floating_pnl, 2)
-    free_margin = round(equity - total_margin, 2)
+    equity       = round(_account["balance"] + floating_pnl, 2)
+    free_margin  = round(equity - total_margin, 2)
     margin_level = round(equity / total_margin * 100, 1) if total_margin > 0 else None
+    return {
+        "total_margin":  round(total_margin, 2),
+        "floating_pnl":  round(floating_pnl, 2),
+        "equity":        equity,
+        "free_margin":   free_margin,
+        "margin_level":  margin_level,
+        "open_count":    len(open_orders),
+    }
 
+
+def _account_snapshot() -> dict:
+    """
+    Compute and return the current account snapshot (balance, equity, margin,
+    free margin, floating P/L) from the in-memory state and live price cache.
+
+    Called by get_account() and directly by place_order() so that the
+    decorated endpoint is never called outside a real Request context.
+
+    NOTE: This function acquires _orders_lock internally.  It must NOT be
+    called from inside a place_order() critical section — use
+    _compute_margin_snapshot() directly with the already-held lock instead.
+
+    Phase 6+: replace body with mt5.account_info()._asdict() enrichment.
+    """
+    from api.xag import _snapshot_cache
+
+    snap = _snapshot_cache.get("data")
+    live_price = snap["price"] if snap else None
+
+    with _orders_lock:
+        open_orders = [o for o in _orders if o["status"] == "open"]
+
+    ms = _compute_margin_snapshot(open_orders, live_price)
     return {
         **_account,
-        "equity":       equity,
-        "margin":       round(total_margin, 2),
-        "free_margin":  free_margin,
-        "margin_level": margin_level,
-        "floating_pnl": round(floating_pnl, 2),
-        "open_orders":  len(open_orders),
+        "equity":       ms["equity"],
+        "margin":       ms["total_margin"],
+        "free_margin":  ms["free_margin"],
+        "margin_level": ms["margin_level"],
+        "floating_pnl": ms["floating_pnl"],
+        "open_orders":  ms["open_count"],
         "as_of":        _utcnow(),
     }
 
@@ -271,16 +331,26 @@ def get_account(request: Request):
 
 @router.post("/order")
 @xag_limiter.limit("10/minute")
-def place_order(request: Request, body: OrderRequest):
+def place_order(
+    request: Request,
+    body: OrderRequest,
+    token_data: dict = Depends(xag_require_auth),
+):
     """
     Place a new order.
 
     Phase 2: validates, stores in-memory, returns synthetic ticket.
     Phase 6+: call mt5.order_send() after validation.
 
-    Idempotency: if idempotency_key is provided and matches a previous successful
-    order this session, the previous result is returned without re-submitting.
+    P0-D: The order is tagged with the authenticated user_id from the JWT sub
+          claim.  Idempotency keys are scoped per user.
+    P0-E: Margin check and order insertion are atomic under _orders_lock,
+          eliminating the TOCTOU race where concurrent requests could together
+          overcommit available margin.
     """
+    # ── Extract user identity (outside any lock — raises 401 if invalid) ──────
+    user_id = _extract_user_id(token_data)
+
     # ── Symbol guard (Phase 2 supports only XAGUSD-STD) ──────────────────────
     if body.symbol != "XAGUSD-STD":
         raise HTTPException(
@@ -305,45 +375,59 @@ def place_order(request: Request, body: OrderRequest):
             detail="No live price available — cannot validate order. Retry when WS reconnects.",
         )
 
-    # ── SL / TP validation ────────────────────────────────────────────────────
+    # ── SL / TP validation (before lock — pure computation) ───────────────────
     sl_tp_err = _validate_stops(body.side, body.order_type, body.price or ref_price,
                                 body.sl, body.tp, ref_price)
     if sl_tp_err:
         raise HTTPException(status_code=422, detail=sl_tp_err)
 
-    # ── Margin check ──────────────────────────────────────────────────────────
+    # ── Required margin for this order (before lock — pure computation) ───────
     req_margin = _margin_required(body.volume, ref_price)
-    account_snap = _account_snapshot()
-    if req_margin > account_snap["free_margin"]:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Insufficient margin: required ${req_margin:.2f}, "
-                   f"free ${account_snap['free_margin']:.2f}",
-        )
 
-    # ── Atomic idempotency check + insert (single critical section) ───────────
-    # Both the duplicate check and the insert happen under ONE lock acquisition.
-    # This eliminates the TOCTOU window where two concurrent requests with the
-    # same idempotency_key could both pass the check and both insert an order.
     fill_price = live_price if body.order_type == "market" else None
     status     = "open"    if body.order_type == "market" else "pending"
 
+    # ── Atomic critical section: idempotency + margin check + insert ──────────
+    # P0-D: idempotency key lookup is scoped to this user's orders only.
+    # P0-E: free_margin is computed inside the lock from the current _orders
+    #       list, so no concurrent request can pass the margin check and then
+    #       also insert — they share the same lock and the second one will see
+    #       the first order already in the list when it computes free_margin.
     with _orders_lock:
-        # Idempotency check — inside the lock so no concurrent request can
-        # sneak an insert between our check and our own insert.
+        # Idempotency check — scoped to this user (P0-D).
         if body.idempotency_key:
             existing = next(
-                (o for o in _orders if o.get("idempotency_key") == body.idempotency_key),
+                (
+                    o for o in _orders
+                    if o.get("idempotency_key") == body.idempotency_key
+                    and o.get("user_id") == user_id
+                ),
                 None,
             )
             if existing:
-                return {"ok": True, "ticket": existing["ticket"],
-                        "message": f"Order {existing['ticket']} (idempotent replay)"}
+                return {
+                    "ok":      True,
+                    "ticket":  existing["ticket"],
+                    "message": f"Order {existing['ticket']} (idempotent replay)",
+                }
 
-        # Generate ticket and append — both under the same lock.
+        # Margin check inside the lock (P0-E): compute free_margin from the
+        # current _orders list — any concurrent order already inserted will be
+        # counted, preventing double-spend.
+        open_orders_now = [o for o in _orders if o["status"] == "open"]
+        ms = _compute_margin_snapshot(open_orders_now, live_price)
+        if req_margin > ms["free_margin"]:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Insufficient margin: required ${req_margin:.2f}, "
+                       f"free ${ms['free_margin']:.2f}",
+            )
+
+        # Generate ticket and append — all under the same lock.
         ticket = _next_ticket_locked()
         order = {
             "ticket":          ticket,
+            "user_id":         user_id,       # P0-D: ownership tag
             "symbol":          body.symbol,
             "side":            body.side,
             "order_type":      body.order_type,
@@ -365,6 +449,7 @@ def place_order(request: Request, body: OrderRequest):
     xag_log(
         "order.placed",
         ticket=ticket,
+        user_id=user_id,
         symbol=body.symbol,
         side=body.side,
         order_type=body.order_type,
@@ -390,14 +475,29 @@ def place_order(request: Request, body: OrderRequest):
 
 @router.get("/orders")
 @xag_limiter.limit("60/minute")
-def get_orders(request: Request, status: str = "open"):
+def get_orders(
+    request: Request,
+    status: str = "open",
+    token_data: dict = Depends(xag_require_auth),
+):
     """
-    Return orders filtered by status ('open', 'pending', 'all').
+    Return the authenticated user's own orders filtered by status.
+
+    P0-D: Only orders belonging to the requesting user (matched by user_id
+    from the JWT sub claim) are returned.  Other users' orders are never
+    exposed, even with status='all'.
+
+    status: 'open' | 'pending' | 'all'
     Phase 2: in-memory store.
     """
+    user_id = _extract_user_id(token_data)
+
     with _orders_lock:
         if status == "all":
-            result = list(_orders)
+            result = [o for o in _orders if o.get("user_id") == user_id]
         else:
-            result = [o for o in _orders if o.get("status") == status]
+            result = [
+                o for o in _orders
+                if o.get("user_id") == user_id and o.get("status") == status
+            ]
     return {"orders": result, "count": len(result), "as_of": _utcnow()}
