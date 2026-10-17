@@ -24,7 +24,12 @@ from ml.auto_trainer import (
     engineer_features,
     fetch_ohlcv,
 )
-from ml.rl_trader import train_rl_agent
+try:
+    from ml.rl_trader import train_rl_agent
+except ImportError:
+    def train_rl_agent(*args, **kwargs):
+        logger.warning("torch not available — rl_trader disabled")
+        return None
 from services.news_fetcher import news_fetcher
 
 logger = logging.getLogger(__name__)
