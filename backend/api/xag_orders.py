@@ -37,6 +37,24 @@ P0-E (Atomic margin reservation): The margin check and the order insert both
      concurrent requests could both pass the free-margin check and together
      overcommit available margin.
 
+Pending-order margin policy (explicit design decision):
+     Margin is reserved at fill time, not at placement time.  A limit or stop
+     order placed with status="pending" does NOT consume free_margin until it
+     is filled and transitions to status="open".  Consequently, the margin
+     check in place_order() counts only open orders — this is intentional.
+
+     The rationale: pending orders at a price far from the market may never
+     fill; pre-reserving margin for them would unnecessarily restrict the
+     account.  This matches the common broker convention where pending orders
+     do not consume margin until execution.
+
+     Implication: if a large number of pending orders fill simultaneously,
+     each fill event must re-check available margin before inserting the
+     resulting open order.  In Phase 2 (in-memory simulation) there is no
+     automated fill engine, so this path does not yet exist.  Phase 6+ must
+     implement an atomic fill-and-margin-check path under _orders_lock before
+     enabling automated limit/stop execution.
+
 P0-F (Ticket persistence): The monotonic counter guarantees uniqueness only
      within a single process lifetime.  It resets on restart and is not shared
      across Uvicorn workers.  This is a known limitation of the in-memory
@@ -296,12 +314,15 @@ def _account_snapshot() -> dict:
     Compute and return the current account snapshot (balance, equity, margin,
     free margin, floating P/L) from the in-memory state and live price cache.
 
-    Called by get_account() and directly by place_order() so that the
-    decorated endpoint is never called outside a real Request context.
+    Called by get_account() only.  place_order() does NOT call this function —
+    it uses _compute_margin_snapshot() directly inside _orders_lock instead,
+    because this function acquires _orders_lock internally and calling it from
+    inside an existing lock block would be the wrong pattern.
 
-    NOTE: This function acquires _orders_lock internally.  It must NOT be
-    called from inside a place_order() critical section — use
-    _compute_margin_snapshot() directly with the already-held lock instead.
+    NOTE: This function copies open orders under lock, then computes margin
+    after releasing it.  This is acceptable for an informational snapshot
+    (minor staleness possible) but is NOT suitable for the atomic margin-check
+    path — use _compute_margin_snapshot() inside _orders_lock for that.
 
     Phase 6+: replace body with mt5.account_info()._asdict() enrichment.
     """
@@ -427,6 +448,11 @@ def place_order(
         # Margin check inside the lock (P0-E): compute free_margin from the
         # current _orders list — any concurrent order already inserted will be
         # counted, preventing double-spend.
+        #
+        # Pending-order margin policy: only "open" orders consume margin.
+        # Pending (limit/stop) orders do NOT reserve margin at placement —
+        # margin is reserved when they fill and become "open".  This is
+        # intentional (see module docstring: "Pending-order margin policy").
         open_orders_now = [o for o in _orders if o["status"] == "open"]
         ms = _compute_margin_snapshot(open_orders_now, live_price)
         if req_margin > ms["free_margin"]:
