@@ -13,6 +13,7 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       # Persist trained models outside the ephemeral container filesystem.
       AURA_MODELS_DIR: "/data/models"
+      JWT_SECRET_KEY: "xlLxv4LhQM04QAP6nCOT_3KL-idCdJ2mozfEgkbimKA6HhrOga2DMtCsfxhQdeGQM9k8Uwu6m2EbpcJ5TzfwIg"
     volumes:
       - models:/data/models
     depends_on:
