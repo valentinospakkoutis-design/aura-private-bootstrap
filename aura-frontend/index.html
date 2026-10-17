@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aura — XAGUSD-STD Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <span class="logo">⚡ Aura</span>
+          <span class="symbol-label">XAGUSD-STD</span>
+        </div>
+        <div class="header-right">
+          <div id="ws-indicator" class="ws-dot ws-disconnected" title="WebSocket disconnected"></div>
+          <button id="btn-refresh" class="btn btn-secondary">↻ Refresh</button>
+          <select id="auto-refresh" class="select-sm">
+            <option value="0">Auto: off</option>
+            <option value="60">1 min</option>
+            <option value="120">2 min</option>
+            <option value="300">5 min</option>
+          </select>
+        </div>
+      </header>
+
+      <!-- Price + RSI row -->
+      <div class="top-row">
+        <!-- Price card -->
+        <div class="price-card" id="price-card">
+          <div class="price-main">
+            <span id="price-value">—</span>
+            <span id="price-source-badge" class="badge badge-gray">—</span>
+          </div>
+          <div class="price-sub">
+            <span id="price-bid-ask">Bid — / Ask —</span>
+            <span id="price-change">—</span>
+          </div>
+          <div class="price-status" id="price-status">Connecting…</div>
+        </div>
+
+        <!-- RSI cards -->
+        <div class="rsi-row">
+          <div class="rsi-card" id="rsi-1m">
+            <div class="rsi-label">RSI 1m</div>
+            <div class="rsi-value" id="rsi-1m-val">—</div>
+            <div class="rsi-badge" id="rsi-1m-badge">—</div>
+          </div>
+          <div class="rsi-card" id="rsi-15m">
+            <div class="rsi-label">RSI 15m</div>
+            <div class="rsi-value" id="rsi-15m-val">—</div>
+            <div class="rsi-badge" id="rsi-15m-badge">—</div>
+          </div>
+          <div class="rsi-card" id="rsi-1h">
+            <div class="rsi-label">RSI 1h</div>
+            <div class="rsi-value" id="rsi-1h-val">—</div>
+            <div class="rsi-badge" id="rsi-1h-badge">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-section">
+        <div class="chart-toolbar">
+          <div class="tf-buttons">
+            <button class="tf-btn active" data-tf="1m">1m</button>
+            <button class="tf-btn" data-tf="5m">5m</button>
+            <button class="tf-btn" data-tf="15m">15m</button>
+            <button class="tf-btn" data-tf="1h">1h</button>
+          </div>
+          <span id="chart-stats" class="chart-stats">—</span>
+        </div>
+        <div id="chart-container" class="chart-container"></div>
+      </div>
+
+      <!-- Positions -->
+      <div class="positions-section">
+        <div class="positions-toolbar">
+          <span class="section-title">Open Positions</span>
+          <div class="positions-actions">
+            <button id="btn-select-all" class="btn btn-secondary btn-sm">Select all</button>
+            <button id="btn-clear" class="btn btn-secondary btn-sm">Clear</button>
+            <button id="btn-close-selected" class="btn btn-danger btn-sm" disabled>Close selected</button>
+            <button id="btn-close-all" class="btn btn-danger btn-sm">Close all</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table class="positions-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="master-cb" /></th>
+                <th>Ticket</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Vol</th>
+                <th>Open</th>
+                <th>Current</th>
+                <th>P/L</th>
+                <th>Swap</th>
+                <th>Opened</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="positions-body">
+              <tr><td colspan="11" class="empty-row">Loading positions…</td></tr>
+            </tbody>
+            <tfoot id="positions-footer"></tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Toast container -->
+      <div id="toast-container" class="toast-container"></div>
+
+      <!-- Confirm modal -->
+      <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <p id="confirm-text"></p>
+          <div class="modal-actions">
+            <button id="confirm-yes" class="btn btn-danger">Confirm</button>
+            <button id="confirm-no" class="btn btn-secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
