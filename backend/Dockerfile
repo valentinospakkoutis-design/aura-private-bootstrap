@@ -23,6 +23,7 @@ RUN pip install --upgrade pip \
 COPY . .
 
 EXPOSE 8080
+RUN mkdir -p /root/aura-frontend /root/aura-scanner
 
 # start.sh runs alembic migrations (tolerant) then launches uvicorn on $PORT.
 CMD ["bash", "start.sh"]
