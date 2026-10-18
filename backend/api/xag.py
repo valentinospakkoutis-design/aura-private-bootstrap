@@ -84,9 +84,28 @@ def _fetch_snapshot():
     except Exception:
         hist = tick.history(period="1d", interval="1m")
         price = float(hist["Close"].iloc[-1])
+    # Compute RSI(14) on 1m / 15m / 1h from yfinance history
+    def _rsi14(series):
+        delta = series.diff()
+        gain  = delta.clip(lower=0).rolling(14).mean()
+        loss  = (-delta.clip(upper=0)).rolling(14).mean()
+        rs    = gain / loss.replace(0, float("nan"))
+        val   = (100 - 100 / (1 + rs)).iloc[-1]
+        return round(float(val), 2) if not __import__("math").isnan(val) else None
+    try:
+        import pandas as pd
+        h1m  = tick.history(period="5d",  interval="1m")["Close"]
+        h15m = tick.history(period="5d",  interval="15m")["Close"]
+        h1h  = tick.history(period="30d", interval="1h")["Close"]
+        rsi_1m  = _rsi14(h1m)  if len(h1m)  >= 15 else None
+        rsi_15m = _rsi14(h15m) if len(h15m) >= 15 else None
+        rsi_1h  = _rsi14(h1h)  if len(h1h)  >= 15 else None
+    except Exception as e:
+        print(f"[xag] RSI calc failed: {e}")
+        rsi_1m = rsi_15m = rsi_1h = None
     return {"symbol": "XAGUSD-STD", "price": round(price,3),
             "bid": round(price-0.025,3), "ask": round(price+0.025,3),
-            "rsi_1m": None, "rsi_15m": None, "rsi_1h": None,
+            "rsi_1m": rsi_1m, "rsi_15m": rsi_15m, "rsi_1h": rsi_1h,
             "asof": datetime.now(timezone.utc).isoformat(), "source": "yfinance/SI=F"}
 
 def _fetch_ohlc(tf, n):
