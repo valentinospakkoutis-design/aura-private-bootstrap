@@ -1,10 +1,9 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  base: '/monitor/',
   server: {
     port: 5173,
-    // Proxy API calls to the Aura backend in dev
-    // (avoids CORS issues when running locally)
     proxy: {
       '/api': {
         target: process.env.VITE_AURA_API_URL || 'http://116.203.75.114:8080',
@@ -22,8 +21,8 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'lightweight-charts': ['lightweight-charts'],
+        manualChunks: (id) => {
+          if (id.includes('lightweight-charts')) return 'lightweight-charts';
         },
       },
     },

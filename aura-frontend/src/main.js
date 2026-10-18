@@ -51,7 +51,7 @@ async function doRefresh() {
 
   try {
     const data = await fetchSnapshot();
-    state.anchor   = data.price;
+    if (state.anchor === null) state.anchor = data.price;
     state.price    = data.price;
     state.bid      = data.bid;
     state.ask      = data.ask;
