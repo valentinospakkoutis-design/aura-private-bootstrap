@@ -1,3 +1,6 @@
+import { applyQuote } from './tick-stream.js';
+let quoteRevision = 0;
+
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 // Bootstraps the app: chart, positions, tick stream, refresh loop.
 
@@ -21,15 +24,17 @@ async function boot() {
   // 3. Tick stream
   const ws = createTickWS({
     onTick(tick) {
-      const mid = (tick.bid + tick.ask) / 2;
-      state.price = mid;
-      state.bid   = tick.bid;
-      state.ask   = tick.ask;
+      if (!applyQuote(state, tick)) return;
+      quoteRevision++;
       updatePriceUI();
-      processTick(mid, false);
-      // Re-render position P/L on each tick (XAGUSD-STD live P/L)
+      setPriceBadge(tick.stale ? 'stale' : 'real', tick.stale ? 'gray' : 'green');
+      processTick(state.price, true, state.priceAsof);
       renderPositions();
     },
+    onBarClose() {
+      refreshPositions().catch(() => setPriceBadge('positions refresh failed', 'red'));
+    },
+    onError() { setPriceBadge('stream error', 'red'); },
     onStatusChange(status) {
       state.wsStatus = status;
       updateWSDot(status);
@@ -47,15 +52,17 @@ async function boot() {
 async function doRefresh() {
   if (state.isRefreshing) return;
   state.isRefreshing = true;
-  setPriceBadge('fetching', 'gray');
+  if (state.price == null) setPriceBadge('fetching', 'gray');
 
+  const revision = quoteRevision;
   try {
     const data = await fetchSnapshot();
-    if (state.anchor === null) state.anchor = data.price;
-    state.price    = data.price;
-    state.bid      = data.bid;
-    state.ask      = data.ask;
-    state.priceAsof = data.asof;
+    const priceUpdated = revision === quoteRevision && applyQuote(state, data);
+    if (priceUpdated) {
+      quoteRevision++;
+      processTick(state.price, true, state.priceAsof);
+      renderPositions();
+    }
 
     for (const tf of ['1m', '15m', '1h']) {
       state.rsi[tf] = { val: data[`rsi_${tf}`], ts: Date.now(), source: data._stub ? 'sim' : 'real' };
@@ -63,7 +70,8 @@ async function doRefresh() {
 
     updatePriceUI();
     updateRSICards();
-    setPriceBadge(data._stub ? 'simulated' : 'real', data._stub ? 'gray' : 'green');
+    if (revision === quoteRevision && !priceUpdated) setPriceBadge('invalid snapshot', 'red');
+    if (priceUpdated) setPriceBadge(data.stale ? 'stale' : 'real', data.stale ? 'gray' : 'green');
   } catch (err) {
     console.error('Snapshot fetch failed', err);
     setPriceBadge('fetch failed', 'red');

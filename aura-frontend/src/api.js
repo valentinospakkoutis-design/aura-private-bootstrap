@@ -1,3 +1,5 @@
+import { openTickStream } from './tick-stream.js';
+
 // --- API Layer ---
 // Phase 2: fetchSnapshot + fetchOHLC call real backend.
 // Phase 4: createTickWS uses real WebSocket.
@@ -58,24 +60,11 @@ export async function closeBulk(tickets) {
 }
 
 // -- WebSocket factory --
-export function createTickWS({ onTick, onStatusChange }) {
-  const WS_BASE = import.meta.env.VITE_AURA_WS_URL || BASE.replace(/^http/, "ws");
-  let ws, retryDelay = 1000, retryTimer = null;
-
-  function connect() {
-    onStatusChange("reconnecting");
-    const token = _token ? `?token=${encodeURIComponent(_token)}` : "";
-    ws = new WebSocket(`${WS_BASE}/api/xag/ws/tick${token}`);
-    ws.onopen = () => { retryDelay = 1000; onStatusChange("connected"); };
-    ws.onmessage = (e) => onTick(JSON.parse(e.data));
-    ws.onclose = () => {
-      onStatusChange("reconnecting");
-      retryTimer = setTimeout(connect, Math.min(retryDelay, 30000));
-      retryDelay = Math.min(retryDelay * 2 + Math.random() * 500, 30000);
-    };
-  }
-  connect();
-  return { close: () => { clearTimeout(retryTimer); ws?.close(); } };
+export function createTickWS(handlers) {
+  const base = import.meta.env.VITE_AURA_WS_URL || BASE.replace(/^http/, "ws");
+  const url = new URL(`${base}/api/xag/ws/tick`, window.location.href);
+  url.protocol = url.protocol.replace(/^http/, 'ws');
+  return openTickStream({ ...handlers, url: url.href, getToken: () => _token });
 }
 
 // -- Internal helpers --
