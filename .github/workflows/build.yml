@@ -112,6 +112,12 @@ jobs:
       - name: Run frontend tests
         run: node --test tests/*.test.js
 
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
   build-check:
     name: Check Build
     runs-on: ubuntu-latest

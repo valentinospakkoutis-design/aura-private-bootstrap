@@ -49,7 +49,7 @@ async function boot() {
   await doRefresh();
 
   // 5. Wire UI controls
-  wireControls(ws);
+  wireControls();
 }
 
 // ── Refresh (snapshot) ────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ async function doRefresh() {
 }
 
 // ── UI Controls ───────────────────────────────────────────────────────────────
-function wireControls(ws) {
+function wireControls() {
   // Refresh button
   document.getElementById('btn-refresh').addEventListener('click', doRefresh);
 
