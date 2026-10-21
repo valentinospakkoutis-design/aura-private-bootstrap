@@ -79,7 +79,7 @@ export async function switchTimeframe(tf) {
 
 // ── Process incoming tick ─────────────────────────────────────────────────────
 export function processTick(mid, isReal = false) {
-  if (!candleSeries || !state.currentCandle) return;
+  if (!Number.isFinite(mid) || mid <= 0 || !candleSeries || !state.currentCandle) return;
 
   const tfSec  = TF_SECONDS[state.currentTf] ?? 60;
   const nowSec = Math.floor(Date.now() / 1000);
