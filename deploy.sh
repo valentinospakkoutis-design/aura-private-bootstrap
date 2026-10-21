@@ -33,6 +33,10 @@ docker build \
 
 # 2. Stop existing container (soft — αν δεν τρέχει, συνέχισε)
 echo "--- [2/6] Stopping $CONTAINER..."
+# Σταμάτα και legacy compose container αν υπάρχει (πριν αλλαχτεί σε standalone)
+docker stop "aura-private-bootstrap_backend_1" 2>/dev/null || true
+docker rm   "aura-private-bootstrap_backend_1" 2>/dev/null || true
+# Σταμάτα το τρέχον standalone container
 docker stop "$CONTAINER" 2>/dev/null || true
 docker rm   "$CONTAINER" 2>/dev/null || true
 
@@ -73,14 +77,39 @@ for i in $(seq 1 15); do
   fi
 done
 
-# 6. Prune
-echo "--- [6/6] Pruning old images..."
+# 6. Ensure DB user exists (idempotent — τρέχει και σε fresh deploy)
+echo "--- [6/6] Ensuring DB user aura_user..."
+DB_CONTAINER=$(docker ps --filter "name=aura-private-bootstrap_db_1" --format "{{.Names}}" | head -1)
+if [ -n "$DB_CONTAINER" ]; then
+  docker exec -i "$DB_CONTAINER" psql -U aura -d aura <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'aura_user') THEN
+    CREATE USER aura_user WITH LOGIN;
+  END IF;
+END
+$$;
+ALTER USER aura_user WITH PASSWORD 'AuraDB2026!';
+GRANT ALL PRIVILEGES ON DATABASE aura TO aura_user;
+GRANT ALL ON SCHEMA public TO aura_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO aura_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO aura_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO aura_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO aura_user;
+SQL
+  echo "✅ DB user aura_user ensured"
+else
+  echo "⚠️  DB container not found, skipping user setup"
+fi
+
+# 7. Prune
+echo "--- [7/7] Pruning old images..."
 docker image prune -f
 
 echo "=== Deploy complete: $(date) ==="
 
 # Post-deploy: copy XAG Phase 7 files (not in image)
-echo "--- [7/7] Copying XAG Phase 7 files into container..."
+echo "--- [8/8] Copying XAG Phase 7 files into container..."
 for f in xag.py xag_auth.py xag_orders.py xag_positions.py xag_healthz.py xag_logging.py xag_metrics.py xag_ws.py; do
   docker cp "/root/aura-private-bootstrap/backend/api/$f" "aura-backend:/app/api/$f"
 done
