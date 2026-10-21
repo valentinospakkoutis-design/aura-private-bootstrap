@@ -69,6 +69,8 @@ export async function loadHistory(tf = state.currentTf) {
   state.currentCandle = bars[bars.length - 1] ?? null;
   chart.timeScale().fitContent();
   updateChartStats();
+  // Restore a valid live quote received while history was loading.
+  processTick(state.price, false, state.priceAsof);
 }
 
 // ── Switch timeframe ──────────────────────────────────────────────────────────
@@ -78,13 +80,15 @@ export async function switchTimeframe(tf) {
 }
 
 // ── Process incoming tick ─────────────────────────────────────────────────────
-export function processTick(mid, isReal = false) {
-  if (!candleSeries || !state.currentCandle) return;
+export function processTick(mid, isReal = false, asof = null) {
+  if (!Number.isFinite(mid) || mid <= 0 || !candleSeries || !state.currentCandle) return;
 
   const tfSec  = TF_SECONDS[state.currentTf] ?? 60;
-  const nowSec = Math.floor(Date.now() / 1000);
+  const timestamp = Date.parse(asof);
+  const nowSec = Math.floor((Number.isFinite(timestamp) ? timestamp : Date.now()) / 1000);
   const barTime = Math.floor(nowSec / tfSec) * tfSec;
 
+  if (barTime < state.currentCandle.time) return;
   if (isReal) state.realTickCount++;
 
   if (barTime > state.currentCandle.time) {
