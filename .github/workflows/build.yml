@@ -88,6 +88,30 @@ jobs:
       - name: Run tests
         run: npx jest --ci
 
+  frontend-tests:
+    name: Frontend Tests (Node)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aura-frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: aura-frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend tests
+        run: node --test tests/*.test.js
+
   build-check:
     name: Check Build
     runs-on: ubuntu-latest

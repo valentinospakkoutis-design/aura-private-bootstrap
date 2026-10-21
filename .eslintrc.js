@@ -10,6 +10,9 @@ module.exports = {
     "android-webview/",
     "backend/",
     "scripts/",
+    // aura-frontend is a standalone Vite/browser project with its own
+    // toolchain and ESLint config — exclude it from the React Native linter.
+    "aura-frontend/",
   ],
   env: {
     node: true,
