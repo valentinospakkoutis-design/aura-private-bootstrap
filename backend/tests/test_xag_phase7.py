@@ -596,7 +596,7 @@ class TestXagAuthEnvGuard:
 
     def test_bypass_with_dev_env_allowed(self, monkeypatch):
         """
-        XAG_DEV_NO_AUTH=1 + APP_ENV=development → επιτρέπεται (με warning).
+        XAG_DEV_NO_AUTH=1 + APP_ENV=development + XAG_DEV_USER_ID → επιτρέπεται (με warning).
         """
         import importlib
         import warnings
@@ -604,6 +604,8 @@ class TestXagAuthEnvGuard:
 
         monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
         monkeypatch.setenv("APP_ENV", "development")
+        # XAG_DEV_USER_ID is required whenever XAG_DEV_NO_AUTH=1.
+        monkeypatch.setenv("XAG_DEV_USER_ID", "88001")
 
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")

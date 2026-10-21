@@ -126,8 +126,13 @@ def test_valid_token_grants_positions_access(client):
 
 
 def test_valid_token_place_market_order(client):
-    """Valid access token → POST /order with market body → 200."""
-    token = create_access_token({"sub": "phase7-regression-user"})
+    """Valid access token with numeric sub → POST /order with market body → 200.
+
+    Order endpoints call _extract_user_id() which requires int(sub) to succeed.
+    A non-numeric sub correctly returns 401 (ownership-enforcement requirement),
+    so this test uses a numeric sub to exercise the successful path.
+    """
+    token = create_access_token({"sub": "99001"})
     resp = client.post(
         "/api/xag/order",
         json={
