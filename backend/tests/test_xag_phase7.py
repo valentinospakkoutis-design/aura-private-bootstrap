@@ -156,13 +156,18 @@ class TestDevNoAuth:
     """XAG_DEV_NO_AUTH=1 bypasses JWT on all XAG endpoints.
 
     The bypass is monkeypatched per-test — no global env var required.
+    XAG_DEV_USER_ID is also patched to 9999 so _extract_user_id() receives
+    a valid integer sub claim identical in shape to a real JWT payload.
     """
+
+    DEV_UID = 9999
 
     @pytest.fixture(autouse=True)
     def setup_bypass(self, monkeypatch):
         self.client = _make_xag_app(warm_snapshot=True)
         import api.xag_auth as auth
         monkeypatch.setattr(auth, "_DEV_NO_AUTH", True)
+        monkeypatch.setattr(auth, "_DEV_USER_ID", self.DEV_UID)
         yield
         self.client.close()
 
@@ -191,6 +196,87 @@ class TestDevNoAuth:
         })
         assert r.status_code == 200
         assert r.json()["ok"] is True
+
+    # ── New tests: dev user identity ─────────────────────────────────────────
+
+    def test_dev_order_visible_to_same_dev_user(self):
+        """Εντολή που δημιουργήθηκε από dev user επιστρέφεται στον ίδιο dev user."""
+        r_place = self.client.post("/api/xag/order", json={
+            "symbol": "XAGUSD-STD",
+            "side": "buy",
+            "order_type": "market",
+            "volume": 0.01,
+        })
+        assert r_place.status_code == 200, r_place.text
+        ticket = r_place.json().get("ticket")
+        assert ticket is not None
+
+        r_orders = self.client.get("/api/xag/orders", params={"status": "open"})
+        assert r_orders.status_code == 200
+        tickets = [o["ticket"] for o in r_orders.json()["orders"]]
+        assert ticket in tickets, (
+            f"Placed order {ticket} not visible to dev user — "
+            f"found tickets: {tickets}"
+        )
+
+    def test_dev_order_not_visible_to_other_user(self, monkeypatch):
+        """Εντολή dev user δεν φαίνεται σε άλλο user ID."""
+        import api.xag_auth as auth
+
+        # Place an order as dev user (DEV_UID = 9999, already patched)
+        r_place = self.client.post("/api/xag/order", json={
+            "symbol": "XAGUSD-STD",
+            "side": "sell",
+            "order_type": "market",
+            "volume": 0.02,
+        })
+        assert r_place.status_code == 200, r_place.text
+        ticket = r_place.json().get("ticket")
+        assert ticket is not None
+
+        # Switch the dev user ID to a different value (still in dev mode)
+        monkeypatch.setattr(auth, "_DEV_USER_ID", self.DEV_UID + 1)
+
+        r_orders = self.client.get("/api/xag/orders", params={"status": "open"})
+        assert r_orders.status_code == 200
+        tickets = [o["ticket"] for o in r_orders.json()["orders"]]
+        assert ticket not in tickets, (
+            f"Order {ticket} (user {self.DEV_UID}) should NOT be visible "
+            f"to user {self.DEV_UID + 1}"
+        )
+
+    def test_missing_dev_user_id_raises_at_startup(self, monkeypatch):
+        """XAG_DEV_NO_AUTH=1 χωρίς XAG_DEV_USER_ID πετάει RuntimeError κατά reload."""
+        import importlib
+        import warnings
+        import api.xag_auth as auth_mod
+
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
+        monkeypatch.delenv("XAG_DEV_USER_ID", raising=False)
+
+        with pytest.raises(RuntimeError, match="XAG_DEV_USER_ID"):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                importlib.reload(auth_mod)
+
+        # Restore
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "0")
+        monkeypatch.setenv("APP_ENV", "production")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            importlib.reload(auth_mod)
+
+    def test_production_without_token_returns_401(self, monkeypatch):
+        """Production mode (XAG_DEV_NO_AUTH=False) — nessun token → HTTP 401."""
+        import api.xag_auth as auth
+        # Override bypass to False for this test only
+        monkeypatch.setattr(auth, "_DEV_NO_AUTH", False)
+
+        r = self.client.get("/api/xag/orders")
+        assert r.status_code == 401, (
+            f"Expected 401 in production mode without token, got {r.status_code}"
+        )
 
 
 # ── Helpers for auth tests ────────────────────────────────────────────────────

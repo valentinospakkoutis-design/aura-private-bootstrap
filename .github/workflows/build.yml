@@ -21,6 +21,10 @@ jobs:
     env:
       JWT_SECRET_KEY: ci-only-not-a-production-secret-replace-in-prod
       XAG_DEV_NO_AUTH: "0"
+      # XAG_DEV_USER_ID is only read when XAG_DEV_NO_AUTH=1.
+      # Set here so that tests which reload the module with the bypass
+      # enabled (monkeypatched) don't hit a RuntimeError at startup.
+      XAG_DEV_USER_ID: "9999"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
