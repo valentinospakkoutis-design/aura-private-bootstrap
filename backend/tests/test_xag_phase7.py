@@ -155,15 +155,27 @@ class TestHealthz:
 class TestDevNoAuth:
     """XAG_DEV_NO_AUTH=1 bypasses JWT on all XAG endpoints.
 
-    The bypass is monkeypatched per-test — no global env var required.
-    XAG_DEV_USER_ID is also patched to 9999 so _extract_user_id() receives
-    a valid integer sub claim identical in shape to a real JWT payload.
+    Each test is self-contained: _DEV_NO_AUTH and _DEV_USER_ID are both
+    monkeypatched explicitly in setup_bypass.  No dependency on the
+    XAG_DEV_USER_ID CI environment variable — the fixture is the only
+    source of truth for the dev identity used in this class.
     """
 
-    DEV_UID = 9999
+    # Sentinel value used as the dev user identity throughout this class.
+    # Chosen to be large and unlikely to collide with real user IDs in tests.
+    DEV_UID = 88001
 
     @pytest.fixture(autouse=True)
     def setup_bypass(self, monkeypatch):
+        """Activate dev bypass and set a known dev identity.
+
+        monkeypatch restores _DEV_NO_AUTH and _DEV_USER_ID automatically
+        after each test (including on failure), so no explicit teardown is
+        needed for these attributes.
+        """
+        # _make_xag_app() calls importlib.reload(auth_mod), which re-executes
+        # module-level code and overwrites any prior monkeypatches.  Build the
+        # app first, THEN patch — so the patched values are what the routes see.
         self.client = _make_xag_app(warm_snapshot=True)
         import api.xag_auth as auth
         monkeypatch.setattr(auth, "_DEV_NO_AUTH", True)
@@ -245,27 +257,13 @@ class TestDevNoAuth:
             f"to user {self.DEV_UID + 1}"
         )
 
-    def test_missing_dev_user_id_raises_at_startup(self, monkeypatch):
-        """XAG_DEV_NO_AUTH=1 χωρίς XAG_DEV_USER_ID πετάει RuntimeError κατά reload."""
-        import importlib
-        import warnings
-        import api.xag_auth as auth_mod
-
-        monkeypatch.setenv("APP_ENV", "development")
-        monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
-        monkeypatch.delenv("XAG_DEV_USER_ID", raising=False)
-
-        with pytest.raises(RuntimeError, match="XAG_DEV_USER_ID"):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                importlib.reload(auth_mod)
-
-        # Restore
-        monkeypatch.setenv("XAG_DEV_NO_AUTH", "0")
-        monkeypatch.setenv("APP_ENV", "production")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            importlib.reload(auth_mod)
+    def test_valid_dev_user_id_returns_numeric_sub(self):
+        """xag_require_auth() returns sub as numeric string when dev mode active."""
+        import api.xag_auth as auth
+        payload = auth.xag_require_auth(credentials=None)
+        assert payload["sub"] == str(self.DEV_UID), (
+            f"Expected sub='{self.DEV_UID}', got sub={payload['sub']!r}"
+        )
 
     def test_production_without_token_returns_401(self, monkeypatch):
         """Production mode (XAG_DEV_NO_AUTH=False) — nessun token → HTTP 401."""
@@ -277,6 +275,78 @@ class TestDevNoAuth:
         assert r.status_code == 401, (
             f"Expected 401 in production mode without token, got {r.status_code}"
         )
+
+
+# ── TestDevUserIdValidation ───────────────────────────────────────────────────
+
+class TestDevUserIdValidation:
+    """XAG_DEV_USER_ID validation at module init time.
+
+    Each test reloads api.xag_auth with APP_ENV=development and
+    XAG_DEV_NO_AUTH=1 but an invalid XAG_DEV_USER_ID value.  Every case must
+    raise RuntimeError at import time — never produce a silent 401 at runtime.
+
+    The module is always restored to a clean production state in the finally
+    block, even when pytest.raises does not catch the expected error or the
+    test itself raises an unexpected exception.
+
+    These tests are self-contained: no XAG_DEV_USER_ID env var from CI is
+    required or relied upon.
+    """
+
+    @pytest.mark.parametrize("bad_value,label", [
+        ("",    "empty string"),
+        ("abc", "non-numeric string"),
+        ("0",   "zero"),
+        ("-1",  "negative integer"),
+        ("1.5", "float string"),
+    ])
+    def test_invalid_dev_user_id_raises_at_startup(
+        self, monkeypatch, bad_value, label
+    ):
+        """XAG_DEV_USER_ID={bad_value!r} must raise RuntimeError at module reload."""
+        import importlib
+        import warnings
+        import api.xag_auth as auth_mod
+
+        monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
+        monkeypatch.setenv("XAG_DEV_USER_ID", bad_value)
+
+        try:
+            with pytest.raises(RuntimeError, match="XAG_DEV_USER_ID"):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    importlib.reload(auth_mod)
+        finally:
+            # Always restore module to production state, even on test failure.
+            monkeypatch.setenv("XAG_DEV_NO_AUTH", "0")
+            monkeypatch.setenv("APP_ENV", "production")
+            monkeypatch.delenv("XAG_DEV_USER_ID", raising=False)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                importlib.reload(auth_mod)
+
+    def test_bypass_rejected_outside_development(self, monkeypatch):
+        """XAG_DEV_NO_AUTH=1 outside APP_ENV=development still raises RuntimeError."""
+        import importlib
+        import warnings
+        import api.xag_auth as auth_mod
+
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("XAG_DEV_NO_AUTH", "1")
+        monkeypatch.setenv("XAG_DEV_USER_ID", "9999")
+
+        try:
+            with pytest.raises(RuntimeError, match="APP_ENV=development"):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    importlib.reload(auth_mod)
+        finally:
+            monkeypatch.setenv("XAG_DEV_NO_AUTH", "0")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                importlib.reload(auth_mod)
 
 
 # ── Helpers for auth tests ────────────────────────────────────────────────────
