@@ -1,11 +1,15 @@
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 // Bootstraps the app: chart, positions, tick stream, refresh loop.
 
+import { applyQuote } from './quotes.js';
 import { state } from './state.js';
 import { fetchSnapshot, createTickWS } from './api.js';
 import { initChart, loadHistory, switchTimeframe, processTick } from './chart.js';
 import { updatePriceUI, updateRSICards, updateRSICard, updateWSDot, setPriceBadge } from './indicators.js';
 import { refreshPositions, wirePositionEvents, renderPositions } from './positions.js';
+
+const quoteEffects = { updatePriceUI, processTick, renderPositions };
+let liveQuoteRevision = 0;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function boot() {
@@ -21,14 +25,17 @@ async function boot() {
   // 3. Tick stream
   const ws = createTickWS({
     onTick(tick) {
-      const mid = (tick.bid + tick.ask) / 2;
-      state.price = mid;
-      state.bid   = tick.bid;
-      state.ask   = tick.ask;
-      updatePriceUI();
-      processTick(mid, false);
-      // Re-render position P/L on each tick (XAGUSD-STD live P/L)
-      renderPositions();
+      if (applyQuote(state, tick, quoteEffects)) {
+        liveQuoteRevision++;
+        setPriceBadge(tick.stale ? 'stale' : 'real', tick.stale ? 'gray' : 'green');
+      }
+    },
+    onBarClose() {
+      // Existing positions API is still a stub; do not trigger trade actions.
+      refreshPositions().catch(err => console.error('Position refresh failed', err));
+    },
+    onError() {
+      setPriceBadge('stream error', 'red');
     },
     onStatusChange(status) {
       state.wsStatus = status;
@@ -36,11 +43,13 @@ async function boot() {
     },
   });
 
+  window.addEventListener('pagehide', () => ws.close(), { once: true });
+
   // 4. Initial snapshot
   await doRefresh();
 
   // 5. Wire UI controls
-  wireControls(ws);
+  wireControls();
 }
 
 // ── Refresh (snapshot) ────────────────────────────────────────────────────────
@@ -50,18 +59,16 @@ async function doRefresh() {
   setPriceBadge('fetching', 'gray');
 
   try {
+    const revision = liveQuoteRevision;
     const data = await fetchSnapshot();
-    if (state.anchor === null) state.anchor = data.price;
-    state.price    = data.price;
-    state.bid      = data.bid;
-    state.ask      = data.ask;
-    state.priceAsof = data.asof;
+    // An HTTP response started before a live tick must not roll it back.
+    if (revision !== liveQuoteRevision) return;
+    if (!applyQuote(state, data, quoteEffects, false)) throw new Error('Invalid or older snapshot');
 
     for (const tf of ['1m', '15m', '1h']) {
       state.rsi[tf] = { val: data[`rsi_${tf}`], ts: Date.now(), source: data._stub ? 'sim' : 'real' };
     }
 
-    updatePriceUI();
     updateRSICards();
     setPriceBadge(data._stub ? 'simulated' : 'real', data._stub ? 'gray' : 'green');
   } catch (err) {
@@ -73,7 +80,7 @@ async function doRefresh() {
 }
 
 // ── UI Controls ───────────────────────────────────────────────────────────────
-function wireControls(ws) {
+function wireControls() {
   // Refresh button
   document.getElementById('btn-refresh').addEventListener('click', doRefresh);
 

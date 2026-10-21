@@ -10,6 +10,13 @@ checks without removing the Depends() from endpoint signatures.
 Both env vars must be set simultaneously — XAG_DEV_NO_AUTH alone in a
 non-development environment raises RuntimeError at import time.
 
+When XAG_DEV_NO_AUTH=1 is active, XAG_DEV_USER_ID must also be set to a
+positive integer. This value is used as the sub claim in the returned token
+payload — matching the format real JWTs produce — so that endpoint helpers
+such as _extract_user_id() work without modification. If XAG_DEV_USER_ID is
+missing or non-integer, a RuntimeError is raised at startup to surface the
+misconfiguration immediately rather than producing a silent 401 at runtime.
+
 Usage in routers
 ----------------
     from fastapi import Depends
@@ -46,11 +53,31 @@ if _DEV_NO_AUTH and _APP_ENV != "development":
         "Set APP_ENV=development explicitly, or unset XAG_DEV_NO_AUTH."
     )
 
+# ── Dev user identity ─────────────────────────────────────────────────────────
+# XAG_DEV_USER_ID must be a positive integer when XAG_DEV_NO_AUTH=1.
+# It is used as the numeric sub claim so that _extract_user_id() works
+# identically in dev and production modes.  A missing or invalid value is
+# a startup error, not a silent runtime failure.
+
+_DEV_USER_ID: int | None = None
+
 if _DEV_NO_AUTH:
+    _raw_dev_uid = os.environ.get("XAG_DEV_USER_ID", "").strip()
+    try:
+        _parsed = int(_raw_dev_uid)
+        if _parsed <= 0:
+            raise ValueError("must be positive")
+        _DEV_USER_ID = _parsed
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            "XAG_DEV_USER_ID must be set to a positive integer when "
+            "XAG_DEV_NO_AUTH=1. Example: XAG_DEV_USER_ID=9999"
+        ) from None
+
     import warnings
     warnings.warn(
-        "[xag_auth] XAG_DEV_NO_AUTH=1 — JWT auth disabled on all XAG endpoints. "
-        "DO NOT use in production.",
+        f"[xag_auth] XAG_DEV_NO_AUTH=1 — JWT auth disabled on all XAG endpoints "
+        f"(dev user_id={_DEV_USER_ID}). DO NOT use in production.",
         stacklevel=2,
     )
 
@@ -79,7 +106,7 @@ def xag_require_auth(
     Skipped entirely when XAG_DEV_NO_AUTH=1 AND APP_ENV=development.
     """
     if _DEV_NO_AUTH:
-        return {"sub": "dev", "email": "dev@local", "dev": True}
+        return {"sub": str(_DEV_USER_ID), "email": "dev@local", "dev": True}
 
     if credentials is None:
         raise HTTPException(

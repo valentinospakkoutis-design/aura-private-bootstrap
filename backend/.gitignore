@@ -33,3 +33,8 @@ users_db.json
 .DS_Store
 Thumbs.db
 
+
+# Test artifacts
+.coverage
+coverage.xml
+backend-results.xml
