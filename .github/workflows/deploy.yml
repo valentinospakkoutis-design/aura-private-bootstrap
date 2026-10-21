@@ -64,6 +64,7 @@ jobs:
             "cd /root/aura-private-bootstrap && \
              git fetch origin && \
              git checkout ${DEPLOY_SHA} && \
+             tmux kill-session -t ci-deploy 2>/dev/null || true && \
              DEPLOY_SHA=${DEPLOY_SHA} \
              tmux new-session -d -s ci-deploy \
                'bash deploy.sh 2>&1 | tee /tmp/ci-deploy.log; echo EXIT:\$? >> /tmp/ci-deploy.log' && \
@@ -114,6 +115,7 @@ jobs:
             "cd /root/aura-private-bootstrap && \
              git fetch origin && \
              git checkout ${DEPLOY_SHA} && \
+             tmux kill-session -t ci-deploy-staging 2>/dev/null || true && \
              DEPLOY_SHA=${DEPLOY_SHA} APP_ENV=staging \
              tmux new-session -d -s ci-deploy-staging \
                'bash deploy.sh 2>&1 | tee /tmp/ci-deploy-staging.log; echo EXIT:\$? >> /tmp/ci-deploy-staging.log' && \
