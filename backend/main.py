@@ -703,7 +703,11 @@ print(f"[+] Loaded XAG order endpoints: {len(xag_orders_router.routes)} routes")
 print(f"[+] Loaded XAG health check: /api/xag/healthz")
 
 # Serve the frontend dashboard at /dashboard
+import os as _os_fe
+_os_fe.makedirs("/root/aura-frontend", exist_ok=True)
 app.mount("/monitor", StaticFiles(directory="/root/aura-frontend", html=True), name="monitor")
+import os as _os_sc
+_os_sc.makedirs("/root/aura-scanner", exist_ok=True)
 app.mount("/scanner", StaticFiles(directory="/root/aura-scanner", html=True), name="scanner")
 
 
