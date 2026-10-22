@@ -7,12 +7,24 @@ import pickle
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import numpy as np
-import pandas as pd
 import httpx
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
 from sqlalchemy import text
+
+# ML imports — optional; service degrades gracefully if not installed
+try:
+    import numpy as np
+    import pandas as pd
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.preprocessing import StandardScaler
+    _ML_AVAILABLE = True
+except ImportError as _ml_err:
+    np = None
+    pd = None
+    RandomForestRegressor = None
+    StandardScaler = None
+    _ML_AVAILABLE = False
+    import logging as _log
+    _log.getLogger(__name__).warning(f"ML libs not available: {_ml_err} — ML tasks will be skipped")
 
 from cache.connection import cache_set
 from database.connection import SessionLocal
