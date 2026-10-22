@@ -114,3 +114,43 @@ for f in xag.py xag_auth.py xag_orders.py xag_positions.py xag_healthz.py xag_lo
   docker cp "/root/aura-private-bootstrap/backend/api/$f" "aura-backend:/app/api/$f"
 done
 echo "✅ XAG files copied"
+
+# 9. Enable paper trading (idempotent — persists across restarts)
+echo "--- [9/9] Enabling paper trading..."
+PAPER_TOKEN=$(docker exec aura-backend python3 -c "
+import bcrypt, json, urllib.request
+from database.connection import SessionLocal
+from sqlalchemy import text
+
+# Fetch token via internal login
+db = SessionLocal()
+row = db.execute(text('SELECT password_hash FROM users WHERE id=1')).fetchone()
+db.close()
+
+import sys, os
+# Call login endpoint internally
+body = json.dumps({'email': 'valentinos.pakkoutis@gmail.com', 'password': 'Aura2026!'}).encode()
+req = urllib.request.Request('http://localhost:8080/api/v1/auth/login', data=body, headers={'Content-Type': 'application/json'})
+try:
+    res = urllib.request.urlopen(req, timeout=10)
+    print(json.loads(res.read())['access_token'])
+except Exception as e:
+    print('ERROR:' + str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null)
+
+if [ -n "$PAPER_TOKEN" ]; then
+  PAPER_RESULT=$(curl -sf -X POST http://localhost:8080/api/auto-trading/enable-paper \
+    -H "Authorization: Bearer $PAPER_TOKEN" \
+    -H "Content-Type: application/json" \
+    -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+  if [ "$PAPER_RESULT" = "200" ]; then
+    echo "✅ Paper trading enabled"
+  else
+    echo "⚠️  Paper trading enable returned HTTP $PAPER_RESULT (non-fatal)"
+  fi
+else
+  echo "⚠️  Could not get auth token for paper enable (non-fatal)"
+fi
+
+echo "=== All post-deploy steps complete ==="
