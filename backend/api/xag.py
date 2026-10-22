@@ -69,12 +69,25 @@ def _fetch_snapshot():
     from datetime import datetime, timezone
     data = _bridge_get("/api/xag/snapshot")
     if data and data.get("price"):
+        # Get daily open from first candle of today
+        daily_open = None
+        try:
+            from datetime import datetime, timezone
+            ohlc = _bridge_get("/api/xag/ohlc")
+            if ohlc:
+                today_ts = int(datetime.now(timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0).timestamp())
+                today = [c for c in ohlc if c["time"] >= today_ts]
+                if today:
+                    daily_open = today[0]["open"]
+        except Exception:
+            pass
         return {"symbol": "SILVER", "price": data["price"],
                 "bid": data.get("bid", data["price"]-0.02),
                 "ask": data.get("ask", data["price"]+0.02),
                 "spread": data.get("spread"),
                 "rsi_1m": data.get("rsi_1m"), "rsi_15m": data.get("rsi_15m"),
                 "rsi_1h": data.get("rsi_1h"), "asof": data.get("asof"),
+                "daily_open": daily_open,
                 "source": "mt5_bridge"}
     print("[xag] bridge unavailable, falling back to yfinance")
     import yfinance as yf
