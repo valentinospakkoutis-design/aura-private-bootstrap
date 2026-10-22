@@ -28,13 +28,13 @@ export function renderPositions() {
     const dig      = p.open_price > 100 ? 2 : 4;
 
     // P/L — for XAGUSD-STD compute live; for others use backend value
-    let pl = p.profit;
+    let pl = p.pnl ?? p.pnl_net ?? p.profit;
     if (isXAG && price != null) {
       pl = mult * (curPrice - p.open_price) * p.volume * 5000; // 5000 oz/lot for XAG standard
     }
     if (pl != null) { totalPL += pl; totalSwap += p.swap ?? 0; totalComm += p.commission ?? 0; }
 
-    const plStr  = pl != null ? `${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}` : '—';
+    const plStr  = pl != null ? `${pl >= 0 ? '+$' : '-$'}${Math.abs(pl).toFixed(2)}` : '—';
     const plCls  = pl == null ? '' : pl >= 0 ? 'pl-pos' : 'pl-neg';
     const chk    = selectedTickets.has(p.ticket) ? 'checked' : '';
 
