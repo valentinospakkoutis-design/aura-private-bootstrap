@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -18,8 +18,9 @@
         <div class="header-right">
           <div id="ws-indicator" class="ws-dot ws-disconnected" title="WebSocket disconnected"></div>
           <button id="btn-refresh" class="btn btn-secondary">↻ Refresh</button>
+          <button id="btn-logout" class="btn btn-secondary">→ Logout</button>
           <select id="auto-refresh" class="select-sm">
-            <option value="0">Auto: off</option>
+            <option value="0">Auto: off</option>`n            <option value="30" selected>30 sec</option>
             <option value="60">1 min</option>
             <option value="120">2 min</option>
             <option value="300">5 min</option>
@@ -59,6 +60,16 @@
             <div class="rsi-value" id="rsi-1h-val">—</div>
             <div class="rsi-badge" id="rsi-1h-badge">—</div>
           </div>
+          <div class="rsi-card" id="signal-card">
+            <div class="rsi-label">Signal</div>
+            <div class="rsi-value" id="signal-val">—</div>
+            <div class="rsi-badge" id="signal-badge">—</div>
+          </div>
+          <div class="rsi-card" id="smart-score-card">
+            <div class="rsi-label">Smart Score</div>
+            <div class="rsi-value" id="smart-score-val">—</div>
+            <div class="rsi-badge" id="smart-score-badge">—</div>
+          </div>
         </div>
       </div>
 
@@ -74,7 +85,34 @@
           <span id="chart-stats" class="chart-stats">—</span>
         </div>
         <div id="chart-container" class="chart-container"></div>
+      </div>      <!-- Order Entry -->
+      <div class="order-section">
+        <div class="order-toolbar">
+          <span class="section-title">New Order</span>
+        </div>
+        <form id="order-form" class="order-form" onsubmit="return false;">
+          <div class="order-fields">
+            <div class="order-field">
+              <label for="order-lots">Lots</label>
+              <input id="order-lots" type="number" value="0.01" min="0.01" step="0.01" class="input-sm" />
+            </div>
+            <div class="order-field">
+              <label for="order-sl">Stop Loss</label>
+              <input id="order-sl" type="number" step="0.0001" placeholder="optional" class="input-sm" />
+            </div>
+            <div class="order-field">
+              <label for="order-tp">Take Profit</label>
+              <input id="order-tp" type="number" step="0.0001" placeholder="optional" class="input-sm" />
+            </div>
+          </div>
+          <div class="order-buttons">
+            <button id="btn-buy"  class="btn btn-buy">Buy</button>
+            <button id="btn-sell" class="btn btn-sell">Sell</button>
+          </div>
+          <div id="order-error" class="order-error"></div>
+        </form>
       </div>
+
 
       <!-- Positions -->
       <div class="positions-section">
@@ -130,3 +168,6 @@
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
+
+
+

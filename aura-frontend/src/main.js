@@ -1,41 +1,54 @@
 // ─── Entry Point ──────────────────────────────────────────────────────────────
-// Bootstraps the app: chart, positions, tick stream, refresh loop.
-
-import { applyQuote } from './quotes.js';
 import { state } from './state.js';
-import { fetchSnapshot, createTickWS } from './api.js';
+import { login, logout, getToken, fetchSnapshot, fetchSmartScore, fetchSignal, createTickWS } from './api.js';
 import { initChart, loadHistory, switchTimeframe, processTick } from './chart.js';
-import { updatePriceUI, updateRSICards, updateRSICard, updateWSDot, setPriceBadge } from './indicators.js';
+import { updatePriceUI, updateRSICards, updateRSICard, updateWSDot, setPriceBadge, updateSmartScore, updateSignal } from './indicators.js';
 import { refreshPositions, wirePositionEvents, renderPositions } from './positions.js';
+import { showLoginOverlay, hideLoginOverlay, showToast } from './ui.js';
+import { wireOrderEntry } from './orders.js';
 
-const quoteEffects = { updatePriceUI, processTick, renderPositions };
-let liveQuoteRevision = 0;
+async function init() {
+  if (getToken()) {
+    await boot();
+  } else {
+    showLoginOverlay(async (email, password) => {
+      await login(email, password);
+      hideLoginOverlay();
+      await boot();
+    });
+  }
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
+  window.addEventListener('aura:logout', () => {
+    showToast('Session expired — please sign in again.', 'warn');
+    showLoginOverlay(async (email, password) => {
+      await login(email, password);
+      hideLoginOverlay();
+    });
+  });
+}
+
 async function boot() {
-  // 1. Chart
   const container = document.getElementById('chart-container');
   initChart(container);
   await loadHistory(state.currentTf);
 
-  // 2. Positions
   wirePositionEvents();
   await refreshPositions();
 
-  // 3. Tick stream
+  await doRefresh();
+
   const ws = createTickWS({
     onTick(tick) {
-      if (applyQuote(state, tick, quoteEffects)) {
-        liveQuoteRevision++;
-        setPriceBadge(tick.stale ? 'stale' : 'real', tick.stale ? 'gray' : 'green');
-      }
-    },
-    onBarClose() {
-      // Existing positions API is still a stub; do not trigger trade actions.
-      refreshPositions().catch(err => console.error('Position refresh failed', err));
-    },
-    onError() {
-      setPriceBadge('stream error', 'red');
+      const bid = Number(tick.bid);
+      const ask = Number(tick.ask);
+      if (!isFinite(bid) || !isFinite(ask)) return;
+      const mid = (bid + ask) / 2;
+      state.price = mid;
+      state.bid   = bid;
+      state.ask   = ask;
+      updatePriceUI();
+      processTick(mid, false);
+      renderPositions();
     },
     onStatusChange(status) {
       state.wsStatus = status;
@@ -43,34 +56,35 @@ async function boot() {
     },
   });
 
-  window.addEventListener('pagehide', () => ws.close(), { once: true });
+  state.autoRefreshSec = 30;
+  state.autoRefreshTimer = setInterval(doRefresh, 30000);
 
-  // 4. Initial snapshot
-  await doRefresh();
-
-  // 5. Wire UI controls
-  wireControls();
+  wireControls(ws);
+  wireOrderEntry(refreshPositions);
 }
 
-// ── Refresh (snapshot) ────────────────────────────────────────────────────────
 async function doRefresh() {
   if (state.isRefreshing) return;
   state.isRefreshing = true;
   setPriceBadge('fetching', 'gray');
 
   try {
-    const revision = liveQuoteRevision;
     const data = await fetchSnapshot();
-    // An HTTP response started before a live tick must not roll it back.
-    if (revision !== liveQuoteRevision) return;
-    if (!applyQuote(state, data, quoteEffects, false)) throw new Error('Invalid or older snapshot');
+    state.anchor    = data.price;
+    state.price     = data.price;
+    state.bid       = data.bid;
+    state.ask       = data.ask;
+    state.priceAsof = data.asof;
 
     for (const tf of ['1m', '15m', '1h']) {
-      state.rsi[tf] = { val: data[`rsi_${tf}`], ts: Date.now(), source: data._stub ? 'sim' : 'real' };
+      state.rsi[tf] = { val: data[`rsi_${tf}`], ts: Date.now(), source: 'real' };
     }
 
+    updatePriceUI();
     updateRSICards();
-    setPriceBadge(data._stub ? 'simulated' : 'real', data._stub ? 'gray' : 'green');
+    try { updateSmartScore(await fetchSmartScore()); } catch(_) {}
+    try { updateSignal(await fetchSignal()); } catch(_) {}
+    setPriceBadge(data.source === 'mt5_bridge' ? 'real' : 'yfinance', 'green');
   } catch (err) {
     console.error('Snapshot fetch failed', err);
     setPriceBadge('fetch failed', 'red');
@@ -79,12 +93,14 @@ async function doRefresh() {
   }
 }
 
-// ── UI Controls ───────────────────────────────────────────────────────────────
-function wireControls() {
-  // Refresh button
+function wireControls(ws) {
+  document.getElementById('btn-logout')?.addEventListener('click', async () => {
+    await logout();
+    location.reload();
+  });
+
   document.getElementById('btn-refresh').addEventListener('click', doRefresh);
 
-  // Auto-refresh
   document.getElementById('auto-refresh').addEventListener('change', (e) => {
     clearInterval(state.autoRefreshTimer);
     state.autoRefreshSec = +e.target.value;
@@ -93,7 +109,6 @@ function wireControls() {
     }
   });
 
-  // Timeframe buttons
   document.querySelectorAll('.tf-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
@@ -103,10 +118,8 @@ function wireControls() {
   });
 }
 
-// ── RSI staleness checker ─────────────────────────────────────────────────────
 setInterval(() => {
   for (const tf of ['1m', '15m', '1h']) updateRSICard(tf);
 }, 30_000);
 
-// ── Run ───────────────────────────────────────────────────────────────────────
-boot().catch(err => console.error('Boot failed', err));
+init().catch(err => console.error('Init failed', err));

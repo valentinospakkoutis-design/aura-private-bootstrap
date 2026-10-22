@@ -3,16 +3,12 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: '/monitor/',
   server: {
-    port: 5173,
+    port: 5174,
     proxy: {
       '/api': {
-        target: process.env.VITE_AURA_API_URL || 'http://116.203.75.114:8080',
+        target: 'http://116.203.75.114:8000',
         changeOrigin: true,
-      },
-      '/ws': {
-        target: process.env.VITE_AURA_WS_URL || 'ws://116.203.75.114:8080',
         ws: true,
-        changeOrigin: true,
       },
     },
   },

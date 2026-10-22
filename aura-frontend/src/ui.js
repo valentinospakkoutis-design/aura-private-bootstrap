@@ -1,4 +1,4 @@
-// ─── UI Utilities ─────────────────────────────────────────────────────────────
+﻿// ─── UI Utilities ─────────────────────────────────────────────────────────────
 // Toast notifications + confirm modal.
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -34,4 +34,52 @@ export function showConfirm(text) {
     document.getElementById('confirm-yes').addEventListener('click', onYes);
     document.getElementById('confirm-no').addEventListener('click', onNo);
   });
+}
+
+// ── Login overlay ─────────────────────────────────────────────────────────────
+export function showLoginOverlay(onLogin) {
+  let overlay = document.getElementById('login-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'login-overlay';
+    overlay.innerHTML = `
+      <div class="login-card">
+        <div class="login-logo"><span>Aura XAG</span></div>
+        <h2>Sign in</h2>
+        <div id="login-error" class="login-error" style="display:none"></div>
+        <form id="login-form">
+          <label>Email<input type="email" id="login-email" autocomplete="email" placeholder="you@example.com" required /></label>
+          <label>Password<input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••" required /></label>
+          <button type="submit" id="login-btn">Sign in</button>
+        </form>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = 'flex';
+  const form  = document.getElementById('login-form');
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('login-btn');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+      await onLogin(
+        document.getElementById('login-email').value.trim(),
+        document.getElementById('login-password').value
+      );
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+    }
+  };
+}
+
+export function hideLoginOverlay() {
+  const overlay = document.getElementById('login-overlay');
+  if (overlay) overlay.style.display = 'none';
 }

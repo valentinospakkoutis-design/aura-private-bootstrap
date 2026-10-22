@@ -1,11 +1,11 @@
-// ─── Positions Module ─────────────────────────────────────────────────────────
+﻿// â”€â”€â”€ Positions Module â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Table render + actions (close, bulk close).
 
 import { state } from './state.js';
 import { fetchPositions, closePosition, closeBulk } from './api.js';
 import { showToast, showConfirm } from './ui.js';
 
-// ── Render ────────────────────────────────────────────────────────────────────
+// â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function renderPositions() {
   const tbody  = document.getElementById('positions-body');
   const tfoot  = document.getElementById('positions-footer');
@@ -65,7 +65,7 @@ export function renderPositions() {
   updateBulkButtons();
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -85,7 +85,7 @@ function updateBulkButtons() {
   btn.disabled = state.selectedTickets.size === 0;
 }
 
-// ── Event wiring ──────────────────────────────────────────────────────────────
+// â”€â”€ Event wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function wirePositionEvents() {
   // Master checkbox
   document.getElementById('master-cb').addEventListener('change', (e) => {
@@ -139,13 +139,13 @@ export function wirePositionEvents() {
   });
 }
 
-// ── Refresh positions ─────────────────────────────────────────────────────────
+// â”€â”€ Refresh positions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function refreshPositions() {
-  state.positions = await fetchPositions();
+  const r = await fetchPositions(); state.positions = (r.orders ?? r.positions ?? []).filter(o => o.status === 'open' || o.status == null).map(o => ({...o, open_price: o.fill_price ?? o.open_price, side: (o.side ?? '').toUpperCase()}));
   renderPositions();
 }
 
-// ── Close logic ───────────────────────────────────────────────────────────────
+// â”€â”€ Close logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function doClose(tickets) {
   // Optimistic: gray out rows
   tickets.forEach(t => {
@@ -173,3 +173,5 @@ async function doClose(tickets) {
     showToast(`Close failed: ${err.message}`, 'error');
   }
 }
+
+

@@ -84,3 +84,42 @@ export function updateWSDot(status) {
   el.className = `ws-dot ws-${status}`;
   el.title = { connected: 'WebSocket connected', reconnecting: 'Reconnecting…', disconnected: 'Disconnected' }[status] ?? status;
 }
+
+
+// -- Smart Score card ---------------------------------------------------------
+export function updateSmartScore(data) {
+  const valEl = document.getElementById('smart-score-val');
+  const bdgEl = document.getElementById('smart-score-badge');
+  const card  = document.getElementById('smart-score-card');
+  if (!valEl) return;
+  if (!data || data.smart_score == null) {
+    valEl.textContent = '—';
+    bdgEl.textContent = '—';
+    card.className = 'rsi-card rsi-neutral';
+    return;
+  }
+  const score = data.smart_score;
+  const rec   = data.recommendation || '';
+  valEl.textContent = score.toFixed(1);
+  bdgEl.textContent = rec;
+  card.className = 'rsi-card ' + (score >= 75 ? 'rsi-ob' : score >= 50 ? 'rsi-neutral' : 'rsi-os');
+}
+
+
+// -- Signal card --------------------------------------------------------------
+export function updateSignal(data) {
+  const valEl = document.getElementById('signal-val');
+  const bdgEl = document.getElementById('signal-badge');
+  const card  = document.getElementById('signal-card');
+  if (!valEl) return;
+  if (!data || !data.signal) {
+    valEl.textContent = '—';
+    bdgEl.textContent = '—';
+    card.className = 'rsi-card rsi-neutral';
+    return;
+  }
+  valEl.textContent = data.signal;
+  bdgEl.textContent = data.confidence != null ? data.confidence.toFixed(1) + '%' : '—';
+  const sig = data.signal.toUpperCase();
+  card.className = 'rsi-card ' + (sig === 'BUY' ? 'rsi-os' : sig === 'SELL' ? 'rsi-ob' : 'rsi-neutral');
+}

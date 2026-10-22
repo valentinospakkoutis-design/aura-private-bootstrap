@@ -1,31 +1,31 @@
-// --- API Layer ---
-// Phase 2: fetchSnapshot + fetchOHLC call real backend.
-// Phase 4: createTickWS uses real WebSocket.
-// Phase 5: fetchPositions / closePosition / closeBulk still stubbed.
+// ─── API Layer ────────────────────────────────────────────────────────────────
+const BASE = import.meta.env.VITE_AURA_API_URL || '';
 
-import { openTickStream } from './tick-stream.js';
+// ── Token ──────────────────────────────────────────────────────────────────────
+let _token = sessionStorage.getItem('aura_jwt') || null;
 
-const BASE = import.meta.env.VITE_AURA_API_URL || "";
-
-// -- Auth --
-let _token = localStorage.getItem("aura_jwt") || null;
-
-export function setToken(token) {
-  _token = token;
-  if (token) localStorage.setItem("aura_jwt", token);
-  else        localStorage.removeItem("aura_jwt");
+export function setToken(t) {
+  _token = t;
+  if (t) sessionStorage.setItem('aura_jwt', t);
+  else   sessionStorage.removeItem('aura_jwt');
 }
+export function getToken() { return _token; }
 
-function authHeaders() {
-  return _token ? { Authorization: `Bearer ${_token}` } : {};
-}
-
-// -- Core fetch helper --
+// ── Core fetch ────────────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
-    headers: { "Content-Type": "application/json", ...authHeaders(), ...opts.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(_token ? { Authorization: `Bearer ${_token}` } : {}),
+      ...(opts.headers || {}),
+    },
   });
+  if (res.status === 401) {
+    setToken(null);
+    window.dispatchEvent(new CustomEvent('aura:logout'));
+    throw Object.assign(new Error('Session expired'), { status: 401 });
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw Object.assign(new Error(err.detail || res.statusText), { status: res.status });
@@ -33,54 +33,71 @@ async function apiFetch(path, opts = {}) {
   return res.json();
 }
 
-// -- XAG endpoints --
-
-export async function fetchSnapshot() {
-  return apiFetch("/api/xag/snapshot");
+// ── Auth ──────────────────────────────────────────────────────────────────────
+export async function login(email, password) {
+  const data = await apiFetch('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+  setToken(data.access_token);
+  return data;
 }
 
-export async function fetchOHLC(tf = "1m", n = 200) {
+export async function logout() {
+  try { await apiFetch('/api/v1/auth/logout', { method: 'POST' }); } catch(_) {}
+  setToken(null);
+}
+
+// ── XAG endpoints ─────────────────────────────────────────────────────────────
+export async function fetchSnapshot() {
+  return apiFetch('/api/xag/snapshot');
+}
+
+export async function fetchOHLC(tf = '1m', n = 200) {
   return apiFetch(`/api/xag/ohlc?tf=${tf}&n=${n}`);
 }
 
-// Phase 5 stubs
 export async function fetchPositions() {
-  await delay(150);
-  return SAMPLE_POSITIONS;
+  return apiFetch('/api/xag/positions');
+}
+
+export async function fetchSmartScore() {
+  return apiFetch('/api/xag/smart-score');
+}
+
+export async function fetchSignal() {
+  return apiFetch('/api/xag/signal');
 }
 
 export async function closePosition(ticket) {
-  await delay(400);
-  return { success: true, ticket };
+  return apiFetch(`/api/xag/positions/${ticket}/close`, { method: 'POST' });
 }
 
 export async function closeBulk(tickets) {
-  await delay(600);
-  return tickets.map(t => ({ success: true, ticket: t }));
-}
-
-// -- WebSocket factory --
-export function createTickWS(callbacks) {
-  return openTickStream({
-    ...callbacks,
-    url() {
-      const base = import.meta.env.VITE_AURA_WS_URL || BASE || window.location.origin;
-      const endpoint = new URL(base.replace(/\/$/, '') + '/api/xag/ws/tick', window.location.href);
-      endpoint.protocol = endpoint.protocol.replace(/^http/, 'ws');
-      if (_token) endpoint.searchParams.set('token', _token);
-      return endpoint.href;
-    },
+  return apiFetch('/api/xag/positions/close_bulk', {
+    method: 'POST',
+    body: JSON.stringify({ tickets }),
   });
 }
 
-// -- Internal helpers --
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+export function createTickWS({ onTick, onStatusChange }) {
+  const wsBase = (BASE || location.origin).replace(/^http/, 'ws');
+  const url = `${wsBase}/api/xag/ws/tick${_token ? `?token=${_token}` : ''}`;
+  let ws, retryDelay = 1000, retryTimer = null, closed = false;
 
-const SAMPLE_POSITIONS = [
-  {
-    ticket: 100001, symbol: "XAGUSD-STD", side: "BUY",
-    volume: 0.5, open_price: 31.50, current_price: 31.85,
-    profit: 17.50, swap: -0.12, commission: -0.50,
-    opened_at: new Date(Date.now() - 3600000).toISOString(),
-  },
-];
+  function connect() {
+    onStatusChange('reconnecting');
+    ws = new WebSocket(url);
+    ws.onopen    = () => { retryDelay = 1000; onStatusChange('connected'); };
+    ws.onmessage = (e) => { try { onTick(JSON.parse(e.data)); } catch(_) {} };
+    ws.onclose   = () => {
+      if (closed) return;
+      onStatusChange('reconnecting');
+      retryTimer = setTimeout(connect, Math.min(retryDelay, 30000));
+      retryDelay = Math.min(retryDelay * 2 + Math.random() * 500, 30000);
+    };
+  }
+  connect();
+  return { close: () => { closed = true; clearTimeout(retryTimer); ws?.close(); onStatusChange('disconnected'); } };
+}

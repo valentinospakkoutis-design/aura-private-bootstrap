@@ -1,4 +1,4 @@
-// ─── Chart Module ─────────────────────────────────────────────────────────────
+﻿// â”€â”€â”€ Chart Module â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Wraps lightweight-charts. Exposes init / update / switchTf / processTick.
 
 import { createChart } from 'lightweight-charts';
@@ -9,7 +9,7 @@ let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
 
-// ── Init ──────────────────────────────────────────────────────────────────────
+// â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function initChart(container) {
   const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -58,10 +58,11 @@ export function initChart(container) {
   return { chart, candleSeries, volumeSeries };
 }
 
-// ── Load history ──────────────────────────────────────────────────────────────
+// â”€â”€ Load history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function loadHistory(tf = state.currentTf) {
   if (!candleSeries) return;
-  const bars = await fetchOHLC(tf, 200);
+  let bars = await fetchOHLC(tf, 200);
+  if (bars.length === 0 && tf !== "1h") bars = await fetchOHLC("1h", 200);
   candleSeries.setData(bars);
   volumeSeries.setData(bars.map(b => ({ time: b.time, value: b.volume ?? 0, color: b.close >= b.open ? '#26a64140' : '#f8514940' })));
   state.barCount     = bars.length;
@@ -71,13 +72,13 @@ export async function loadHistory(tf = state.currentTf) {
   updateChartStats();
 }
 
-// ── Switch timeframe ──────────────────────────────────────────────────────────
+// â”€â”€ Switch timeframe â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function switchTimeframe(tf) {
   state.currentTf = tf;
   await loadHistory(tf);
 }
 
-// ── Process incoming tick ─────────────────────────────────────────────────────
+// â”€â”€ Process incoming tick â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function processTick(mid, isReal = false) {
   if (!Number.isFinite(mid) || mid <= 0 || !candleSeries || !state.currentCandle) return;
 
@@ -102,8 +103,9 @@ export function processTick(mid, isReal = false) {
   updateChartStats();
 }
 
-// ── Stats label ───────────────────────────────────────────────────────────────
+// â”€â”€ Stats label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateChartStats() {
   const el = document.getElementById('chart-stats');
   if (el) el.textContent = `${state.barCount} bars · ${state.realTickCount} real ticks`;
 }
+

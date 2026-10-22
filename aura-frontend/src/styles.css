@@ -401,3 +401,137 @@ body {
 }
 
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── Login overlay ───────────────────────────────────────────────────────────── */
+#login-overlay {
+  position: fixed; inset: 0;
+  background: rgba(10,12,18,0.92);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.login-card {
+  background: #161b26; border: 1px solid #2a3140; border-radius: 12px;
+  padding: 2rem; width: 100%; max-width: 360px;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.6);
+}
+.login-logo { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; margin-bottom: 1.5rem; }
+.login-card h2 { font-size: 1.25rem; font-weight: 600; color: #e2e8f0; margin: 0 0 1.25rem; }
+.login-error {
+  background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3);
+  color: #fca5a5; border-radius: 6px; padding: 0.6rem 0.75rem;
+  font-size: 0.85rem; margin-bottom: 1rem;
+}
+#login-form { display: flex; flex-direction: column; gap: 1rem; }
+#login-form label {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  font-size: 0.8rem; color: #94a3b8; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+#login-form input {
+  background: #0d111a; border: 1px solid #2a3140; border-radius: 6px;
+  padding: 0.6rem 0.75rem; color: #e2e8f0; font-size: 0.95rem; outline: none;
+}
+#login-form input:focus { border-color: #38bdf8; }
+#login-btn {
+  margin-top: 0.5rem; background: #0ea5e9; color: #fff; border: none;
+  border-radius: 6px; padding: 0.65rem 1rem; font-size: 0.95rem;
+  font-weight: 600; cursor: pointer;
+}
+#login-btn:hover:not(:disabled) { background: #38bdf8; }
+#login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Order Entry ──────────────────────────────────────────────────────────── */
+.order-section {
+  margin: 0 16px 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.order-toolbar {
+  margin-bottom: 10px;
+}
+
+.order-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.order-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.order-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+}
+
+.order-field label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.input-sm {
+  background: var(--input-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 4px 8px;
+  width: 110px;
+  outline: none;
+}
+
+.input-sm:focus {
+  border-color: var(--accent, #7c6ef9);
+}
+
+.order-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-buy {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 28px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+
+.btn-buy:hover:not(:disabled) { opacity: .85; }
+.btn-buy:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-sell {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 28px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+
+.btn-sell:hover:not(:disabled) { opacity: .85; }
+.btn-sell:disabled { opacity: .45; cursor: not-allowed; }
+
+.order-error {
+  font-size: 12px;
+  color: #f87171;
+  min-height: 16px;
+}
