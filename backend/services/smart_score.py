@@ -27,8 +27,8 @@ BASE_WEIGHTS = {
     "fear_greed": 0.10,
     "rsi": 0.20,
     "volume": 0.15,
-    "multi_timeframe": 0.15,
-    "prediction": 0.25,
+    "multi_timeframe": 0.10,
+    "prediction": 0.30,
 }
 
 
@@ -205,9 +205,9 @@ class SmartScoreCalculator:
         elif daily_bullish and not four_h_bullish:
             score = 60.0  # minor pullback in overall uptrend
         elif not daily_bullish and four_h_bullish:
-            score = 35.0  # counter-trend bounce
+            score = 40.0  # counter-trend bounce
         else:
-            score = 10.0  # both bearish
+            score = 25.0  # both bearish — penalise but not veto
 
         self._cache_set(cache_key, score)
         return score
