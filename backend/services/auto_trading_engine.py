@@ -6,6 +6,8 @@ DISABLED by default — user must explicitly enable from the UI.
 
 import asyncio
 import logging
+import math
+from decimal import Decimal, ROUND_DOWN
 from datetime import datetime
 from typing import Optional, Dict, List, Callable
 
@@ -96,7 +98,8 @@ def calculate_half_kelly_size(
 
 
 class AutoTradingEngine:
-    def __init__(self):
+    def __init__(self, risk_snapshot_provider=None):
+        self.risk_snapshot_provider = risk_snapshot_provider
         self.is_running = False
         self.broker = None  # BinanceAPI instance
         self.check_interval = 60  # check every 60 seconds
@@ -299,66 +302,86 @@ class AutoTradingEngine:
             return asset_symbol[:-4] + "USDC"
         return asset_symbol
 
-    def _calculate_position_size(self, price: float, confidence: float = 0.5, volatility: float = 0.3, symbol: Optional[str] = None) -> float:
-        """Calculate risk-adjusted quantity using the position sizing engine."""
-        if price <= 0:
-            return 0.0
+    def _load_sizing_context(self, user_id, symbol):
+        """No inferred balances/history: require an account-scoped risk snapshot.
 
-        balance = self._get_available_balance()
-        if balance <= 0:
-            return 0.0
+        Provider is a trusted server-side adapter, never request/config data.
+        It must reconcile holdings AND reserved/pending entries, mark to market,
+        and supply a cash-flow-adjusted equity high-water mark for this account.
+        No existing broker adapter guarantees this contract, so absent data blocks.
+        """
+        from services.position_sizing import RISK_PROFILES
+        from services.sizing_snapshot import validate_snapshot
+        from database.connection import SessionLocal
+        from database.models import UserProfile
 
+        if type(user_id) is not int or user_id <= 0:
+            raise ValueError("missing_user_identity")
+        if not callable(self.risk_snapshot_provider):
+            raise ValueError("verified_risk_snapshot_unavailable")
+        snapshot = self.risk_snapshot_provider(user_id, self.broker)
+        state = validate_snapshot(snapshot, user_id, self.broker,
+                                  bool(self.config.get("paper_mode", False)))
+        db = SessionLocal()
+        try:
+            row = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+            if row is None or row.risk_profile not in RISK_PROFILES:
+                raise ValueError("verified_risk_profile_unavailable")
+            profile = row.risk_profile
+        finally:
+            db.close()
+        return state, profile
+
+    def _calculate_position_size(self, price: float, confidence: float = 0.5,
+                                 volatility: float = 0.3, symbol: Optional[str] = None,
+                                 user_id: Optional[int] = None) -> float:
+        """Fail closed on missing context, invalid output, or any sizing error."""
         try:
             from services.position_sizing import calculate_position_size, SizingInput
-            exposure = sum(
-                p.get("quantity", 0) * p.get("entry_price", 0)
-                for p in self.open_positions.values()
-            ) / balance if balance > 0 else 0
-
+            if not symbol:
+                raise ValueError("missing_symbol")
+            state, profile = self._load_sizing_context(user_id, symbol)
             result = calculate_position_size(SizingInput(
-                account_balance=balance,
+                account_balance=state.equity_usd,
                 signal_confidence=confidence,
                 volatility=volatility,
-                current_drawdown=0.0,  # TODO: track cumulative drawdown
-                current_portfolio_exposure=min(1.0, exposure),
+                current_drawdown=max(0.0, 1.0 - state.equity_usd / state.peak_equity_usd),
+                current_portfolio_exposure=sum(state.exposure_by_symbol.values()) / state.equity_usd,
                 price=price,
-                user_risk_profile="moderate",
+                user_risk_profile=profile,
+                symbol=symbol,
+                existing_symbol_exposure_usd=state.exposure_by_symbol.get(symbol, 0.0),
             ))
-
-            # Respect the fixed order value cap from config
-            max_notional = self.config["fixed_order_value_usd"]
-            base_notional = min(result.recommended_notional, max_notional)
-
-            # Additive Half-Kelly cap based on symbol backtest quality + market regime.
+            if result.decision not in ("execute", "reduce"):
+                raise ValueError("sizing_block: " + result.reasoning)
+            if not math.isfinite(result.recommended_notional) or result.recommended_notional <= 0:
+                raise ValueError("invalid_sizing_result")
+            caps = [float(self.config["fixed_order_value_usd"]),
+                    float(self.config["max_order_value_usd"])]
+            if any(not math.isfinite(v) or v <= 0 for v in caps):
+                raise ValueError("invalid_order_cap")
             bt = self._get_symbol_backtest_stats(symbol)
-            regime_multiplier = self._get_regime_position_multiplier()
-            kelly_notional = calculate_half_kelly_size(
-                confidence=confidence,
-                win_rate=bt["win_rate"],
-                avg_win=bt["avg_win"],
-                avg_loss=bt["avg_loss"],
-                account_balance=balance,
-                regime_multiplier=regime_multiplier,
-                max_position_usd=max_notional,
-            )
-
-            notional = min(base_notional, kelly_notional)
-            quantity = notional / price if price > 0 else 0
-            self._log_event(
-                "SIZING",
-                (
-                    f"Sized: ${notional:.2f} (engine=${base_notional:.2f}, "
-                    f"half_kelly=${kelly_notional:.2f}, regime={regime_multiplier:.2f})"
-                ),
-            )
-            return round(quantity, 6)
-        except Exception as e:
-            # Fallback to fixed sizing
-            logger.warning(f"[auto-trader] Position sizing failed, using fixed: {e}")
-            position_value = self.config["fixed_order_value_usd"]
-            if balance < position_value:
-                return 0.0
-            return round(position_value / price, 6)
+            regime = self._get_regime_position_multiplier()
+            kelly = calculate_half_kelly_size(
+                confidence, bt["win_rate"], bt["avg_win"], bt["avg_loss"],
+                state.equity_usd, regime, min(caps))
+            if not math.isfinite(kelly) or kelly <= 0:
+                raise ValueError("invalid_kelly_cap")
+            notional = min(result.recommended_notional, *caps, kelly, state.available_cash_usd)
+            # Round down: nearest rounding may breach a tight exposure/cash cap.
+            quantity = float((Decimal(str(notional)) / Decimal(str(price))).quantize(
+                Decimal("0.000001"), rounding=ROUND_DOWN))
+            if quantity <= 0 or quantity * price < 1.0:
+                raise ValueError("below_minimum_after_caps")
+            self._log_event("SIZING", f"{symbol}: ${quantity * price:.2f}",
+                            {"user_id": user_id, "profile": profile,
+                             "drawdown": max(0.0, 1.0 - state.equity_usd / state.peak_equity_usd)})
+            return quantity
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            logger.warning("[auto-trader] Sizing rejected %s user=%s: %s", symbol, user_id, reason)
+            self._log_event("SIZING_REJECTED", reason, {"symbol": symbol, "user_id": user_id})
+            return 0.0
 
     def _notify_user(self, user_id: Optional[int], title: str, body: str, data: Optional[dict] = None):
         try:
@@ -582,6 +605,10 @@ class AutoTradingEngine:
         if not self.config["enabled"]:
             return None
 
+        if self.config.get("dca_enabled", False):
+            self._log_event("BLOCKED", "DCA requires verified atomic reservation/execution")
+            return None
+
         # Circuit breaker check MUST run at the start of each trade attempt.
         if user_id is not None:
             try:
@@ -607,7 +634,8 @@ class AutoTradingEngine:
                     )
                     return None
             except Exception as cb_err:
-                logger.debug("[AUTO_TRADE] circuit breaker pre-check failed for user %s: %s", user_id, cb_err)
+                self._log_event("BLOCKED", f"{symbol}: circuit breaker unavailable: {type(cb_err).__name__}")
+                return None
 
         paper_mode = bool(self.config.get("paper_mode", False))
 
@@ -881,14 +909,19 @@ class AutoTradingEngine:
                 total_portfolio_usd=total_portfolio_usd,
             )
 
-            if not corr_check.get("allowed", True):
+            if not isinstance(corr_check, dict) or type(corr_check.get("allowed")) is not bool:
+                raise ValueError("invalid_correlation_verdict")
+            if not corr_check["allowed"]:
                 self._log_event("SKIP", f"{symbol}: {corr_check.get('reason', 'correlation_risk')}")
                 print(f"[AUTO_TRADE] {symbol}: SKIPPED - {corr_check.get('reason', 'correlation_risk')}")
                 return None
 
-            correlation_cap_usd = float(corr_check.get("max_allowed_usd", proposed_size_usd) or proposed_size_usd)
+            correlation_cap_usd = float(corr_check["max_allowed_usd"])
+            if not math.isfinite(correlation_cap_usd) or correlation_cap_usd < 0:
+                raise ValueError("invalid_correlation_cap")
         except Exception as corr_err:
-            logger.debug("[AUTO_TRADE] correlation check failed for %s: %s", symbol, corr_err)
+            self._log_event("BLOCKED", f"{symbol}: exposure check unavailable: {type(corr_err).__name__}")
+            return None
 
         # Dynamic pairwise correlation matrix check: if adding the symbol creates
         # >0.85 absolute correlation with an existing position, reduce size by 50%.
@@ -986,7 +1019,7 @@ class AutoTradingEngine:
                 logger.warning(f"[Claude] Integration error (non-fatal): {e}")
 
         vol = abs(prediction.get("trend_score", 0.3)) if "trend_score" in prediction else 0.3
-        quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol, symbol=symbol)
+        quantity = self._calculate_position_size(price, confidence=confidence, volatility=vol, symbol=symbol, user_id=user_id)
         quantity *= claude_size_multiplier
         quantity *= correlation_size_multiplier
 
@@ -994,13 +1027,14 @@ class AutoTradingEngine:
             max_corr_qty = max(0.0, float(correlation_cap_usd) / float(price))
             quantity = min(quantity, max_corr_qty)
 
-        if quantity <= 0:
-            self._log_event("SKIP", f"{symbol}: insufficient balance for position")
+        if not math.isfinite(quantity) or quantity <= 0:
+            self._log_event("SKIP", f"{symbol}: sizing rejected or invalid quantity")
             return None
 
         # Final safety: check order value
         order_value = quantity * price
-        if order_value > self.config["max_order_value_usd"]:
+        if (not math.isfinite(order_value) or not math.isfinite(float(self.config["max_order_value_usd"]))
+                or order_value > self.config["max_order_value_usd"]):
             self._log_event("BLOCKED", f"{symbol}: order value ${order_value:.2f} exceeds limit ${self.config['max_order_value_usd']:.0f}")
             return None
 
@@ -1253,7 +1287,8 @@ class AutoTradingEngine:
                     now = datetime.utcnow()
                     if not last_dca or (now - last_dca).total_seconds() >= 60:
                         try:
-                            executed_dca = check_pending_dca_orders(uid, broker)
+                            executed_dca = []
+                            self._log_event("DCA_PAUSED", "Pending entries require verified atomic reservation/execution")
                             for item in executed_dca:
                                 sym = item.get("symbol")
                                 if sym in self.open_positions:
@@ -1275,6 +1310,17 @@ class AutoTradingEngine:
 
                     # Always maintain trailing stops on each scan before opening new positions.
                     self._update_trailing_stops(uid)
+                    # Observe/persist the account MTM high-water mark every scan,
+                    # including scans without an entry signal. Exit management above
+                    # still runs when a risk snapshot is unavailable.
+                    try:
+                        from services.sizing_snapshot import validate_snapshot
+                        state = self.risk_snapshot_provider(uid, broker)
+                        validate_snapshot(state, uid, broker, bool(self.config.get("paper_mode", False)))
+                    except Exception as risk_err:
+                        self._log_event("SIZING_REJECTED", f"Risk observation failed: {risk_err}", {"user_id": uid})
+                        self._save_user_context(uid)
+                        continue
                     self._evaluate_circuit_breaker(uid)
 
                     # Circuit breaker pause prevents opening new auto-trades.
@@ -1318,4 +1364,6 @@ class AutoTradingEngine:
 
 
 # Singleton instance
-auto_trader = AutoTradingEngine()
+from services.verified_sizing import paper_sizing_snapshot
+
+auto_trader = AutoTradingEngine(risk_snapshot_provider=paper_sizing_snapshot)

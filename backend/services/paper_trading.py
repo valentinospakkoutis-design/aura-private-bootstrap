@@ -55,6 +55,8 @@ class PaperTradingService:
                 paper_positions=[],
             )
             db.add(row)
+            from services.verified_sizing import initialize_paper_epoch
+            initialize_paper_epoch(db, user_id, self._default_balance)
             db.commit()
             db.refresh(row)
             return row
@@ -113,6 +115,9 @@ class PaperTradingService:
                 )
                 db.add(row)
 
+            if state.get("risk_reset"):
+                from services.verified_sizing import initialize_paper_epoch
+                initialize_paper_epoch(db, user_id, state["cash"])
             row.paper_balance = float(state.get("cash", self._default_balance))
             row.paper_positions = [
                 {
@@ -301,10 +306,11 @@ class PaperTradingService:
             Portfolio information
         """
         positions = []
-        total_value = self.cash
+        total_value = 0.0
         total_pnl = 0.0
         
         state = self._get_state(user_id)
+        total_value = float(state["cash"])
 
         for symbol, position in state["portfolio"].items():
             quantity = position["quantity"]
@@ -391,7 +397,9 @@ class PaperTradingService:
     def reset(self, user_id: Optional[int] = None):
         """Reset paper trading account"""
         state = self._empty_state()
+        state["risk_reset"] = True
         self._set_state(user_id, state)
+        state.pop("risk_reset", None)
 
 
 # Global instance
