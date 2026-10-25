@@ -67,7 +67,7 @@ export default function BacktestScreen() {
     showToast('Backtest ξεκίνησε για όλα τα assets...', 'success');
     try {
       await api.runBacktestAll();
-    } catch (err) {
+    } catch (_err) {
       showToast('Αποτυχία εκκίνησης backtest', 'error');
     }
   };

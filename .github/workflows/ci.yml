@@ -22,8 +22,9 @@ jobs:
         working-directory: backend
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx aiosqlite
+          # Install requirements but skip heavy ML deps (torch) not needed for tests
+          grep -v "^torch" requirements.txt | pip install -r /dev/stdin
+          pip install pytest pytest-asyncio httpx aiosqlite bcrypt
       - name: Syntax check
         working-directory: backend
         run: python -m compileall -q services/ ai/ cache/ || true
@@ -33,7 +34,7 @@ jobs:
           TESTING: "1"
           DATABASE_URL: "sqlite+aiosqlite:///./test.db"
           REDIS_URL: "redis://localhost:6379"
-          JWT_SECRET_KEY: "ci-test-secret-do-not-use"
+          JWT_SECRET_KEY: "ci-test-secret-key-32chars-minimum"
           BINANCE_API_KEY: "test"
           BINANCE_SECRET_KEY: "test"
           FXPRO_LOGIN: "test"

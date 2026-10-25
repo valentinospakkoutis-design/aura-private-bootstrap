@@ -112,7 +112,7 @@ export default function AnalyticsScreen() {
 
   useEffect(() => {
     loadAnalytics();
-  }, [timeRange]);
+  }, [timeRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

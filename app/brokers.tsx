@@ -90,7 +90,7 @@ export default function BrokersScreen() {
 
   useEffect(() => {
     loadBrokers();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadBrokers = async () => {
     try {

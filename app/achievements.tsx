@@ -30,7 +30,7 @@ export default function AchievementsScreen() {
       setEarned(Array.isArray(res?.earned) ? res.earned : []);
       setLocked(Array.isArray(res?.locked) ? res.locked : []);
       setTotal(Number(res?.total || 0));
-    } catch (_err) {
+    } catch {
       showToast(t('error'), 'error');
     } finally {
       setLoading(false);

@@ -96,7 +96,7 @@ export default function AdminCMSScreen() {
               await api.delete(`/api/cms/quotes/${quoteId}`);
               Alert.alert('Επιτυχία', 'Το quote διαγράφηκε');
               loadData();
-            } catch (error) {
+            } catch (_error) {
               Alert.alert('Σφάλμα', 'Αποτυχία διαγραφής');
             }
           }

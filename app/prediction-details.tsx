@@ -25,7 +25,7 @@ interface PredictionDetail {
   priceChange: number;
   priceChangePercent: number;
   recommendationStrength: string;
-  pricePath: Array<{ day: number; price: number; date: string }>;
+  pricePath: { day: number; price: number; date: string }[];
   modelVersion: string;
   mtf_confluence?: boolean | null;
   trend_1h?: 'bullish' | 'bearish' | 'neutral' | null;

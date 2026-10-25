@@ -16,7 +16,7 @@ interface LeaderboardRow {
 
 type LeaderboardPeriod = 'weekly' | 'monthly' | 'alltime';
 
-const PERIODS: Array<{ key: LeaderboardPeriod; icon: string }> = [
+const PERIODS: { key: LeaderboardPeriod; icon: string }[] = [
   { key: 'weekly', icon: '🗓️' },
   { key: 'monthly', icon: '📆' },
   { key: 'alltime', icon: '⏳' },
