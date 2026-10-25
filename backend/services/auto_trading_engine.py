@@ -793,6 +793,17 @@ class AutoTradingEngine:
         except Exception as news_err:
             logger.debug(f"[AutoTrading] news impact check failed for {symbol}: {news_err}")
 
+        # Calendar Blackout: skip crypto entries 30min before/after FOMC/CPI/NFP/GDP
+        if symbol not in PAPER_ONLY_SYMBOLS:
+            try:
+                from services.calendar_blackout import is_calendar_blackout
+                _cal = is_calendar_blackout()
+                if _cal.get("blackout"):
+                    self._log_event("SKIP", f"{symbol}: calendar blackout — {_cal.get('reason')}")
+                    return None
+            except Exception as _cal_err:
+                logger.debug(f"[AutoTrading] calendar blackout check failed for {symbol}: {_cal_err}")
+
         # Funding Rate Filter: skip crypto entries on extreme funding (longs/shorts paying too much)
         if symbol not in PAPER_ONLY_SYMBOLS:
             try:
