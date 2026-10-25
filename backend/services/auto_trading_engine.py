@@ -687,6 +687,14 @@ class AutoTradingEngine:
                 except Exception:
                     pass
                 return None
+            # ADX Regime Filter: skip trades in choppy/ranging markets
+            if regime_info.get("regime") == "RANGING":
+                self._log_event(
+                    "SKIP",
+                    f"{symbol}: RANGING regime (adx={regime_info.get('adx')}) "
+                    f"— skipping to avoid false signals in sideways market",
+                )
+                return None
         except Exception as regime_err:
             logger.debug(f"[AutoTrading] regime detection failed for {symbol}: {regime_err}")
 
@@ -1016,6 +1024,15 @@ class AutoTradingEngine:
             if confidence < 0.70:
                 tier0_size_multiplier *= 0.85
                 self._log_event("TIER0", f"{symbol}: low confidence ({confidence:.0%}) -> -15%")
+
+            # 4. Volume Confirmation: reduce size on low-volume signals
+            vol_score = float(signals.get("volume", {}).get("score", 50) if isinstance(signals.get("volume"), dict) else signals.get("volume", 50))
+            if vol_score < 35:
+                tier0_size_multiplier *= 0.80
+                self._log_event("TIER0", f"{symbol}: low volume score ({vol_score:.0f}) -> -20%")
+            elif vol_score >= 75:
+                tier0_size_multiplier *= 1.05
+                self._log_event("TIER0", f"{symbol}: high volume score ({vol_score:.0f}) -> +5%")
 
             tier0_size_multiplier = max(0.25, min(1.10, tier0_size_multiplier))
             quantity *= tier0_size_multiplier
