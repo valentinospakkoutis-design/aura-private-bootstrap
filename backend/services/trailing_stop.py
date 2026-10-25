@@ -3,6 +3,33 @@
 from typing import Tuple
 
 
+
+import logging as _logging
+_ts_logger = _logging.getLogger("trailing_stop")
+
+
+def _compute_atr(symbol: str, period: int = 14) -> float:
+    """Return 14-period ATR for *symbol* via yfinance. Falls back to 0.0 on error."""
+    try:
+        import yfinance as yf
+        sym_u = symbol.replace("USDC", "-USD").replace("USDT", "-USD")
+        hist = yf.Ticker(sym_u).history(period=f"{period * 3}d", interval="1d")
+        if hist.empty or len(hist) < period:
+            return 0.0
+        high = hist["High"]
+        low  = hist["Low"]
+        close_prev = hist["Close"].shift(1)
+        tr = (high - low).combine(
+            (high - close_prev).abs(), max
+        ).combine(
+            (low  - close_prev).abs(), max
+        )
+        atr = tr.ewm(com=period - 1, min_periods=period).mean().iloc[-1]
+        return float(atr) if atr > 0 else 0.0
+    except Exception as _e:
+        _ts_logger.debug(f"[TrailingStop] ATR failed for {symbol}: {_e}")
+        return 0.0
+
 class TrailingStopService:
     def initialize_stop(self, side: str, entry_price: float, trail_pct: float = 2.0) -> float:
         pct = max(0.1, float(trail_pct)) / 100.0

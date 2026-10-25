@@ -502,13 +502,25 @@ class AutoTradingEngine:
         if not self.open_positions:
             return
 
-        from services.trailing_stop import trailing_stop_service
+        from services.trailing_stop import trailing_stop_service, _compute_atr
 
-        trail_pct = float(self.config.get("trail_pct", 2.0))
+        trail_pct_default = float(self.config.get("trail_pct", 2.0))
         for symbol, position in list(self.open_positions.items()):
             current_price = self._get_market_price(symbol)
             if current_price <= 0:
                 continue
+
+            # ATR-based trailing: 1.5 × ATR as % of current price
+            # Falls back to config trail_pct if ATR unavailable
+            try:
+                atr_val = _compute_atr(symbol)
+                if atr_val > 0 and current_price > 0:
+                    trail_pct = (atr_val * 1.5 / current_price) * 100.0
+                    trail_pct = max(0.5, min(trail_pct, 8.0))  # clamp 0.5%–8%
+                else:
+                    trail_pct = trail_pct_default
+            except Exception:
+                trail_pct = trail_pct_default
 
             new_stop, moved, move_dir = trailing_stop_service.update_stop(
                 position,
