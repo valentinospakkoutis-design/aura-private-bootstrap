@@ -537,6 +537,65 @@ class AutoTradingEngine:
             if trailing_stop_service.should_stop(position, current_price=current_price):
                 self._close_position(symbol, current_price=current_price, user_id=user_id, reason="trailing_stop")
 
+    def _check_partial_tp(self, user_id: Optional[int]):
+        """Partial take-profit: close 40% at TP1, 40% at TP2, let 20% run with trailing."""
+        if not self.open_positions:
+            return
+        for symbol, position in list(self.open_positions.items()):
+            try:
+                entry_price = float(position.get("entry_price") or 0.0)
+                target_price = float(position.get("target_price") or 0.0)
+                quantity = float(position.get("quantity") or 0.0)
+                side = position.get("side", "BUY")
+                if entry_price <= 0 or target_price <= 0 or quantity <= 0:
+                    continue
+
+                current_price = self._get_market_price(symbol)
+                if current_price <= 0:
+                    continue
+
+                # Compute TP distances from entry
+                tp_pct = abs(target_price - entry_price) / entry_price  # e.g. 0.05
+                tp1_price = entry_price * (1 + tp_pct) if side == "BUY" else entry_price * (1 - tp_pct)
+                tp2_price = entry_price * (1 + tp_pct * 1.5) if side == "BUY" else entry_price * (1 - tp_pct * 1.5)
+
+                tp1_taken = bool(position.get("tp1_taken", False))
+                tp2_taken = bool(position.get("tp2_taken", False))
+
+                # TP1: close 40% of original quantity
+                if not tp1_taken:
+                    hit = (side == "BUY" and current_price >= tp1_price) or (side == "SELL" and current_price <= tp1_price)
+                    if hit:
+                        close_qty = round(quantity * 0.40, 8)
+                        remaining_qty = round(quantity - close_qty, 8)
+                        if remaining_qty > 0:
+                            position["quantity"] = remaining_qty
+                            position["tp1_taken"] = True
+                            self.open_positions[symbol] = position
+                            self._log_event("PARTIAL_TP", f"{symbol}: TP1 hit @ ${current_price:.4f} — closed 40% ({close_qty}), remaining {remaining_qty}")
+                        else:
+                            self._close_position(symbol, current_price=current_price, user_id=user_id, reason="tp1_full")
+                        continue
+
+                # TP2: close 40% more (of original), leaving 20%
+                if tp1_taken and not tp2_taken:
+                    hit = (side == "BUY" and current_price >= tp2_price) or (side == "SELL" and current_price <= tp2_price)
+                    if hit:
+                        # At TP1 we already closed 40%, so remaining is 60% of original
+                        # Now close 40% of original = 2/3 of current remaining
+                        close_qty = round(quantity * 0.40, 8)
+                        remaining_qty = round(position.get("quantity", 0) - close_qty, 8)
+                        if remaining_qty > 0:
+                            position["quantity"] = remaining_qty
+                            position["tp2_taken"] = True
+                            self.open_positions[symbol] = position
+                            self._log_event("PARTIAL_TP", f"{symbol}: TP2 hit @ ${current_price:.4f} — closed 40% more ({close_qty}), trailing 20% ({remaining_qty})")
+                        else:
+                            self._close_position(symbol, current_price=current_price, user_id=user_id, reason="tp2_full")
+            except Exception as _ptp_err:
+                import logging as _l
+                _l.getLogger(__name__).debug(f"[partial_tp] {symbol}: {_ptp_err}")
+
     def _check_circuit_breaker_pause(self, user_id: Optional[int]) -> bool:
         if user_id is None:
             return False
@@ -1401,7 +1460,8 @@ class AutoTradingEngine:
                             self._log_event("DCA_CHECK_ERROR", f"user={uid}: {type(e).__name__}: {e}")
                         self._last_dca_check_by_user[uid] = now
 
-                    # Always maintain trailing stops on each scan before opening new positions.
+                    # Always maintain trailing stops and partial TP on each scan before opening new positions.
+                    self._check_partial_tp(uid)
                     self._update_trailing_stops(uid)
                     self._evaluate_circuit_breaker(uid)
 
