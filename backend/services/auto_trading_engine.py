@@ -722,6 +722,28 @@ class AutoTradingEngine:
         except Exception as news_err:
             logger.debug(f"[AutoTrading] news impact check failed for {symbol}: {news_err}")
 
+        # Funding Rate Filter: skip crypto entries on extreme funding (longs/shorts paying too much)
+        if symbol not in PAPER_ONLY_SYMBOLS:
+            try:
+                from services.onchain_service import get_binance_funding_rate
+                funding = get_binance_funding_rate(symbol)
+                if funding > 0.0010:  # >0.10% per 8h — overleveraged longs, fade risk
+                    self._log_event(
+                        "SKIP",
+                        f"{symbol}: funding rate {funding:.4%} > 0.10% — crowded longs, skipping BUY",
+                    )
+                    if action == "BUY":
+                        return None
+                elif funding < -0.0010:  # <-0.10% — overleveraged shorts
+                    self._log_event(
+                        "SKIP",
+                        f"{symbol}: funding rate {funding:.4%} < -0.10% — crowded shorts, skipping SELL",
+                    )
+                    if action == "SELL":
+                        return None
+            except Exception as fr_err:
+                logger.debug(f"[AutoTrading] funding rate check failed for {symbol}: {fr_err}")
+
         # Dynamic confidence threshold based on recent volatility regime
         try:
             from ai.asset_predictor import compute_dynamic_threshold
