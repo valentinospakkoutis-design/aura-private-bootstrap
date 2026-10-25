@@ -744,6 +744,33 @@ class AutoTradingEngine:
             except Exception as fr_err:
                 logger.debug(f"[AutoTrading] funding rate check failed for {symbol}: {fr_err}")
 
+        # Correlation Cascade Guard: if BTC drops >2.5% since last check → pause all crypto 45min
+        if symbol not in PAPER_ONLY_SYMBOLS:
+            try:
+                from cache.connection import get_redis
+                _redis = get_redis()
+                _btc_now = self._get_market_price("BTCUSDC")
+                if _btc_now > 0:
+                    _btc_prev_raw = _redis.get("cascade:btc_price_prev")
+                    _btc_prev = float(_btc_prev_raw) if _btc_prev_raw else _btc_now
+                    _redis.setex("cascade:btc_price_prev", 300, str(_btc_now))  # refresh every 5min
+                    _btc_drop_pct = (_btc_prev - _btc_now) / _btc_prev * 100 if _btc_prev > 0 else 0.0
+                    if _btc_drop_pct > 2.5:
+                        _redis.setex("cascade:paused_until", 2700, "1")  # 45min pause
+                        self._log_event(
+                            "SKIP",
+                            f"{symbol}: BTC cascade drop {_btc_drop_pct:.2f}% — crypto paused 45min",
+                        )
+                        return None
+                    if _redis.get("cascade:paused_until"):
+                        self._log_event(
+                            "SKIP",
+                            f"{symbol}: BTC cascade guard active — skipping crypto entry",
+                        )
+                        return None
+            except Exception as _casc_err:
+                logger.debug(f"[AutoTrading] cascade guard failed for {symbol}: {_casc_err}")
+
         # Dynamic confidence threshold based on recent volatility regime
         try:
             from ai.asset_predictor import compute_dynamic_threshold
