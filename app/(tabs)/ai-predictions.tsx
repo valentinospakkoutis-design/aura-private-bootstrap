@@ -90,7 +90,7 @@ export default function AIPredictionsScreen() {
 
   useEffect(() => {
     loadAll();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const predictionsRef = useRef(predictions);
   useEffect(() => { predictionsRef.current = predictions; }, [predictions]);

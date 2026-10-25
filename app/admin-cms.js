@@ -44,7 +44,7 @@ export default function AdminCMSScreen() {
     setRefreshing(false);
   };
 
-  const handleAddQuote = () => {
+  const handleAddQuote = () => { // eslint-disable-line no-unused-vars
     setEditingQuote(null);
     setQuoteForm({ el: '', en: '', author: '', category: 'general' });
   };

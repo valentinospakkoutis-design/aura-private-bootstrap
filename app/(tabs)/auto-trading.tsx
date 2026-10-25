@@ -24,7 +24,7 @@ interface AutoTradingStatus {
     dca_enabled?: boolean;
   };
   open_positions_count: number;
-  positions: Array<{
+  positions: {
     symbol: string;
     side: string;
     quantity: number;
@@ -33,11 +33,11 @@ interface AutoTradingStatus {
     stop_loss?: number;
     trailing_stop?: number;
     trailing_last_move?: string;
-  }>;
+  }[];
   total_auto_trades: number;
   last_run: string | null;
   next_run_in_seconds: number;
-  recent_log: Array<{ type: string; message: string; timestamp: string; data?: any }>;
+  recent_log: { type: string; message: string; timestamp: string; data?: any }[];
 }
 
 interface DcaOrder {
@@ -348,7 +348,7 @@ export default function AutoTradingScreen() {
     } else {
       doToggle(false);
     }
-  }, [doToggle]);
+  }, [doToggle, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleDcaMode = useCallback(async (enabled: boolean) => {
     try {

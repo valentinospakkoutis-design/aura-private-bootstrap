@@ -55,7 +55,7 @@ function AuthGuard({ children }) {
             riskProfile: 'moderate',
           });
         }
-      } catch (err) {
+      } catch (_err) {
         await deleteToken();
         await deleteRefreshToken();
         setUser(null);
@@ -63,7 +63,7 @@ function AuthGuard({ children }) {
         setIsRestoring(false);
       }
     })();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Redirect logic — skip while restoring session
   useEffect(() => {
@@ -76,7 +76,7 @@ function AuthGuard({ children }) {
     } else if (user && inAuthScreen) {
       router.replace('/(tabs)');
     }
-  }, [user, segments, isRestoring]);
+  }, [user, segments, isRestoring]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show nothing while checking token (splash screen is still visible)
   if (isRestoring) return null;

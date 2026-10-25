@@ -1,14 +1,11 @@
-# GitHub Actions Workflow for AURA
-# Builds and tests the application
-# CI POLICY: any step failure FAILS the workflow — no silent || echo bypasses.
+# DEPRECATED — replaced by ci.yml which handles backend, mobile and docker
+# Disabled: triggers removed so this workflow never runs.
+# Keep this file for reference; delete it once ci.yml is stable.
 
-name: Build and Test
+name: Build and Test (disabled)
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  workflow_dispatch:  # manual only — no automatic triggers
 
 jobs:
   backend-tests:

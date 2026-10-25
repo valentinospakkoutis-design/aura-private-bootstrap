@@ -30,7 +30,7 @@ export default function AchievementsScreen() {
       setEarned(Array.isArray(res?.earned) ? res.earned : []);
       setLocked(Array.isArray(res?.locked) ? res.locked : []);
       setTotal(Number(res?.total || 0));
-    } catch (err) {
+    } catch (_err) {
       showToast(t('error'), 'error');
     } finally {
       setLoading(false);
@@ -50,7 +50,7 @@ export default function AchievementsScreen() {
   const titleFor = (a: Achievement) => (language === 'el' ? a.title_el : a.title_en);
   const descFor = (a: Achievement) => (language === 'el' ? a.desc_el : a.desc_en);
 
-  const allCards: Array<{ item: Achievement; earned: boolean }> = [
+  const allCards: { item: Achievement; earned: boolean }[] = [
     ...earned.map((item) => ({ item, earned: true })),
     ...locked.map((item) => ({ item, earned: false })),
   ];
