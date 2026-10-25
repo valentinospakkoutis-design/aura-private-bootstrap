@@ -53,7 +53,7 @@ AUTOPILOT_MODES = {
         "description": "Higher exposure, more frequent trades, wider stops",
         "engine_config": {
             "confidence_threshold": 0.80,
-            "smart_score_threshold": 65,
+            "smart_score_threshold": 75,  # FIXED minimum — never below 75
             "fixed_order_value_usd": 20.0,
             "max_order_value_usd": 200.0,
             "stop_loss_pct": 0.05,
