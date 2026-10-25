@@ -744,6 +744,24 @@ class AutoTradingEngine:
             except Exception as fr_err:
                 logger.debug(f"[AutoTrading] funding rate check failed for {symbol}: {fr_err}")
 
+        # Portfolio Heat Limit: skip new entries if total exposure >= 80% of equity
+        try:
+            _equity = self._estimate_equity_reference()
+            _exposure = sum(
+                float(p.get("quantity") or 0.0) * (self._get_market_price(p.get("symbol")) or float(p.get("entry_price") or 0.0))
+                for p in self.open_positions.values()
+                if p.get("symbol")
+            )
+            _heat_pct = (_exposure / _equity * 100) if _equity > 0 else 0.0
+            if _heat_pct >= 80.0:
+                self._log_event(
+                    "SKIP",
+                    f"{symbol}: portfolio heat {_heat_pct:.1f}% >= 80% — no new entries until positions close",
+                )
+                return None
+        except Exception as _heat_err:
+            logger.debug(f"[AutoTrading] portfolio heat check failed for {symbol}: {_heat_err}")
+
         # Correlation Cascade Guard: if BTC drops >2.5% since last check → pause all crypto 45min
         if symbol not in PAPER_ONLY_SYMBOLS:
             try:
