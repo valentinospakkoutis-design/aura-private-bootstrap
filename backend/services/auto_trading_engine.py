@@ -1174,6 +1174,25 @@ class AutoTradingEngine:
                 tier0_size_multiplier *= 0.85
                 self._log_event("TIER0", f"{symbol}: low confidence ({confidence:.0%}) -> -15%")
 
+            # 5. Orderbook Imbalance L2: skip/reduce against order flow
+            try:
+                from services.orderbook_imbalance import get_orderbook_imbalance
+                from cache.connection import get_redis as _get_redis
+                _ob = get_orderbook_imbalance(symbol, redis_client=_get_redis())
+                _ob_signal = _ob.get("signal", "neutral")
+                _ob_imb = _ob.get("imbalance", 0.5)
+                if action == "BUY" and _ob_signal == "sell_pressure":
+                    tier0_size_multiplier *= 0.70
+                    self._log_event("TIER0", f"{symbol}: orderbook sell pressure (imb={_ob_imb:.2f}) -> -30% BUY size")
+                elif action == "SELL" and _ob_signal == "buy_pressure":
+                    tier0_size_multiplier *= 0.70
+                    self._log_event("TIER0", f"{symbol}: orderbook buy pressure (imb={_ob_imb:.2f}) -> -30% SELL size")
+                elif action == "BUY" and _ob_signal == "buy_pressure":
+                    tier0_size_multiplier *= 1.05
+                    self._log_event("TIER0", f"{symbol}: orderbook buy pressure (imb={_ob_imb:.2f}) -> +5% BUY size")
+            except Exception as _ob_err:
+                logger.debug(f"[TIER0] orderbook check failed for {symbol}: {_ob_err}")
+
             # 4. Volume Confirmation: reduce size on low-volume signals
             vol_score = float(signals.get("volume", {}).get("score", 50) if isinstance(signals.get("volume"), dict) else signals.get("volume", 50))
             if vol_score < 35:
