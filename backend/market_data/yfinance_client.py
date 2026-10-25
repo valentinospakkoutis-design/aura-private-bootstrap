@@ -21,17 +21,25 @@ def _normalize_symbol(symbol: str) -> str:
         base = symbol[:-4]
         # Map to yfinance crypto symbols
         crypto_map = {
-            "BTC": "BTC-USD",
-            "ETH": "ETH-USD",
-            "BNB": "BNB-USD",
-            "ADA": "ADA-USD",
-            "SOL": "SOL-USD",
-            "XRP": "XRP-USD",
-            "DOGE": "DOGE-USD",
-            "SHIB": "SHIB-USD",
+            "BTC": "BTC-USD", "ETH": "ETH-USD", "BNB": "BNB-USD",
+            "ADA": "ADA-USD", "SOL": "SOL-USD", "XRP": "XRP-USD",
+            "DOGE": "DOGE-USD", "SHIB": "SHIB-USD", "DOT": "DOT-USD",
+            "MATIC": "MATIC-USD", "POL": "POL-USD", "AVAX": "AVAX-USD",
+            "LINK": "LINK-USD", "UNI": "UNI-USD", "LTC": "LTC-USD",
+            "ATOM": "ATOM-USD", "XLM": "XLM-USD", "ALGO": "ALGO-USD",
+            "VET": "VET-USD", "FIL": "FIL-USD", "TRX": "TRX-USD",
+            "ETC": "ETC-USD", "THETA": "THETA-USD", "AAVE": "AAVE-USD",
+            "SAND": "SAND-USD", "AXS": "AXS-USD", "NEAR": "NEAR-USD",
+            "ICP": "ICP-USD", "EGLD": "EGLD-USD", "FTM": "FTM-USD",
+            "HBAR": "HBAR-USD", "FLOW": "FLOW-USD", "MANA": "MANA-USD",
+            "CHZ": "CHZ-USD", "ENJ": "ENJ-USD", "ZEC": "ZEC-USD",
+            "DASH": "DASH-USD", "XMR": "XMR-USD", "BCH": "BCH-USD",
         }
         if base in crypto_map:
             return crypto_map[base]
+        # Generic fallback for unknown crypto — will return None from yfinance
+        # which is handled gracefully by callers
+        return base + "-USD"
 
     # Stocks are usually already correct
     # Forex pairs need special handling

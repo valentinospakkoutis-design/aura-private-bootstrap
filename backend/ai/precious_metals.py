@@ -51,7 +51,7 @@ class PreciousMetalsPredictor:
             return
         
         # Find all model files (exclude scaler files)
-        model_files = glob.glob(os.path.join(models_dir, "*_random_forest_*.pkl"))
+        model_files = glob.glob(os.path.join(models_dir, "*_xgboost_latest.pkl")) + glob.glob(os.path.join(models_dir, "*_random_forest_*.pkl"))
         model_files = [f for f in model_files if "scaler" not in os.path.basename(f)]
         
         for model_path in model_files:
@@ -75,42 +75,64 @@ class PreciousMetalsPredictor:
                 print(f"[-] Error loading model {model_path}: {e}")
     
     def _calculate_features(self, prices: List[float]) -> np.ndarray:
-        """
-        Calculate features from price history
-        Same features used in training
-        """
-        if len(prices) < 7:
-            # Not enough data, return zeros
-            return np.zeros(8)
-        
-        # Use last 7 prices
-        hist_prices = np.array(prices[-7:])
-        current_price = prices[-1]
-        
-        # Calculate features
-        sma_7 = np.mean(hist_prices)
-        sma_3 = np.mean(hist_prices[-3:])
-        volatility = np.std(hist_prices)
-        momentum = (hist_prices[-1] - hist_prices[0]) / hist_prices[0] if hist_prices[0] > 0 else 0
-        
-        # Price lags
-        price_lag_1 = hist_prices[-1] if len(hist_prices) >= 1 else current_price
-        price_lag_2 = hist_prices[-2] if len(hist_prices) >= 2 else current_price
-        price_lag_3 = hist_prices[-3] if len(hist_prices) >= 3 else current_price
-        
-        features = np.array([
-            current_price,
-            sma_7,
-            sma_3,
-            volatility,
-            momentum,
-            price_lag_1,
-            price_lag_2,
-            price_lag_3
-        ])
-        
-        return features
-    
+        """Calculate 30 features expected by XGBoost models."""
+        n = len(prices)
+        if n < 201:
+            return np.zeros(30)
+        p = np.array(prices, dtype=float)
+        c = p[-1]
+        def safe_ret(i, j):
+            return (p[j] - p[i]) / p[i] if p[i] > 0 else 0.0
+        return_1d  = safe_ret(-2, -1)
+        return_3d  = safe_ret(-4, -1)
+        return_7d  = safe_ret(-8, -1)
+        return_14d = safe_ret(-15, -1)
+        return_30d = safe_ret(-31, -1)
+        sma_7   = np.mean(p[-7:])
+        sma_21  = np.mean(p[-21:])
+        sma_50  = np.mean(p[-50:])
+        sma_200 = np.mean(p[-200:])
+        sma_7_21_cross   = (sma_7  - sma_21)  / sma_21  if sma_21  > 0 else 0.0
+        sma_50_200_cross = (sma_50 - sma_200) / sma_200 if sma_200 > 0 else 0.0
+        price_vs_sma_7   = (c - sma_7)   / sma_7   if sma_7   > 0 else 0.0
+        price_vs_sma_21  = (c - sma_21)  / sma_21  if sma_21  > 0 else 0.0
+        price_vs_sma_50  = (c - sma_50)  / sma_50  if sma_50  > 0 else 0.0
+        price_vs_sma_200 = (c - sma_200) / sma_200 if sma_200 > 0 else 0.0
+        bb_w = p[-20:]; bb_m = np.mean(bb_w); bb_s = np.std(bb_w)
+        bb_u = bb_m + 2*bb_s; bb_l = bb_m - 2*bb_s
+        bb_width    = (bb_u - bb_l) / bb_m if bb_m > 0 else 0.0
+        bb_position = (c - bb_l) / (bb_u - bb_l) if (bb_u - bb_l) > 0 else 0.5
+        def rsi(period):
+            d = np.diff(p[-(period+1):]); g = np.where(d>0,d,0.0); l = np.where(d<0,-d,0.0)
+            ag = np.mean(g); al = np.mean(l)
+            return 100.0 if al==0 else 100.0 - 100.0/(1.0+ag/al)
+        rsi_14 = rsi(14); rsi_7 = rsi(7)
+        def ema(arr, span):
+            k = 2.0/(span+1); e = float(arr[0])
+            for v in arr[1:]: e = float(v)*k + e*(1-k)
+            return e
+        macd_line = ema(p[-26:],12) - ema(p[-26:],26)
+        sig_vals = [ema(p[max(-35+i,-len(p)):],12)-ema(p[max(-35+i,-len(p)):],26) for i in range(9)]
+        macd_histogram = macd_line - ema(np.array(sig_vals),9)
+        sw = p[-14:]; lo = np.min(sw); hi = np.max(sw)
+        stoch_k = (c-lo)/(hi-lo)*100 if (hi-lo)>0 else 50.0
+        stoch_d = stoch_k
+        roc_10 = safe_ret(-11,-1)*100; roc_20 = safe_ret(-21,-1)*100
+        volume_ratio = 1.0
+        body_size = abs(safe_ret(-2,-1)); upper_shadow = 0.0; lower_shadow = 0.0
+        high_low_range = abs(safe_ret(-2,-1))
+        return_lag_1 = safe_ret(-2,-1); return_lag_2 = safe_ret(-3,-2)
+        return_lag_3 = safe_ret(-4,-3); return_lag_5 = safe_ret(-6,-5); return_lag_7 = safe_ret(-8,-7)
+        return np.array([
+            return_1d, return_3d, return_7d, return_14d, return_30d,
+            sma_7_21_cross, sma_50_200_cross,
+            price_vs_sma_7, price_vs_sma_21, price_vs_sma_50, price_vs_sma_200,
+            bb_width, bb_position, rsi_14, rsi_7, macd_histogram,
+            stoch_k, stoch_d, roc_10, roc_20, volume_ratio,
+            body_size, upper_shadow, lower_shadow, high_low_range,
+            return_lag_1, return_lag_2, return_lag_3, return_lag_5, return_lag_7
+        ], dtype=float)
+
     def get_current_price(self, symbol: str) -> float:
         """Get simulated current price with small variations"""
         if symbol not in self.metals:
@@ -147,14 +169,28 @@ class PreciousMetalsPredictor:
         if use_ml_model:
             # Use trained ML model for prediction
             try:
-                # Generate historical prices (simulated - in production, get from API)
-                # For now, use base price with small variations
-                historical_prices = []
-                for i in range(7):
-                    variation = random.uniform(-0.02, 0.02)
-                    hist_price = metal["base_price"] * (1 + variation)
-                    historical_prices.append(hist_price)
-                historical_prices.append(current_price)
+                import yfinance as yf
+                _tmap = {
+                    "XAGUSDC":"SI=F","XAUUSDC":"GC=F","XPTUSDC":"PL=F","XPDUSDC":"PA=F",
+                    "XAGUSDT":"SI=F","XAUUSDT":"GC=F","XPTUSDT":"PL=F","XPDUSDT":"PA=F",
+                }
+                _tk = _tmap.get(symbol, symbol)
+                try:
+                    _df = yf.download(_tk, period="2y", interval="1d", progress=False)
+                    if _df is not None and len(_df) >= 201:
+                        _close = _df["Close"]
+                        if hasattr(_close, "squeeze"): _close = _close.squeeze()
+                        historical_prices = _close.dropna().tolist()
+                    else:
+                        raise ValueError("insufficient history")
+                except Exception as _yfe:
+                    print(f"[-] yfinance fallback for {symbol}: {_yfe}")
+                    historical_prices = []
+                    _rp = metal["base_price"]
+                    for _i in range(210):
+                        _rp *= (1 + random.uniform(-0.005, 0.005))
+                        historical_prices.append(_rp)
+                    historical_prices[-1] = current_price
                 
                 # Calculate features
                 features = self._calculate_features(historical_prices)
@@ -166,7 +202,12 @@ class PreciousMetalsPredictor:
                 
                 # Get prediction from model
                 model = self.models[symbol]
-                predicted_price = model.predict(features_scaled)[0]
+                raw_prediction = model.predict(features_scaled)[0]
+                # Model returns relative change (fraction), convert to absolute price
+                if abs(raw_prediction) < 2.0:  # relative, not absolute price
+                    predicted_price = current_price * (1 + raw_prediction)
+                else:
+                    predicted_price = raw_prediction
                 
                 # Calculate trend
                 price_change = predicted_price - current_price

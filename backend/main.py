@@ -42,7 +42,15 @@ from utils.error_handler import AuraError
 from utils.security import security_manager
 
 def sanitize_floats(obj):
-    """Replace NaN/Infinity with None to prevent JSON serialization errors."""
+    """Replace NaN/Infinity with None and convert numpy types to Python natives."""
+    import numpy as np
+    if isinstance(obj, (np.float32, np.float64, np.floating)):
+        v = float(obj)
+        return None if (math.isnan(v) or math.isinf(v)) else v
+    if isinstance(obj, (np.int32, np.int64, np.integer)):
+        return int(obj)
+    if isinstance(obj, np.ndarray):
+        return [sanitize_floats(x) for x in obj.tolist()]
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
@@ -988,6 +996,26 @@ def dashboard(request: Request):
     finally:
         db.close()
 
+
+@app.post("/api/xag/login")
+async def xag_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    """XAG dashboard login — returns JWT access token as JSON."""
+    import bcrypt
+    from database.models import User as _User
+    from auth.jwt_handler import create_access_token
+    email = email.lower().strip()
+    db = SessionLocal()
+    try:
+        user = db.query(_User).filter(_User.email == email).first()
+        if not user or not user.password_hash:
+            raise HTTPException(status_code=401, detail="Λάθος email ή κωδικός")
+        if not bcrypt.checkpw(password.strip().encode(), user.password_hash.encode()):
+            raise HTTPException(status_code=401, detail="Λάθος κωδικός")
+        token = create_access_token({"sub": str(user.id), "email": user.email, "token_version": user.token_version})
+        return {"access_token": token, "token_type": "bearer"}
+    finally:
+        db.close()
+
 @app.get("/xag-dashboard", response_class=HTMLResponse)
 def xag_dashboard(request: Request):
     """
@@ -996,7 +1024,7 @@ def xag_dashboard(request: Request):
     Phase 2 (current): yfinance / SI=F proxy feed, no auth required.
     Phase 7: add JWT auth check, same as /dashboard.
     """
-    return templates.TemplateResponse("xag_dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "xag_dashboard.html")
 
 
 @app.get("/logout")

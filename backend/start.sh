@@ -24,3 +24,5 @@ fi
 echo "✅ Starting Uvicorn server..."
 # --workers 1 MANDATORY: xag_orders.py uses threading.Lock() for in-memory margin isolation
 exec uvicorn main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers 1
+# Start nginx (SSL terminator)
+nginx 2>/dev/null || true

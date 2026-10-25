@@ -685,10 +685,44 @@
       font-size: 0.75em;
       color: var(--amber);
     }
+
+    /* == ML panel == */
+    .ml-panel { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 20px;margin:0 0 12px;display:flex;align-items:center;gap:24px;flex-wrap:wrap; }
+    .ml-panel .ml-label { font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);white-space:nowrap; }
+    .ml-stat { display:flex;flex-direction:column;gap:3px;min-width:80px; }
+    .ml-stat .ml-val { font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--text); }
+    .ml-stat .ml-key { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
+    .ml-badge { display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700; }
+    .ml-badge.buy  { background:rgba(63,185,80,.15);color:var(--green); }
+    .ml-badge.sell { background:rgba(248,81,73,.15);color:var(--red); }
+    .ml-badge.hold { background:rgba(210,153,34,.15);color:var(--amber); }
+    .ml-confidence { font-size:11px;color:var(--text-muted);margin-top:2px; }
+    .ml-stale      { font-size:11px;color:var(--text-dim);margin-left:auto; }
+    .ml-sparkline  { display:flex;align-items:flex-end;gap:2px;height:26px; }
+    .ml-sparkline .bar { width:5px;border-radius:2px 2px 0 0; }
+
+  /* == Login overlay == */
+  #xag-login-overlay { position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:9999; }
+  #xag-login-overlay.hidden { display:none; }
+  .xag-login-box { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:32px 40px;width:320px;display:flex;flex-direction:column;gap:16px; }
+  .xag-login-box h2 { margin:0;font-size:18px;color:var(--text); }
+  .xag-login-box input { width:100%;box-sizing:border-box;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px; }
+  .xag-login-box button { padding:9px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer; }
+  .xag-login-box .xag-err { color:var(--red);font-size:12px;min-height:16px; }
   </style>
 </head>
 
 <body>
+  <!-- XAG Login overlay -->
+  <div id="xag-login-overlay">
+    <div class="xag-login-box">
+      <h2>Aura — XAG Dashboard</h2>
+      <input type="email" id="xag-li-email" placeholder="Email" autocomplete="off">
+      <input type="password" id="xag-li-pass" placeholder="Κωδικός" autocomplete="new-password">
+      <button id="xag-li-btn">Σύνδεση</button>
+      <div class="xag-err" id="xag-li-err"></div>
+    </div>
+  </div>
 
 <!-- ── Page header ──────────────────────────────────────────────────────── -->
 <header class="page-header">
@@ -730,6 +764,16 @@
 
   <!-- Error banner (shown on API failure) -->
   <div class="error-banner" id="error-banner"></div>
+  <!-- ML panel -->
+  <div class="ml-panel" id="ml-panel">
+    <span class="ml-label">AI - 7-day forecast</span>
+    <div class="ml-stat"><span class="ml-val" id="ml-predicted-price">--</span><span class="ml-key">Predicted price</span></div>
+    <div class="ml-stat"><span class="ml-val" id="ml-change-pct">--</span><span class="ml-key">Expected change %</span></div>
+    <div class="ml-stat"><span id="ml-recommendation" class="ml-badge hold">--</span><span class="ml-confidence" id="ml-confidence">confidence --</span></div>
+    <div class="ml-stat"><div class="ml-sparkline" id="ml-sparkline"></div><span class="ml-key">7-day path</span></div>
+    <span class="ml-stale" id="ml-asof">not loaded</span>
+  </div>
+
 
   <!-- ── Top row: price + RSI cards ───────────────────────────────────── -->
   <div class="top-row">
@@ -965,6 +1009,7 @@
   let symbolInfo = null;     // from GET /api/xag/symbol_info
   let accountData = null;    // from GET /api/xag/account
   let rsiState = { '1m': null, '15m': null, '1h': null };   // { val, fetchedAt }
+  let mlPrediction = null;
   let currentTf = '1m';
   let autoTimer = null;
   let autoInterval = 60;   // seconds; 0 = off
@@ -990,6 +1035,50 @@
 
   // Positions are populated from GET /api/xag/positions
   let positions = [];
+
+  /* == ML Prediction == */
+  async function fetchMLPrediction() {
+    try {
+      const r = await fetch('/api/ai/predict/metals/XAGUSDC');
+      if (!r.ok) return;
+      const d = await r.json();
+      mlPrediction = d;
+      renderMLPanel(d);
+    } catch(e) { console.warn('[ml]', e); }
+  }
+
+  function renderMLPanel(d) {
+    var pe = document.getElementById('ml-predicted-price');
+    if (pe) pe.textContent = d.predicted_price != null ? '$' + Number(d.predicted_price).toFixed(3) : '--';
+    var ce = document.getElementById('ml-change-pct');
+    if (ce) {
+      var p = d.price_change_percent;
+      ce.textContent = p != null ? (p >= 0 ? '+' : '') + Number(p).toFixed(2) + '%' : '--';
+      ce.style.color = p == null ? '' : (p >= 0 ? 'var(--green)' : 'var(--red)');
+    }
+    var re2 = document.getElementById('ml-recommendation');
+    if (re2) {
+      var rec = (d.recommendation || '').toUpperCase();
+      re2.textContent = rec || '--';
+      re2.className = 'ml-badge ' + (rec === 'BUY' ? 'buy' : rec === 'SELL' ? 'sell' : 'hold');
+    }
+    var cf = document.getElementById('ml-confidence');
+    if (cf) cf.textContent = 'confidence ' + (d.confidence != null ? Number(d.confidence).toFixed(1) + '%' : '--');
+    var sp = document.getElementById('ml-sparkline');
+    if (sp && Array.isArray(d.price_path)) {
+      var pp = d.price_path.map(function(x) { return x.price; }).filter(function(x) { return x != null && x > 0; });
+      if (pp.length) {
+        var mn = Math.min.apply(null, pp), mx = Math.max.apply(null, pp), rng = mx - mn || 1;
+        var col = pp[pp.length-1] < pp[0] ? 'var(--red)' : 'var(--green)';
+        sp.innerHTML = pp.map(function(x) { return '<div class="bar" style="height:' + Math.max(3, Math.round(((x-mn)/rng)*22)) + 'px;background:' + col + '"></div>'; }).join('');
+      }
+    }
+    var ao = document.getElementById('ml-asof');
+    if (ao && d.timestamp) {
+      var dt = new Date(d.timestamp);
+      ao.textContent = 'updated ' + dt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    }
+  }
 
   /** Fetch open positions from the backend and re-render the table. */
   async function loadPositions() {
@@ -1399,6 +1488,7 @@
       console.error('[xag] snapshot error:', err);
     } finally {
       setSpinner(false);
+      fetchMLPrediction();
     }
   }
 
@@ -2073,5 +2163,65 @@
 })();
 </script>
 
+<script>
+  (function() {
+    var _token = sessionStorage.getItem('xag_jwt') || '';
+    var _overlay = null;
+
+    function authHdr() {
+      return _token ? {'Authorization': 'Bearer ' + _token} : {};
+    }
+    window._xagAuthHdr = authHdr;
+
+    async function doLogin() {
+      var email = document.getElementById('xag-li-email').value.trim();
+      var pass  = document.getElementById('xag-li-pass').value;
+      var errEl = document.getElementById('xag-li-err');
+      errEl.textContent = '';
+      try {
+        var fd = new FormData();
+        fd.append('email', email);
+        fd.append('password', pass);
+        var r = await fetch('/api/xag/login', {method:'POST', body:fd});
+        var d = await r.json();
+        if (!r.ok) { errEl.textContent = d.detail || 'Σφάλμα'; return; }
+        _token = d.access_token;
+        sessionStorage.setItem('xag_jwt', _token);
+        _overlay.classList.add('hidden');
+        if (typeof refreshAll === 'function') refreshAll();
+        if (typeof loadPositions === 'function') loadPositions();
+        if (typeof loadAccount === 'function') loadAccount();
+        if (typeof loadChart === 'function') loadChart('1m', 200);
+      } catch(e) { errEl.textContent = 'Σφάλμα σύνδεσης'; }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      _overlay = document.getElementById('xag-login-overlay');
+      document.getElementById('xag-li-btn').addEventListener('click', doLogin);
+      document.getElementById('xag-li-pass').addEventListener('keydown', function(e){
+        if (e.key === 'Enter') doLogin();
+      });
+      if (_token) { _overlay.classList.add('hidden'); }
+    });
+
+    // Patch fetch: inject Bearer token on all /api/xag/* calls (except login)
+    var _orig = window.fetch;
+    window.fetch = function(url, opts) {
+      opts = opts || {};
+      if (typeof url === 'string' && (url.indexOf('/api/xag/') !== -1 || url.indexOf('api/xag/') === 0) && url.indexOf('api/xag/login') === -1) {
+        var h = Object.assign({}, opts.headers || {}, authHdr());
+        opts = Object.assign({}, opts, {headers: h});
+      }
+      return _orig.call(this, url, opts).then(function(resp) {
+        if (resp.status === 401 && typeof url === 'string' && (url.indexOf('/api/xag/') !== -1 || url.indexOf('api/xag/') === 0)) {
+          sessionStorage.removeItem('xag_jwt');
+          _token = '';
+          if (_overlay) _overlay.classList.remove('hidden');
+        }
+        return resp;
+      });
+    };
+  })();
+</script>
 </body>
 </html>
