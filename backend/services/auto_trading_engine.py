@@ -990,6 +990,38 @@ class AutoTradingEngine:
         quantity *= claude_size_multiplier
         quantity *= correlation_size_multiplier
 
+        # ── Tier 0 Strategy Engine (zero-effort size modifiers) ──────────
+        try:
+            tier0_size_multiplier = 1.0
+
+            # 1. MTF Alignment: scale by timeframe agreement quality
+            mtf_score = float(signals.get("multi_timeframe", {}).get("score", 50) if isinstance(signals.get("multi_timeframe"), dict) else signals.get("multi_timeframe", 50))
+            if mtf_score >= 80:
+                tier0_size_multiplier *= 1.05
+                self._log_event("TIER0", f"{symbol}: MTF strong ({mtf_score:.0f}) -> +5%")
+            elif mtf_score <= 30:
+                tier0_size_multiplier *= 0.70
+                self._log_event("TIER0", f"{symbol}: MTF weak ({mtf_score:.0f}) -> -30%")
+
+            # 2. F&G Bias: sentiment extreme zones (crypto only)
+            if symbol not in PAPER_ONLY_SYMBOLS:
+                if 25 <= fear_greed <= 45:
+                    tier0_size_multiplier *= 0.80
+                    self._log_event("TIER0", f"{symbol}: F&G fear zone ({fear_greed:.0f}) -> -20%")
+                elif fear_greed >= 75:
+                    tier0_size_multiplier *= 0.90
+                    self._log_event("TIER0", f"{symbol}: F&G greed zone ({fear_greed:.0f}) -> -10%")
+
+            # 3. Confidence Scale: reduce for marginal signals
+            if confidence < 0.70:
+                tier0_size_multiplier *= 0.85
+                self._log_event("TIER0", f"{symbol}: low confidence ({confidence:.0%}) -> -15%")
+
+            tier0_size_multiplier = max(0.25, min(1.10, tier0_size_multiplier))
+            quantity *= tier0_size_multiplier
+        except Exception as _t0_err:
+            logger.debug("[TIER0] skipped for %s: %s", symbol, _t0_err)
+
         if correlation_cap_usd is not None and price > 0:
             max_corr_qty = max(0.0, float(correlation_cap_usd) / float(price))
             quantity = min(quantity, max_corr_qty)
