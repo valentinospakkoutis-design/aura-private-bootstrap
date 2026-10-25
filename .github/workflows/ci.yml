@@ -8,21 +8,21 @@ on:
 
 jobs:
   backend:
-    name: Backend (Python 3.10)
+    name: Backend (Python 3.11)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
         working-directory: backend
         run: |
           pip install --upgrade pip
-          # Install requirements but skip heavy ML deps (torch) not needed for tests
+          # Skip torch (large, slow, not needed for unit tests)
           grep -v "^torch" requirements.txt | pip install -r /dev/stdin
           pip install pytest pytest-asyncio httpx aiosqlite bcrypt
       - name: Syntax check
