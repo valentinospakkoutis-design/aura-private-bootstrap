@@ -71,4 +71,4 @@ jobs:
       - name: Build backend image
         env:
           DOCKER_BUILDKIT: "1"
-        run: docker build -f backend/Dockerfile -t aura-backend:ci .
+        run: docker build -f backend/Dockerfile -t aura-backend:ci backend/
