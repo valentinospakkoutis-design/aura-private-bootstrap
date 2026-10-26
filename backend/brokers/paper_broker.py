@@ -94,12 +94,6 @@ class PaperBroker:
             "executed_at": datetime.now().isoformat(),
             "timestamp": datetime.now().isoformat(),
         }
-        # TODO(Task#49): Wire reserve_and_validate + settle_reservation here.
-        # Requires: snapshot (SizingSnapshot) + risk_profile — available in
-        # auto_trading_engine.place_auto_order() at the call site, not here.
-        # Integration point: engine passes reservation_id=... into place_live_order
-        # OR engine calls reserve_and_validate before broker.place_live_order and
-        # settle_reservation in the result-handling block after the call returns.
 
     # Stubs the engine may touch (no-ops for paper)
     def get_lot_size(self, symbol: str) -> Dict:
