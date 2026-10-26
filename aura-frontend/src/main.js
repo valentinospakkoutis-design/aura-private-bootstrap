@@ -119,6 +119,11 @@ function wireControls(ws) {
 }
 
 setInterval(() => {
+  // stale badge: if last price > 30s old, show orange warning
+  if (state.priceAsof) {
+    const age = Date.now() - Date.parse(state.priceAsof);
+    if (age > 30_000) setPriceBadge(`stale ${Math.floor(age/1000)}s`, 'orange');
+  }
   for (const tf of ['1m', '15m', '1h']) updateRSICard(tf);
 }, 30_000);
 

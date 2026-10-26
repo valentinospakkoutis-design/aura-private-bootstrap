@@ -344,6 +344,7 @@ body {
 .badge-gray  { background: var(--bg-elevated); color: var(--text-muted); border: 1px solid var(--border); }
 .badge-green { background: #0d2119; color: var(--green); border: 1px solid #26a64140; }
 .badge-red   { background: #2d1116; color: var(--red);   border: 1px solid #f8514940; }
+.badge-orange { background: #2a1a06; color: #f97316;  border: 1px solid #f9731640; }
 
 /* ─── Toast ──────────────────────────────────────────────────────────────────── */
 .toast-container {
