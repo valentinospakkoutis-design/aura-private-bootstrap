@@ -1290,6 +1290,55 @@ class AutoTradingEngine:
             logger.info(f"[auto-trader] Placing {side} {symbol} qty={quantity} "
                 f"confidence={confidence:.0%} smart_score={smart_score:.1f} coid={client_order_id}")
 
+            # ── Atomic reservation (paper mode only) ─────────────────────────
+            # Thin reservation: engine already did capacity/risk checks above.
+            # We create a row here for idempotency + audit trail only (status
+            # 'claiming' — order is in flight). Failures are non-fatal.
+            # Operational constraints: DCA safeguards and kill switch preserved,
+            # ALLOW_LIVE_TRADING unchanged, no real orders, paper mode only.
+            _res_id: Optional[int] = None
+            if paper_mode and user_id is not None:
+                try:
+                    from decimal import Decimal
+                    from datetime import timedelta
+                    from database.connection import SessionLocal
+                    from database.models_addition import ExecutionReservation
+                    if SessionLocal is not None:
+                        _db_r = SessionLocal()
+                        try:
+                            _qty_d = Decimal(str(quantity))
+                            _notional_d = _qty_d * Decimal(str(price))
+                            _now = datetime.utcnow()
+                            _res = ExecutionReservation(
+                                idempotency_key=client_order_id,
+                                user_id=int(user_id),
+                                account_mode='paper',
+                                symbol=symbol.upper(),
+                                side=side.upper(),
+                                order_type='MARKET',
+                                quantity=_qty_d,
+                                notional_usd=_notional_d,
+                                fee_estimate_usd=Decimal('0'),
+                                status='claiming',
+                                created_at=_now,
+                                expires_at=_now + timedelta(minutes=5),
+                            )
+                            _db_r.add(_res)
+                            _db_r.commit()
+                            _db_r.refresh(_res)
+                            _res_id = _res.id
+                            logger.debug(
+                                "[reservation] created id=%s coid=%s",
+                                _res_id, client_order_id,
+                            )
+                        except Exception as _re:
+                            _db_r.rollback()
+                            logger.warning("[reservation] create failed (non-fatal): %s", _re)
+                        finally:
+                            _db_r.close()
+                except Exception as _ie:
+                    logger.warning("[reservation] setup failed (non-fatal): %s", _ie)
+
             result = self.broker.place_live_order(
                 symbol=symbol,
                 side=side,
@@ -1314,6 +1363,24 @@ class AutoTradingEngine:
             if "error" in result:
                 self._log_event("ORDER_FAILED", f"{symbol}: {result['error']}", result)
                 logger.error(f"[auto-trader] Order failed for {symbol}: {result['error']}")
+                # ── Settle reservation as rejected ────────────────────────────
+                if _res_id is not None:
+                    try:
+                        from database.connection import SessionLocal
+                        from services.execution_reservation import settle_reservation
+                        if SessionLocal is not None:
+                            _db_s = SessionLocal()
+                            try:
+                                settle_reservation(
+                                    _db_s, _res_id,
+                                    outcome='rejected',
+                                )
+                            except Exception as _se:
+                                logger.debug("[reservation] reject-settle failed (non-fatal): %s", _se)
+                            finally:
+                                _db_s.close()
+                    except Exception:
+                        pass
                 return None
 
             entry_price = result.get("price") or price
@@ -1351,6 +1418,53 @@ class AutoTradingEngine:
                 position["trailing_stop"] = round(stop_loss_price, 2)
 
             self.open_positions[symbol] = position
+
+            # ── Settle reservation as filled ──────────────────────────────────
+            if _res_id is not None:
+                try:
+                    from decimal import Decimal
+                    from database.connection import SessionLocal
+                    from services.execution_reservation import (
+                        settle_reservation,
+                        ReservationSettlementError,
+                    )
+                    if SessionLocal is not None:
+                        _db_f = SessionLocal()
+                        try:
+                            _filled_qty = Decimal(str(result.get("executed_qty", quantity)))
+                            _fill_price = Decimal(str(entry_price))
+                            _fill_notional = _filled_qty * _fill_price
+                            _fill_id = str(result.get("order_id", client_order_id))
+                            try:
+                                settle_reservation(
+                                    _db_f, _res_id,
+                                    outcome='filled',
+                                    fill_id=_fill_id,
+                                    filled_quantity=_filled_qty,
+                                    filled_notional=_fill_notional,
+                                    actual_fee_usd=Decimal('0'),
+                                    fill_price=_fill_price,
+                                )
+                            except ReservationSettlementError as _rse:
+                                # Zero-loss re-settle: partial fill accepted
+                                if _rse.args and _rse.args[0] == 'filled_incomplete':
+                                    settle_reservation(
+                                        _db_f, _res_id,
+                                        outcome='partial',
+                                        fill_id=_rse.fill_id,
+                                        filled_quantity=_rse.filled_quantity,
+                                        filled_notional=_rse.filled_notional,
+                                        actual_fee_usd=_rse.actual_fee_usd,
+                                        fill_price=_rse.fill_price,
+                                    )
+                                else:
+                                    raise
+                        except Exception as _se:
+                            logger.debug("[reservation] fill-settle failed (non-fatal): %s", _se)
+                        finally:
+                            _db_f.close()
+                except Exception:
+                    pass  # Reservation settlement must never block order recording
 
             self._log_event("ORDER_FILLED", f"{side} {quantity} {symbol} @ ${entry_price:.2f}", position)
             logger.info(f"[auto-trader] Position opened: {symbol} {side} @ ${entry_price:.2f}")
