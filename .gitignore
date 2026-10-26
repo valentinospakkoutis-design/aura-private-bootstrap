@@ -79,3 +79,8 @@ coverage/
 mettal-app/
 
 backend/models/
+backend/accuracy_data.json
+backend/training_history.json
+backend/*.bak
+backend/**/*.bak
+backend/templates/*.bak2
