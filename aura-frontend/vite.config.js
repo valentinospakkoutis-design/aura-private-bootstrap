@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: '/monitor/',
+  base: '/',
   server: {
     port: 5174,
     proxy: {
       '/api': {
-        target: 'http://116.203.75.114:8000',
+        target: 'http://localhost:8080',
         changeOrigin: true,
         ws: true,
       },
