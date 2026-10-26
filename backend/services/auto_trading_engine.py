@@ -1290,10 +1290,30 @@ class AutoTradingEngine:
             logger.info(f"[auto-trader] Placing {side} {symbol} qty={quantity} "
                 f"confidence={confidence:.0%} smart_score={smart_score:.1f} coid={client_order_id}")
 
-            # ── Atomic reservation (paper mode only) ─────────────────────────
-            # Thin reservation: engine already did capacity/risk checks above.
-            # We create a row here for idempotency + audit trail only (status
-            # 'claiming' — order is in flight). Failures are non-fatal.
+            # ── Audit reservation (paper mode only) ───────────────────────────
+            # DESIGN NOTE — audit trail, not a capacity lock:
+            #   Capacity/risk checks (smart score, position size, portfolio heat,
+            #   correlation guard) are performed by the engine above, before this
+            #   point. The reservation row below is idempotency + audit trail only.
+            #
+            #   This is intentionally a "thin reservation" (status='claiming')
+            #   rather than the full reserve_and_validate() flow, because
+            #   reserve_and_validate() requires SizingSnapshot + risk_profile
+            #   which are not available at this call site.
+            #
+            # ARCHITECTURAL DEBT (Phase 1 / multi-user):
+            #   The current engine is single-threaded per user, so there is no
+            #   active race condition. When multi-worker concurrency is added
+            #   (Phase 1), capacity checks must move under a SELECT … FOR UPDATE
+            #   lock via reserve_and_validate() to prevent two workers from
+            #   approving overlapping notional against the same balance.
+            #
+            # NON-FATAL POLICY (paper mode only):
+            #   If the reservation row cannot be created (e.g. DB unavailable),
+            #   the paper order still executes. This is correct for paper mode
+            #   (no real money at risk). Live mode must treat reservation failure
+            #   as blocking before any broker call is made.
+            #
             # Operational constraints: DCA safeguards and kill switch preserved,
             # ALLOW_LIVE_TRADING unchanged, no real orders, paper mode only.
             _res_id: Optional[int] = None
