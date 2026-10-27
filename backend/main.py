@@ -40,6 +40,7 @@ from cache.connection import get_redis, check_redis_connection
 # Security and Error Handling
 from utils.error_handler import AuraError
 from utils.security import security_manager
+from utils.logging_config import setup_logging, request_id_middleware
 
 def sanitize_floats(obj):
     """Replace NaN/Infinity with None and convert numpy types to Python natives."""
@@ -80,6 +81,11 @@ def normalize_symbol_alias(symbol: str) -> str:
     return SYMBOL_ALIASES.get(symbol_u, symbol_u)
 
 limiter = Limiter(key_func=get_remote_address)
+
+# ── Structured JSON logging ──────────────────────────────────────────────────
+setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+
+# ── Structured JSON logging ──────────────────────────────────────────────────
 
 app = FastAPI(
     title="AURA Backend API",
@@ -803,6 +809,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request ID + access log middleware (runs first → wraps everything)
+app.middleware("http")(request_id_middleware)
+
+# Request ID + access log middleware (runs first → wraps everything)
 
 # Security Headers Middleware
 @app.middleware("http")
