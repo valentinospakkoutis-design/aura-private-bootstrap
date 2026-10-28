@@ -47,7 +47,7 @@ async function boot() {
       state.bid   = bid;
       state.ask   = ask;
       updatePriceUI();
-      processTick(mid, false);
+      processTick(mid, true);
       renderPositions();
     },
     onStatusChange(status) {

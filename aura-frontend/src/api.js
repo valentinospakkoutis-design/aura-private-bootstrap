@@ -135,6 +135,7 @@ export function createTickWS({ onTick, onStatusChange }) {
 
   function connect() {
     onStatusChange('reconnecting');
+    if (ws) { ws.onmessage = null; ws.onopen = null; ws.onclose = null; }
     const url = `${wsBase}/api/xag/ws/tick${_token ? `?token=${_token}` : ''}`;
     ws = new WebSocket(url);
     ws.onopen    = () => { retryDelay = 1000; onStatusChange('connected'); };
