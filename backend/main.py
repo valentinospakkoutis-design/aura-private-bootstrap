@@ -709,6 +709,7 @@ from api.xag_ws import router as xag_ws_router
 from api.xag_positions import router as xag_positions_router
 from api.xag_orders import router as xag_orders_router
 from api.xag_healthz import router as xag_healthz_router
+from api.dashboard_overview import router as dashboard_router
 from api.xag_auth import xag_limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler as _xag_rate_handler
@@ -718,6 +719,7 @@ app.include_router(xag_ws_router)
 app.include_router(xag_positions_router)
 app.include_router(xag_orders_router)
 app.include_router(xag_healthz_router)
+app.include_router(dashboard_router)
 # xag_limiter uses a separate Limiter instance so XAG limits can be tuned
 # independently. SlowAPI resolves @xag_limiter.limit() decorators via the
 # limiter object bound to each decorator — no app.state override needed.
