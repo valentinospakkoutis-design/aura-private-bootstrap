@@ -93,7 +93,15 @@ app = FastAPI(
     version="1.0.0"
 )
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+async def _rate_limit_handler(request, exc):
+    from starlette.responses import JSONResponse
+    retry_after = getattr(exc, 'retry_after', 60)
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+        headers={"Retry-After": str(retry_after)},
+    )
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 # ── Global exception handler for AuraError ───────────────────────
 from starlette.responses import JSONResponse
@@ -668,8 +676,16 @@ async def startup_event():
     except Exception as e:
         print(f"[!] Failed to setup scheduled jobs: {e}")
 
+
+    # MT5 alert monitor
+    from api.xag_alerts import init_alerts, mt5_alert_monitor
+    import os as _os
+    init_alerts(_os.getenv("XAG_TELEGRAM_BOT_TOKEN"))
+    asyncio.create_task(mt5_alert_monitor())
+    print("[*] MT5 alert monitor started")
+
 # Shutdown event
-@app.on_event("shutdown")
+
 async def shutdown_event():
     """Cleanup on shutdown"""
     from services.auto_trading_engine import auto_trader as _auto_trader
