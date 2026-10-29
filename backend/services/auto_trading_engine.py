@@ -4,6 +4,7 @@ Monitors AI predictions and places orders automatically when confidence is high.
 DISABLED by default — user must explicitly enable from the UI.
 """
 
+_SCORE_CACHE: dict = {}  # symbol -> {smart_score, signals, ts}
 import asyncio
 import logging
 from datetime import datetime
@@ -929,6 +930,7 @@ class AutoTradingEngine:
         from services.smart_score import smart_score_calculator
         score_result = smart_score_calculator.calculate_smart_score(symbol)
         smart_score = score_result.get("smart_score", 0)
+        _SCORE_CACHE[symbol] = {"smart_score": smart_score, "signals": score_result.get("signals", {}), "ts": __import__("time").time()}
         signals = score_result.get("signals", {})
 
         # Block trades during extreme fear — CRYPTO ONLY.

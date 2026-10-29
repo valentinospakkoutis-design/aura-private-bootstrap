@@ -80,21 +80,25 @@ def _score_color(score: Optional[float]) -> str:
 
 
 async def _fetch_smart_scores() -> dict:
-    """Καλεί το εσωτερικό /api/ai/signal-quality endpoint."""
+    """Read smart scores from auto_trading_engine in-memory cache."""
     try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get("http://localhost:8080/api/ai/signal-quality")
-            if r.status_code == 200:
-                data = r.json()
-                # Αναμένουμε list of {symbol, smart_score, ...} ή dict
-                if isinstance(data, list):
-                    return {item["symbol"]: item for item in data}
-                if isinstance(data, dict):
-                    return data
+        from services.auto_trading_engine import _SCORE_CACHE
+        import time
+        now = time.time()
+        result = {}
+        for sym, data in _SCORE_CACHE.items():
+            age = now - data.get("ts", 0)
+            if age < 3600:  # max 1h stale
+                signals = data.get("signals", {})
+                result[sym] = {
+                    "symbol": sym,
+                    "smart_score": data.get("smart_score"),
+                    "rsi_1h": signals.get("rsi", {}).get("rsi_1h") if isinstance(signals.get("rsi"), dict) else signals.get("rsi_1h"),
+                }
+        return result
     except Exception as e:
-        log.warning("signal-quality fetch failed: %s", e)
+        log.warning("_SCORE_CACHE read failed: %s", e)
     return {}
-
 
 async def _fetch_paper_positions() -> dict:
     """Καλεί το /api/auto-trading/paper-portfolio και ομαδοποιεί ανά symbol."""
