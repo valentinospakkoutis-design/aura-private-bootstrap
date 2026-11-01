@@ -1191,6 +1191,41 @@ def setup_weekly_retraining():
             replace_existing=True,
         )
 
+
+        # Daily evaluation & retraining — 23:55 UTC (01:55 Κυπριακή)
+        def _daily_evaluation_job():
+            try:
+                import asyncio
+                from services.daily_evaluation import run_daily_evaluation
+                asyncio.run(run_daily_evaluation(user_id=1))
+            except Exception as e:
+                logger.error(f"[scheduler] Daily evaluation failed: {e}")
+
+        scheduler.add_job(
+            _daily_evaluation_job,
+            trigger=CronTrigger(hour=23, minute=55),
+            id="daily_evaluation",
+            name="Daily evaluation & retraining pipeline",
+            replace_existing=True,
+        )
+
+        # Shadow model promotion — 08:00 UTC (10:00 Κυπριακή)
+        def _promote_shadows_job():
+            try:
+                import asyncio
+                from services.retrainer import promote_shadow_models
+                n = asyncio.run(promote_shadow_models())
+                logger.info(f"[scheduler] Promoted {n} shadow models")
+            except Exception as e:
+                logger.error(f"[scheduler] Shadow promotion failed: {e}")
+
+        scheduler.add_job(
+            _promote_shadows_job,
+            trigger=CronTrigger(hour=8, minute=0),
+            id="promote_shadows",
+            name="Shadow model promotion (24h validation)",
+            replace_existing=True,
+        )
         scheduler.start()
         logger.info("[trainer] Scheduled jobs: fear_greed (daily 00:30), news_fetch (daily 06:00), daily retrain (02:00 UTC), weekly LSTM (Sun 01:00), monthly RL retrain (day 1 @ 02:00), daily leaderboard (00:00), daily XGBoost (06:00), morning briefing push (06:00), weekly report generation (Sun 23:00), weekly report push (Mon 06:30), daily predictions (06:05), prediction outcomes eval (06:10), sentiment (*/30min), paper snapshots (*/15min)")
         return scheduler
