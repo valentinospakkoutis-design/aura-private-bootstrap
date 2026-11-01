@@ -14,7 +14,7 @@ from typing import Optional
 
 import numpy as np
 from sqlalchemy import text
-from database.connection import get_async_db
+from database.connection import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ ROLLING_DAYS  = 30  # rolling window για labeled examples
 async def _load_training_rows(days: int = ROLLING_DAYS) -> list[dict]:
     """Φέρνει labeled trades των τελευταίων N ημερών από trade_feedback."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    async with get_async_db() as db:
+    async with AsyncSessionLocal() as db:
         rows = (await db.execute(text("""
             SELECT symbol, action, confidence_at_entry,
                    entry_price, exit_price, pnl_pct, outcome,
@@ -123,7 +123,7 @@ async def trigger_incremental_refit(reason: str = "") -> bool:
 
     # Log retraining event στο DB
     try:
-        async with get_async_db() as db:
+        async with AsyncSessionLocal() as db:
             await db.execute(text("""
                 INSERT INTO training_logs (created_at, notes)
                 VALUES (:ts, :notes)

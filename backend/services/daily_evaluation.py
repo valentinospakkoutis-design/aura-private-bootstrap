@@ -16,12 +16,12 @@ from typing import Optional
 
 import httpx
 from sqlalchemy import text
-from database.connection import get_async_db
+from database.connection import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
 # ── Telegram ────────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("XAG_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "6296218911")
 
 async def _send_telegram(msg: str) -> None:
@@ -61,12 +61,12 @@ async def run_daily_evaluation(user_id: int = 1) -> dict:
     Επιστρέφει dict με αποτελέσματα για logging/Telegram.
     """
     now_utc   = datetime.now(timezone.utc)
-    day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end   = now_utc
+    day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    day_end   = now_utc.replace(tzinfo=None)
 
     logger.info(f"[daily_eval] Starting evaluation for {day_start.date()}")
 
-    async with get_async_db() as db:
+    async with AsyncSessionLocal() as db:
         # 1. Trades της ημέρας
         rows = (await db.execute(text("""
             SELECT symbol, action, confidence_at_entry,
@@ -102,7 +102,7 @@ async def run_daily_evaluation(user_id: int = 1) -> dict:
 
     # 4. Rolling 7-day win rate για σύγκριση
     week_start = day_start - timedelta(days=7)
-    async with get_async_db() as db:
+    async with AsyncSessionLocal() as db:
         week_rows = (await db.execute(text("""
             SELECT outcome FROM trade_feedback
             WHERE created_at >= :start AND created_at < :end
