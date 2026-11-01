@@ -52,8 +52,10 @@ docker run -d \
   --restart on-failure:10 \
   --network "$NETWORK" \
   --env-file "$ENV_FILE" \
+  --add-host aura-redis:172.18.0.4 \
   -p "${PORT}:${PORT}" \
   -v aura_models:/app/models \
+  -v /root/aura-frontend:/root/aura-frontend \
   "$IMAGE"
 
 # 5. Healthcheck (max 30s)
