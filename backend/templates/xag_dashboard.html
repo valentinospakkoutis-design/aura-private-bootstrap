@@ -719,7 +719,7 @@
       <h2>Aura — XAG Dashboard</h2>
       <input type="email" id="xag-li-email" placeholder="Email" autocomplete="off">
       <input type="password" id="xag-li-pass" placeholder="Κωδικός" autocomplete="new-password">
-      <button id="xag-li-btn">Σύνδεση</button>
+      <button id="xag-li-btn">Σύνδεσ-·</button>
       <div class="xag-err" id="xag-li-err"></div>
     </div>
   </div>
@@ -786,7 +786,7 @@
       </div>
       <div class="price-value" id="price">—</div>
       <div class="price-meta">
-        <span class="bid-ask" id="bid-ask">bid — · ask —</span>
+        <span class="bid-ask" id="bid-ask">bid —  - ask —</span>
         <span class="stale-badge" id="stale-badge">STALE</span>
       </div>
       <div class="asof-label" id="asof-label" style="margin-top:8px">Loading…</div>
@@ -816,6 +816,25 @@
       <div class="rsi-freshness" id="rsi-fresh-1h" style="color:var(--text-dim)"></div>
     </div>
 
+  </div>
+
+  <!-- ── Metals row: Gold / Platinum / Palladium ───────────────────────── -->
+  <div class="top-row" style="margin-top:0">
+    <div class="card" style="min-width:150px">
+      <div class="card-header">Gold (XAU)</div>
+      <div class="price-value" id="gold-price" style="font-size:22px">—</div>
+      <div class="bid-ask" id="gold-bidask" style="margin-top:4px">bid —  - ask —</div>
+    </div>
+    <div class="card" style="min-width:150px">
+      <div class="card-header">Platinum (XPT)</div>
+      <div class="price-value" id="plat-price" style="font-size:22px">—</div>
+      <div class="bid-ask" id="plat-bidask" style="margin-top:4px">bid —  - ask —</div>
+    </div>
+    <div class="card" style="min-width:150px">
+      <div class="card-header">Palladium (XPD)</div>
+      <div class="price-value" id="pall-price" style="font-size:22px">—</div>
+      <div class="bid-ask" id="pall-bidask" style="margin-top:4px">bid —  - ask —</div>
+    </div>
   </div>
 
   <!-- ── Chart ─────────────────────────────────────────────────────────── -->
@@ -993,7 +1012,7 @@
   <div id="order-toast"></div>
 
   <div class="source-note">
-    ⚠ Price data from yfinance / SI=F (CME Silver futures proxy). bid/ask are synthetic (±$0.025).
+    ⚠ Price data from yfinance / SI=F (CME Silver futures proxy). bid/ask are synthetic (-$0.025).
     Not for execution. Replace with live broker feed for trading.
   </div>
 
@@ -1205,7 +1224,7 @@
 
     el('price').textContent = price != null ? price.toFixed(3) : '—';
     el('bid-ask').textContent =
-      `bid ${bid != null ? bid.toFixed(3) : '—'} · ask ${ask != null ? ask.toFixed(3) : '—'}`;
+      `bid ${bid != null ? bid.toFixed(3) : '—'}  - ask ${ask != null ? ask.toFixed(3) : '—'}`;
 
     // Stale badge
     const staleBadge = el('stale-badge');
@@ -1236,6 +1255,23 @@
 
     // Update margin preview when price ticks
     updateMarginPreview();
+
+    // Metals prices (Gold, Platinum, Palladium)
+    if (data.metals) {
+      const m = data.metals;
+      if (m.gold) {
+        el("gold-price").textContent = m.gold.price.toFixed(2);
+        el("gold-bidask").textContent = "bid " + m.gold.bid.toFixed(2) + "  - ask " + m.gold.ask.toFixed(2);
+      }
+      if (m.platinum) {
+        el("plat-price").textContent = m.platinum.price.toFixed(2);
+        el("plat-bidask").textContent = "bid " + m.platinum.bid.toFixed(2) + "  - ask " + m.platinum.ask.toFixed(2);
+      }
+      if (m.palladium) {
+        el("pall-price").textContent = m.palladium.price.toFixed(2);
+        el("pall-bidask").textContent = "bid " + m.palladium.bid.toFixed(2) + "  - ask " + m.palladium.ask.toFixed(2);
+      }
+    }
   }
 
   /* ── Render: RSI card ───────────────────────────────────────────────── */
@@ -1561,7 +1597,7 @@
           ask   = d.ask;
 
           el('price').textContent  = price.toFixed(3);
-          el('bid-ask').textContent = `bid ${bid != null ? bid.toFixed(3) : '—'} · ask ${ask != null ? ask.toFixed(3) : '—'}`;
+          el('bid-ask').textContent = `bid ${bid != null ? bid.toFixed(3) : '—'}  - ask ${ask != null ? ask.toFixed(3) : '—'}`;
 
           const staleBadge = el('stale-badge');
           d.stale ? staleBadge.classList.add('visible') : staleBadge.classList.remove('visible');
@@ -1638,7 +1674,7 @@
       openWebSocket();
     }, wsBackoff);
     wsBackoff = Math.min(wsBackoff * 2, WS_BACKOFF_MAX);
-    // Add jitter ±20% so multiple tabs don't all reconnect simultaneously
+    // Add jitter -20% so multiple tabs don't all reconnect simultaneously
     wsBackoff = wsBackoff * (0.8 + Math.random() * 0.4);
   }
 
@@ -2135,7 +2171,7 @@
     renderRsiCard('1h',  null, null);
 
     // Load chart first (takes longer), then snapshot
-    loadChart(currentTf);
+    if (typeof _token !== "undefined" && _token) loadChart(currentTf);
 
     // Start stale-data grey-out watchdog
     startStaleCheck();
@@ -2192,7 +2228,7 @@
         if (typeof loadPositions === 'function') loadPositions();
         if (typeof loadAccount === 'function') loadAccount();
         if (typeof loadChart === 'function') loadChart('1m', 200);
-      } catch(e) { errEl.textContent = 'Σφάλμα σύνδεσης'; }
+      } catch(e) { errEl.textContent = 'Σφάλμα σύνδεσ-·ς'; }
     }
 
     document.addEventListener('DOMContentLoaded', function() {

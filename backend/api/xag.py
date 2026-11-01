@@ -4,7 +4,7 @@ Data source: yfinance (SI=F = Silver futures, proxy for XAGUSD-STD)
 Phase 7: all routes require JWT auth except /healthz (handled separately).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from datetime import datetime, timezone
 import time
 from typing import Any
@@ -88,7 +88,7 @@ def _fetch_snapshot():
                 "rsi_1m": data.get("rsi_1m"), "rsi_15m": data.get("rsi_15m"),
                 "rsi_1h": data.get("rsi_1h"), "asof": data.get("asof"),
                 "daily_open": daily_open,
-                "source": "mt5_bridge"}
+                "metals": data.get("metals"), "source": "mt5_bridge"}
     print("[xag] bridge unavailable, falling back to yfinance")
     import yfinance as yf
     tick = yf.Ticker("SI=F")
@@ -213,7 +213,6 @@ async def _warmup_positions_cache():
         print(f"[xag] warmup failed: {e}")
 
 
-@router.on_event("startup")
 async def startup_warmup():
     import asyncio
     asyncio.create_task(_warmup_positions_cache())
@@ -295,9 +294,19 @@ async def xag_smart_score():
     except Exception as e:
         return {"smart_score": None, "error": str(e)}
 
-@router.get("/paper-positions")
-async def xag_paper_positions(token_data: dict = Depends(xag_require_auth)):
+@router.get("/paper-positions", dependencies=_AUTH)
+async def xag_paper_positions(request: Request, token_data: dict = Depends(xag_require_auth)):
     """Paper trading positions for the authenticated user's portfolio."""
+    # Hard auth guard — belt-and-suspenders for FastAPI 0.162 _IncludedRouter
+    from fastapi.security import HTTPBearer as _HTTPBearer
+    _creds = await _HTTPBearer(auto_error=False)(request)
+    if _creds is None:
+        raise HTTPException(status_code=401, detail="Authentication required", headers={"WWW-Authenticate": "Bearer"})
+    from auth.jwt_handler import verify_token as _vt
+    try:
+        token_data = _vt(_creds.credentials, "access")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
     # Extract and validate user_id from JWT sub claim — outside the catch-all
     # so HTTPException propagates correctly instead of being swallowed as a 200.
     raw_sub = token_data.get("sub")
