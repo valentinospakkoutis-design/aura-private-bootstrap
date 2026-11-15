@@ -52,7 +52,7 @@ docker run -d \
   --restart on-failure:10 \
   --network "$NETWORK" \
   --env-file "$ENV_FILE" \
-  --add-host aura-redis:172.18.0.4 \
+  --add-host aura-redis:172.18.0.3 \
   -p "${PORT}:${PORT}" \
   -v aura_models:/app/models \
   -v /root/aura-frontend:/root/aura-frontend \
@@ -131,7 +131,7 @@ db.close()
 
 import sys, os
 # Call login endpoint internally
-body = json.dumps({'email': 'valentinos.pakkoutis@gmail.com', 'password': 'Aura2026!'}).encode()
+body = json.dumps({'email': 'valentinos@aura.com', 'password': 'Aura2026!'}).encode()
 req = urllib.request.Request('http://localhost:8080/api/v1/auth/login', data=body, headers={'Content-Type': 'application/json'})
 try:
     res = urllib.request.urlopen(req, timeout=10)
