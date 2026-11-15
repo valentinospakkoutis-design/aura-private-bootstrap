@@ -34,6 +34,7 @@ def _normalize_symbol(symbol: str) -> str:
             "HBAR": "HBAR-USD", "FLOW": "FLOW-USD", "MANA": "MANA-USD",
             "CHZ": "CHZ-USD", "ENJ": "ENJ-USD", "ZEC": "ZEC-USD",
             "DASH": "DASH-USD", "XMR": "XMR-USD", "BCH": "BCH-USD",
+            "XAG": "SLV", "XAU": "GLD", "XPT": "PPLT", "XPD": "PALL",
         }
         if base in crypto_map:
             return crypto_map[base]
