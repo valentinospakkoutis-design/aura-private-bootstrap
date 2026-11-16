@@ -771,6 +771,7 @@ print(f"[+] Loaded XAG health check: /api/xag/healthz")
 # Serve the frontend dashboard at /dashboard
 import os as _os_fe
 _os_fe.makedirs("/root/aura-frontend", exist_ok=True)
+app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 app.mount("/monitor", StaticFiles(directory="/root/aura-frontend", html=True), name="monitor")
 import os as _os_sc
 _os_sc.makedirs("/root/aura-scanner", exist_ok=True)
