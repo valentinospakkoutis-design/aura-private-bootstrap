@@ -2172,7 +2172,7 @@
     renderRsiCard('1h',  null, null);
 
     // Load chart first (takes longer), then snapshot
-    if (typeof _token !== "undefined" && _token) loadChart(currentTf);
+    if (sessionStorage.getItem('xag_jwt')) loadChart(currentTf);
 
     // Start stale-data grey-out watchdog
     startStaleCheck();
@@ -2189,6 +2189,9 @@
     // First snapshot fetch — gives immediate data while WS is connecting
     refreshAll();
   }
+
+  // Expose loadChart globally so the login IIFE can call it after auth
+  window._xagLoadChart = loadChart;
 
   // Wait for LightweightCharts library
   if (document.readyState === 'loading') {
@@ -2228,7 +2231,7 @@
         if (typeof refreshAll === 'function') refreshAll();
         if (typeof loadPositions === 'function') loadPositions();
         if (typeof loadAccount === 'function') loadAccount();
-        if (typeof loadChart === 'function') loadChart('1m', 200);
+        if (typeof window._xagLoadChart === 'function') window._xagLoadChart('1m');
       } catch(e) { errEl.textContent = 'Σφάλμα σύνδεσ-·ς'; }
     }
 
@@ -2238,7 +2241,11 @@
       document.getElementById('xag-li-pass').addEventListener('keydown', function(e){
         if (e.key === 'Enter') doLogin();
       });
-      if (_token) { _overlay.classList.add('hidden'); }
+      if (_token) {
+        _overlay.classList.add('hidden');
+        // Chart may not have loaded in bootstrap() if token wasn't available yet
+        if (typeof window._xagLoadChart === 'function') window._xagLoadChart('1m');
+      }
     });
 
     // Patch fetch: inject Bearer token on all /api/xag/* calls (except login)
