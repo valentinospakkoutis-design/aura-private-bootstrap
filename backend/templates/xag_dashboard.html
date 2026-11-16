@@ -1171,10 +1171,12 @@
   }
 
   function formatTime(iso) {
+    if (!iso) return '—';
     try {
       const d = new Date(iso);
+      if (isNaN(d.getTime())) return '—';
       return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
-    } catch { return iso; }
+    } catch { return '—'; }
   }
 
   function rsiClass(val) {
@@ -1234,20 +1236,22 @@
       staleBadge.classList.remove('visible');
     }
 
-    // Data age label
+    // Data age label — API returns "asof", WS returns "market_asof"/"fetched_at"
+    const _asof    = data.market_asof || data.asof;
+    const _fetched = data.fetched_at  || data.asof;
     const asofLabel = el('asof-label');
-    if (data.market_asof) {
-      const age = (Date.now() - new Date(data.market_asof).getTime()) / 1000;
+    if (_asof) {
+      const age = (Date.now() - new Date(_asof).getTime()) / 1000;
       const ageStr = age < 60 ? `${Math.floor(age)}s` : `${Math.floor(age / 60)}m`;
-      asofLabel.textContent = `Data age: ${ageStr} · fetched ${formatTime(data.fetched_at)}`;
+      asofLabel.textContent = `Data age: ${ageStr} · fetched ${formatTime(_fetched)}`;
     } else {
-      asofLabel.textContent = `Fetched ${formatTime(data.fetched_at)}`;
+      asofLabel.textContent = `Fetched ${formatTime(_fetched)}`;
     }
 
     // Status bar
     const dot = el('dot-api');
     dot.className = 'dot ' + (data.stale ? 'warn' : 'ok');
-    el('lbl-last-ok').textContent = formatTime(data.fetched_at);
+    el('lbl-last-ok').textContent = formatTime(_fetched);
     el('lbl-source').textContent = data.source || 'yfinance/SI=F';
 
     // Trigger P/L refresh in position table
@@ -1555,8 +1559,9 @@
   function openWebSocket() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url   = `${proto}//${location.host}/api/xag/ws/tick`;
+    const proto    = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const _wsToken = sessionStorage.getItem('xag_jwt') || '';
+    const url      = `${proto}//${location.host}/api/xag/ws/tick${_wsToken ? '?token=' + encodeURIComponent(_wsToken) : ''}`;
     let pingTimer = null;
 
     try {
@@ -1603,15 +1608,17 @@
           const staleBadge = el('stale-badge');
           d.stale ? staleBadge.classList.add('visible') : staleBadge.classList.remove('visible');
 
-          if (d.market_asof) {
-            const age = (Date.now() - new Date(d.market_asof).getTime()) / 1000;
+          const _dAsof    = d.market_asof || d.asof;
+          const _dFetched = d.fetched_at  || d.asof;
+          if (_dAsof) {
+            const age = (Date.now() - new Date(_dAsof).getTime()) / 1000;
             const ageStr = age < 60 ? `${Math.floor(age)}s` : `${Math.floor(age / 60)}m`;
-            el('asof-label').textContent = `Data age: ${ageStr} · fetched ${formatTime(d.fetched_at)}`;
+            el('asof-label').textContent = `Data age: ${ageStr} · fetched ${formatTime(_dFetched)}`;
           }
 
           const dot = el('dot-api');
           dot.className = 'dot ' + (d.stale ? 'warn' : 'ok');
-          el('lbl-last-ok').textContent = formatTime(d.fetched_at);
+          el('lbl-last-ok').textContent = formatTime(_dFetched);
 
           // Intrabar chart update
           updateCurrentBar(price);

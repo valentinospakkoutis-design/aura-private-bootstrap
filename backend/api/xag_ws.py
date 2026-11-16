@@ -84,7 +84,14 @@ async def _get_or_refresh_snapshot() -> Optional[dict]:
 
 
 def _tick_payload(data: dict) -> str:
-    """Build a JSON tick message from a snapshot dict."""
+    """Build a JSON tick message from a snapshot dict.
+
+    _fetch_snapshot returns the timestamp as 'asof'; the WS spec names it
+    'market_asof' / 'fetched_at'. We normalise here so the frontend receives
+    consistent field names regardless of which data source was used.
+    """
+    _asof = data.get("market_asof") or data.get("asof")
+    _fetched = data.get("fetched_at") or data.get("asof")
     return json.dumps({
         "type": "tick",
         "data": {
@@ -92,8 +99,9 @@ def _tick_payload(data: dict) -> str:
             "bid":         data.get("bid"),
             "ask":         data.get("ask"),
             "stale":       data.get("stale", False),
-            "market_asof": data.get("market_asof"),
-            "fetched_at":  data.get("fetched_at"),
+            "market_asof": _asof,
+            "fetched_at":  _fetched,
+            "asof":        _asof,  # keep for forward-compat
         },
     })
 
