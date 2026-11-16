@@ -58,7 +58,7 @@ async def mt5_alert_monitor():
                     await _send_telegram("WARNING Aura XAG Monitor - Could not reach /api/xag/healthz")
                     _mark_sent("healthz_down")
             else:
-                age = data.get("last_tick_age_seconds", 9999)
+                age = data.get("last_tick_age_s", 9999)
                 mt5_ok = data.get("mt5_connected", False)
                 if not mt5_ok or age > DISCONNECT_THRESHOLD_SEC:
                     if _can_send("mt5_disconnected"):

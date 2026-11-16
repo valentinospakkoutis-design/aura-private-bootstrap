@@ -684,6 +684,36 @@ async def startup_event():
     asyncio.create_task(mt5_alert_monitor())
     print("[*] MT5 alert monitor started")
 
+    # Warm up XAG snapshot cache on startup (bypasses auth)
+    try:
+        from api.xag import _fetch_snapshot, _snapshot_cache as _sc
+        import time as _t
+        _d = _fetch_snapshot()
+        _sc["data"] = _d
+        _sc["ts"] = _t.time()
+        _sc["mt5_connected"] = True
+        print("[xag] snapshot cache warmed up on startup")
+    except Exception as _e:
+        print(f"[xag] startup warmup failed (non-fatal): {_e}")
+
+    # Background loop: refresh XAG snapshot cache every 60s
+    async def _xag_snapshot_refresh_loop():
+        import asyncio as _al
+        import time as _tl
+        from api.xag import _fetch_snapshot as _fsl, _snapshot_cache as _scl
+        while True:
+            try:
+                _dl = await _al.to_thread(_fsl)
+                _scl["data"] = _dl
+                _scl["ts"] = _tl.time()
+                _scl["mt5_connected"] = True
+            except Exception as _el:
+                print(f"[xag] snapshot refresh error: {_el}")
+            await _al.sleep(60)
+
+    asyncio.create_task(_xag_snapshot_refresh_loop())
+    print("[xag] snapshot refresh loop started")
+
 # Shutdown event
 
 async def shutdown_event():

@@ -59,7 +59,7 @@ def healthz(response: Response):
 
     # ── Snapshot age ─────────────────────────────────────────────────────────
     ts = _snapshot_cache.get("ts", 0)
-    age_s: float | None = (time.monotonic() - ts) if ts else None
+    age_s: float | None = (time.time() - ts) if ts else None
     stale = (age_s is None) or (age_s > STALE_THRESHOLD_S)
 
     # ── Position / order counts ───────────────────────────────────────────────
@@ -75,7 +75,7 @@ def healthz(response: Response):
 
     body = {
         "ok":                 ok,
-        "mt5_connected":      False,         # Phase 2: no MT5
+        "mt5_connected":      _snapshot_cache.get("mt5_connected", False),
         "snapshot_age_s":     round(age_s, 1) if age_s is not None else None,
         "last_tick_age_s":    round(age_s, 1) if age_s is not None else None,
         "stale":              stale,

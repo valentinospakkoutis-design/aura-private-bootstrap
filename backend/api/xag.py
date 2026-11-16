@@ -88,7 +88,7 @@ def _fetch_snapshot():
                 "rsi_1m": data.get("rsi_1m"), "rsi_15m": data.get("rsi_15m"),
                 "rsi_1h": data.get("rsi_1h"), "asof": data.get("asof"),
                 "daily_open": daily_open,
-                "metals": data.get("metals"), "source": "mt5_bridge"}
+                "source": "mt5_bridge"}
     print("[xag] bridge unavailable, falling back to yfinance")
     import yfinance as yf
     tick = yf.Ticker("SI=F")
@@ -233,7 +233,8 @@ async def snapshot():
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Data fetch failed: {e}")
 
-    _snapshot_cache["data"] = data
+    _snapshot_cache["data"]          = data
+    _snapshot_cache["mt5_connected"] = True  # bridge replied successfully
     _snapshot_cache["ts"]   = now
     return data
 
