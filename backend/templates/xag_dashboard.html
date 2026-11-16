@@ -1440,7 +1440,8 @@
     loading.style.display = 'flex';
 
     try {
-      const resp = await fetch(`/api/xag/ohlc?tf=${tf}&n=200`, {headers: {'Authorization': `Bearer ${_token}`}});
+      const _chartToken = sessionStorage.getItem('xag_jwt') || _token || '';
+      const resp = await fetch(`/api/xag/ohlc?tf=${tf}&n=200`, {headers: {'Authorization': `Bearer ${_chartToken}`}});
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const bars = await resp.json();
 
