@@ -1087,7 +1087,12 @@ def xag_dashboard(request: Request):
     Phase 2 (current): yfinance / SI=F proxy feed, no auth required.
     Phase 7: add JWT auth check, same as /dashboard.
     """
-    return templates.TemplateResponse(request, "xag_dashboard.html")
+    from fastapi.responses import HTMLResponse as _HR
+    import time as _t
+    resp = templates.TemplateResponse(request, "xag_dashboard.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.get("/logout")
