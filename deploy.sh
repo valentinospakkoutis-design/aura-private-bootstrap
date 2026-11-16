@@ -64,7 +64,7 @@ for i in $(seq 1 15); do
   STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "none")
   if [ "$STATUS" = "healthy" ] || [ "$STATUS" = "none" ]; then
     # Αν δεν έχει HEALTHCHECK στο Dockerfile, κάνε curl
-    HTTP=$(curl -sf --max-time 5 "http://localhost:${PORT}/healthz" -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+    HTTP=$(curl -sf --max-time 5 "http://localhost:${PORT}/api/xag/healthz" -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
     if [ "$HTTP" = "200" ]; then
       echo "✅ Healthy (HTTP 200)"
       break
