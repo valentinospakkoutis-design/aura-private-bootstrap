@@ -1440,7 +1440,7 @@
     loading.style.display = 'flex';
 
     try {
-      const resp = await fetch(`/api/xag/ohlc?tf=${tf}&n=200`);
+      const resp = await fetch(`/api/xag/ohlc?tf=${tf}&n=200`, {headers: {'Authorization': `Bearer ${_token}`}});
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const bars = await resp.json();
 
