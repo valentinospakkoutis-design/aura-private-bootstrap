@@ -207,7 +207,7 @@ def _positions_from_bridge() -> list[dict] | None:
     """
     try:
         from api.xag import _bridge_get
-        data = _bridge_get("/api/positions")
+        data = _bridge_get("/api/xag/positions")
         if data is None:
             return None
         raw = data.get("positions") or []
