@@ -253,15 +253,12 @@ def get_positions(request: Request):
             "source":    "mt5_bridge",
         }
 
-    # Fallback: in-memory demo store
-    with _store_lock:
-        raw = _open_positions()
-    enriched = [_enrich(p) for p in raw]
+    # Bridge unreachable — return empty list
     return {
-        "positions": enriched,
-        "count":     len(enriched),
+        "positions": [],
+        "count":     0,
         "as_of":     _utcnow(),
-        "source":    "demo_store",
+        "source":    "bridge_unavailable",
     }
 
 
