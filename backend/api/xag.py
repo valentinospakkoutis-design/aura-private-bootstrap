@@ -88,6 +88,7 @@ def _fetch_snapshot():
                 "rsi_1m": data.get("rsi_1m"), "rsi_15m": data.get("rsi_15m"),
                 "rsi_1h": data.get("rsi_1h"), "asof": data.get("asof"),
                 "daily_open": daily_open,
+                "metals": data.get("metals"),
                 "source": "mt5_bridge"}
     print("[xag] bridge unavailable, falling back to yfinance")
     import yfinance as yf
