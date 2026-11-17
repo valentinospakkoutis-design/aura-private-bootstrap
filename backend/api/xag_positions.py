@@ -170,10 +170,17 @@ def _enrich(pos: dict) -> dict:
     else:
         p["pnl"] = None
 
+    # For unknown contract sizes use bridge's pre-computed profit if available
+    if p["pnl"] is None and p.get("_bridge_pnl") is not None:
+        p["pnl"] = round(float(p["_bridge_pnl"]), 2)
+
     # Net P/L = gross + swap + commission (swap/commission are already signed)
     swap       = p.get("swap", 0.0) or 0.0
     commission = p.get("commission", 0.0) or 0.0
     p["pnl_net"] = round(p["pnl"] + swap + commission, 2) if p["pnl"] is not None else None
+
+    # Remove internal bridge field before returning to client
+    p.pop("_bridge_pnl", None)
 
     return p
 
@@ -190,25 +197,71 @@ def _log_audit(action: str, tickets: list[int], note: str | None = None):
 
 # ── GET /api/xag/positions ────────────────────────────────────────────────────
 
+def _positions_from_bridge() -> list[dict] | None:
+    """
+    Fetch open positions from the MT5 bridge.
+    Returns a normalised list ready for _enrich(), or None if bridge is unreachable.
+    Bridge endpoint: GET /api/positions  →  {"positions": [...], "account": {...}}
+    Each position from bridge: ticket, symbol, type ("buy"/"sell"), volume,
+      open_price, current_price, profit, swap, commission, open_time (iso)
+    """
+    try:
+        from api.xag import _bridge_get
+        data = _bridge_get("/api/positions")
+        if data is None:
+            return None
+        raw = data.get("positions") or []
+        normalised = []
+        for p in raw:
+            normalised.append({
+                "ticket":        p.get("ticket"),
+                "symbol":        p.get("symbol", ""),
+                "side":          (p.get("type") or p.get("side") or "buy").lower(),
+                "volume":        p.get("volume", 0),
+                "open_price":    p.get("open_price", 0),
+                "current_price": p.get("current_price"),
+                "opened_at":     p.get("open_time") or p.get("opened_at"),
+                "swap":          p.get("swap", 0),
+                "commission":    p.get("commission", 0),
+                "closed":        False,
+                "closed_at":     None,
+                "close_note":    None,
+                # bridge may pre-compute pnl; _enrich will recalculate for XAGUSD-STD
+                "_bridge_pnl":   p.get("profit"),
+            })
+        return normalised
+    except Exception as e:
+        print(f"[xag_positions] bridge fetch error: {e}")
+        return None
+
+
 @router.get("/positions")
 @xag_limiter.limit("120/minute")
 def get_positions(request: Request):
     """
-    Return all open positions, enriched with live current_price and P/L
-    for XAGUSD-STD.
-
-    Phase 2: in-memory store.
-    Phase 5+: replace _open_positions() with mt5.positions_get().
+    Return open positions from MT5 bridge (live paper account).
+    Falls back to in-memory demo store if bridge is unreachable.
     """
+    # Try live MT5 bridge first
+    bridge_positions = _positions_from_bridge()
+    if bridge_positions is not None:
+        enriched = [_enrich(p) for p in bridge_positions]
+        return {
+            "positions": enriched,
+            "count":     len(enriched),
+            "as_of":     _utcnow(),
+            "source":    "mt5_bridge",
+        }
+
+    # Fallback: in-memory demo store
     with _store_lock:
         raw = _open_positions()
-
     enriched = [_enrich(p) for p in raw]
-
     return {
         "positions": enriched,
         "count":     len(enriched),
         "as_of":     _utcnow(),
+        "source":    "demo_store",
     }
 
 
