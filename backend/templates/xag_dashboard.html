@@ -1656,6 +1656,12 @@
         setWsBadge('disconnected');
         return;
       }
+      if (evt.code === 4001) {
+        // JWT expired / invalid — stop reconnect loop, show login overlay
+        setWsBadge('disconnected');
+        if (typeof window._xagShowLogin === 'function') window._xagShowLogin();
+        return;
+      }
       setWsBadge('reconnecting');
       scheduleReconnect();
     };
@@ -2220,6 +2226,15 @@
     }
     window._xagAuthHdr = authHdr;
 
+    // Allow WS close handler (outside this IIFE) to show the login overlay
+    window._xagShowLogin = function() {
+      if (_overlay) _overlay.classList.remove('hidden');
+      else {
+        _overlay = document.getElementById('xag-login-overlay');
+        if (_overlay) _overlay.classList.remove('hidden');
+      }
+    };
+
     async function doLogin() {
       var email = document.getElementById('xag-li-email').value.trim();
       var pass  = document.getElementById('xag-li-pass').value;
@@ -2239,6 +2254,8 @@
         if (typeof loadPositions === 'function') loadPositions();
         if (typeof loadAccount === 'function') loadAccount();
         if (typeof window._xagLoadChart === 'function') window._xagLoadChart('1m');
+        // Re-open WebSocket with the fresh token (may have been closed on 4001)
+        if (typeof openWebSocket === 'function') openWebSocket();
       } catch(e) { errEl.textContent = 'Σφάλμα σύνδεσ-·ς'; }
     }
 
