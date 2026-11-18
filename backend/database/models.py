@@ -1222,3 +1222,13 @@ class PaperStrategySnapshot(Base):
     losses = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+
+
+class AutoSizingPaperRisk(Base):
+    """Server-owned observed-equity high-water mark; never profile notes."""
+    __tablename__ = "auto_sizing_paper_risk"
+    user_id = Column(Integer, primary_key=True)
+    initial_equity_usd = Column(Float, nullable=False)
+    peak_equity_usd = Column(Float, nullable=False)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_observed_at = Column(DateTime, nullable=True)

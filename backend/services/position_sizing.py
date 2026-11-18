@@ -13,6 +13,8 @@ All multipliers and cap triggers are deterministic and auditable.
 """
 
 import logging
+import math
+from decimal import Decimal, ROUND_DOWN
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -78,7 +80,18 @@ def calculate_position_size(inp: SizingInput) -> SizingResult:
     7. Check min trade threshold
     8. Determine decision: execute / reduce / block
     """
-    profile = RISK_PROFILES.get(inp.user_risk_profile, RISK_PROFILES["moderate"])
+    # Reject invalid risk inputs rather than clamp NaN/unknown data into a trade.
+    for name in ("account_balance", "signal_confidence", "volatility", "current_drawdown",
+                 "current_portfolio_exposure", "price", "existing_symbol_exposure_usd"):
+        value = getattr(inp, name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"invalid_{name}")
+    if inp.price <= 0 or any(getattr(inp, name) > 1 for name in
+                            ("signal_confidence", "volatility", "current_drawdown")):
+        raise ValueError("invalid_price_or_risk_fraction")
+    if inp.user_risk_profile not in RISK_PROFILES:
+        raise ValueError("unknown_risk_profile")
+    profile = RISK_PROFILES[inp.user_risk_profile]
     base_risk = profile["base_risk_pct"]
     max_per_trade = profile["max_per_trade_pct"]
     max_portfolio = profile["max_portfolio_pct"]
@@ -188,6 +201,8 @@ def calculate_position_size(inp: SizingInput) -> SizingResult:
         decision = "reduce"
     else:
         decision = "execute"
+
+    notional = float(Decimal(str(notional)).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
     # ── Calculate quantity ──────────────────────────────────────
     quantity = notional / inp.price if inp.price > 0 and notional > 0 else 0

@@ -19,16 +19,14 @@ class PaperBroker:
         self.user_id = user_id
         self.starting_balance = starting_balance
 
-    # ── price source: same as predictor (realtime feed -> yfinance -> base) ──
+    # Only fresh, timestamped websocket quotes; no synthetic price fallback.
     def _price(self, symbol: str) -> float:
         try:
-            from ai.asset_predictor import asset_predictor
-            p = float(asset_predictor.get_current_price(symbol) or 0.0)
-            if p > 0:
-                return p
-        except Exception as e:
-            logger.debug(f"[paper] price lookup failed for {symbol}: {e}")
-        return 0.0
+            from services.verified_sizing import verified_paper_price
+            return verified_paper_price(symbol)
+        except Exception as exc:
+            logger.warning("[paper] verified quote unavailable for %s: %s", symbol, exc)
+            return 0.0
 
     def get_symbol_price(self, symbol: str) -> float:
         return self._price(symbol)

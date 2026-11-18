@@ -1,0 +1,44 @@
+........................... [ 65%]
+..............                                                           [100%]
+=============================== warnings summary ===============================
+aura/backend/tests/test_auto_sizing_fail_closed.py: 43 warnings
+aura/backend/tests/test_verified_paper_sizing.py: 2 warnings
+  /workspace/scratch/9eb677bc8f52/aura/backend/services/auto_trading_engine.py:217: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp": datetime.utcnow().isoformat(),
+
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+  /workspace/scratch/9eb677bc8f52/aura/backend/tests/../services/news_impact.py:109: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+aura/backend/tests/test_auto_sizing_fail_closed.py::SizingTests::test_order_path_sizing_rejection_and_kill_switch
+  /workspace/scratch/9eb677bc8f52/aura/backend/services/auto_trading_engine.py:1157: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "opened_at": datetime.utcnow().isoformat(),
+
+aura/backend/tests/test_auto_sizing_fail_closed.py: 10 warnings
+aura/backend/tests/test_position_sizing.py: 7 warnings
+  /workspace/scratch/9eb677bc8f52/aura/backend/tests/../ai/trust_layer.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.timestamp = datetime.utcnow().isoformat()
+
+aura/backend/tests/test_verified_paper_sizing.py: 13 warnings
+  /workspace/scratch/9eb677bc8f52/aura/backend/database/models.py:11: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+aura/backend/tests/test_verified_paper_sizing.py: 35 warnings
+  /root/.local/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:4296: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore[call-arg, no-any-return, no-untyped-call]  # noqa: E501
+
+aura/backend/tests/test_verified_paper_sizing.py: 14 warnings
+  /workspace/scratch/9eb677bc8f52/aura/backend/services/verified_sizing.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    risk.started_at = datetime.utcnow()
+
+aura/backend/tests/test_position_sizing.py::test_absolute_max_exposure
+  /workspace/scratch/9eb677bc8f52/aura/backend/tests/../database/models.py:11: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+41 passed, 132 warnings, 45 subtests passed in 9.59s
