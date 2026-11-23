@@ -21,6 +21,7 @@ Read-only: touches no models, database or engine state.
 
 Usage (inside the backend container):
     python -m scripts.trend_backtest --all --out /tmp/trend_backtest.json
+    python -m scripts.trend_backtest --crypto --cost-bps 30
     python -m scripts.trend_backtest --symbols BTCUSDC,ETHUSDC,SI1! --per-symbol
 """
 
@@ -33,69 +34,20 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-TARGET_DAILY_VOL = 0.01   # size each position to ~1% daily volatility
-VOL_WINDOW = 20
-MAX_WEIGHT = 1.0          # never lever a single position above 100%
+from services.trend_signal import (
+    BASE_RULES,
+    TARGET_DAILY_VOL,
+    majority_signal,
+    vol_weight,
+)
 
-
-# ── Rules: each takes OHLC and returns 1.0 (hold) / 0.0 (flat) per day ─────────
-
-def rule_sma(n: int) -> Callable[[pd.DataFrame], pd.Series]:
-    """Hold while the close is above its n-day average."""
-    def f(df: pd.DataFrame) -> pd.Series:
-        sma = df["close"].rolling(n).mean()
-        return (df["close"] > sma).astype(float).where(sma.notna())
-    return f
-
-
-def rule_momentum(n: int) -> Callable[[pd.DataFrame], pd.Series]:
-    """Hold while the n-day return is positive (time-series momentum)."""
-    def f(df: pd.DataFrame) -> pd.Series:
-        past = df["close"].pct_change(n)
-        return (past > 0).astype(float).where(past.notna())
-    return f
-
-
-def rule_breakout(entry: int, exit_: int) -> Callable[[pd.DataFrame], pd.Series]:
-    """Enter on a new `entry`-day high, leave on a new `exit_`-day low (Donchian)."""
-    def f(df: pd.DataFrame) -> pd.Series:
-        upper = df["high"].rolling(entry).max().shift(1)
-        lower = df["low"].rolling(exit_).min().shift(1)
-        close = df["close"].values
-        up, lo = upper.values, lower.values
-        out = np.full(len(df), np.nan)
-        held = 0.0
-        for i in range(len(df)):
-            if np.isnan(up[i]) or np.isnan(lo[i]):
-                continue
-            if held == 0.0 and close[i] > up[i]:
-                held = 1.0
-            elif held == 1.0 and close[i] < lo[i]:
-                held = 0.0
-            out[i] = held
-        return pd.Series(out, index=df.index)
-    return f
-
-
-RULES: Dict[str, Callable[[pd.DataFrame], pd.Series]] = {
-    "sma_50": rule_sma(50),
-    "sma_100": rule_sma(100),
-    "sma_200": rule_sma(200),
-    "mom_30": rule_momentum(30),
-    "mom_90": rule_momentum(90),
-    "mom_180": rule_momentum(180),
-    "breakout_55_20": rule_breakout(55, 20),
-}
+# Every base rule is reported, plus the majority vote of all of them — the one
+# signal that involves no after-the-fact choice of rule.
+RULES: Dict[str, Callable[[pd.DataFrame], pd.Series]] = dict(BASE_RULES, majority=majority_signal)
 BENCHMARK = "always_long"
 
 
 # ── Per-symbol returns ─────────────────────────────────────────────────────────
-
-def vol_weight(returns: pd.Series) -> pd.Series:
-    """Position size from trailing volatility, known at the close it is used."""
-    vol = returns.rolling(VOL_WINDOW).std()
-    return (TARGET_DAILY_VOL / vol).clip(upper=MAX_WEIGHT).where(vol > 0)
-
 
 def strategy_returns(df: pd.DataFrame, signal: pd.Series, cost_bps: float) -> pd.DataFrame:
     """Daily net return of holding `signal` (sized by volatility), plus bookkeeping."""
@@ -148,12 +100,12 @@ def portfolio(per_symbol: Dict[str, Dict[str, pd.DataFrame]], strategy: str) -> 
     cols = {s: r[strategy]["net"] for s, r in per_symbol.items() if strategy in r}
     if not cols:
         return pd.Series(dtype=float)
-    return pd.DataFrame(cols).mean(axis=1, skipna=True).dropna()
+    return pd.DataFrame(cols).sort_index().mean(axis=1, skipna=True).dropna()
 
 
 def timing_value(strategy: pd.Series, benchmark: pd.Series, periods_per_year: int) -> Dict:
     """Is the rule better than simply holding? Paired on the same days."""
-    both = pd.concat([strategy, benchmark], axis=1, keys=["s", "b"]).dropna()
+    both = pd.concat([strategy, benchmark], axis=1, keys=["s", "b"], sort=True).dropna()
     if len(both) < 60:
         return {}
     diff = both["s"] - both["b"]
@@ -279,6 +231,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Trend-following backtest (read-only).")
     parser.add_argument("--symbols", help="Comma-separated symbols, e.g. BTCUSDC,SI1!")
     parser.add_argument("--all", action="store_true", help="Every training symbol")
+    parser.add_argument("--crypto", action="store_true", help="Every crypto symbol")
     parser.add_argument("--days", type=int, default=3000, help="History to fetch per symbol")
     parser.add_argument("--cost-bps", type=float, default=10.0, help="Cost per side in basis points")
     parser.add_argument("--per-symbol", action="store_true", help="Also print a per-symbol table")
@@ -288,10 +241,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.all:
         from ml.auto_trainer import TRAINING_SYMBOLS
         symbols = list(TRAINING_SYMBOLS)
+    elif args.crypto:
+        from ml.auto_trainer import CRYPTO_SYMBOLS
+        symbols = list(CRYPTO_SYMBOLS)
     elif args.symbols:
         symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     else:
-        parser.error("pass --symbols or --all")
+        parser.error("pass --symbols, --crypto or --all")
 
     report = run(symbols, args.days, args.cost_bps)
     print_report(report, args.per_symbol)
