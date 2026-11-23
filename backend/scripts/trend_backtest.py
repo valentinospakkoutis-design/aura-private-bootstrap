@@ -116,6 +116,78 @@ def timing_value(strategy: pd.Series, benchmark: pd.Series, periods_per_year: in
     }
 
 
+def same_vol_comparison(strategy: pd.Series, benchmark: pd.Series, periods_per_year: int) -> Dict:
+    """Compare with holding scaled down to the strategy's own volatility.
+
+    A rule that is in the market 40% of the time has less risk than always
+    holding, so a smaller drawdown proves nothing by itself. Here the benchmark
+    is de-risked to the same volatility; what is left is the value of timing.
+    """
+    both = pd.concat([strategy, benchmark], axis=1, keys=["s", "b"], sort=True).dropna()
+    if len(both) < 60 or float(both["b"].std(ddof=1)) == 0:
+        return {}
+    k = float(both["s"].std(ddof=1)) / float(both["b"].std(ddof=1))
+    scaled = both["b"] * k
+    diff = both["s"] - scaled
+    std = float(diff.std(ddof=1))
+    equity = (1.0 + scaled).cumprod()
+    return {
+        "hold_same_vol_annual_pct": round(float(scaled.mean()) * periods_per_year * 100, 1),
+        "hold_same_vol_max_drawdown_pct": round(float((equity / equity.cummax() - 1.0).min()) * 100, 1),
+        "same_vol_excess_annual_pct": round(float(diff.mean()) * periods_per_year * 100, 1),
+        "same_vol_excess_t_stat": round(float(diff.mean()) / (std / math.sqrt(len(diff))), 2) if std > 0 else 0.0,
+    }
+
+
+def _sharpe(daily: pd.Series, periods_per_year: int) -> float:
+    daily = daily.dropna()
+    std = float(daily.std(ddof=1)) if len(daily) > 2 else 0.0
+    return float(daily.mean()) / std * math.sqrt(periods_per_year) if std > 0 else 0.0
+
+
+def placebo_test(frames: Dict[str, pd.DataFrame], rule_name: str, cost_bps: float,
+                 periods_per_year: int, runs: int, seed: int = 7) -> Dict:
+    """Is the timing better than the same trading pattern applied at the wrong time?
+
+    Each symbol's real signal is rotated in time by a random offset. That keeps
+    how often and how long the rule holds, but breaks its link to the prices.
+    The share of rotated portfolios that match or beat the real Sharpe is the
+    chance of seeing this result from timing that carries no information.
+    """
+    rule = RULES[rule_name]
+    signals = {s: rule(df) for s, df in frames.items()}
+    actual = _sharpe(pd.DataFrame(
+        {s: strategy_returns(frames[s], signals[s], cost_bps)["net"] for s in frames}
+    ).sort_index().mean(axis=1, skipna=True), periods_per_year)
+
+    rng = np.random.default_rng(seed)
+    placebo = []
+    for _ in range(runs):
+        cols = {}
+        for s, df in frames.items():
+            sig = signals[s]
+            valid = sig.dropna()
+            if len(valid) < 600:
+                continue
+            offset = int(rng.integers(250, len(valid) - 250))
+            rotated = pd.Series(np.roll(valid.values, offset), index=valid.index).reindex(sig.index)
+            cols[s] = strategy_returns(df, rotated, cost_bps)["net"]
+        if cols:
+            placebo.append(_sharpe(pd.DataFrame(cols).sort_index().mean(axis=1, skipna=True), periods_per_year))
+    if not placebo:
+        return {}
+    placebo_arr = np.array(placebo)
+    return {
+        "rule": rule_name,
+        "actual_sharpe": round(actual, 2),
+        "placebo_sharpe_mean": round(float(placebo_arr.mean()), 2),
+        "placebo_sharpe_95th": round(float(np.percentile(placebo_arr, 95)), 2),
+        "runs": len(placebo),
+        # +1 so the estimate is never exactly zero from a finite number of runs
+        "p_value": round(float((np.sum(placebo_arr >= actual) + 1) / (len(placebo) + 1)), 4),
+    }
+
+
 def verdict(m: Dict, bench: Dict) -> str:
     if "sharpe" not in m or "sharpe" not in bench:
         return "insufficient data"
@@ -160,8 +232,9 @@ PERIODS = {"crypto": 365, "non_crypto": 252}
 
 # ── Report ─────────────────────────────────────────────────────────────────────
 
-def run(symbols: List[str], days: int, cost_bps: float) -> Dict:
+def run(symbols: List[str], days: int, cost_bps: float, placebo_runs: int = 0) -> Dict:
     per_symbol: Dict[str, Dict[str, Dict[str, pd.DataFrame]]] = {"crypto": {}, "non_crypto": {}}
+    frames: Dict[str, Dict[str, pd.DataFrame]] = {"crypto": {}, "non_crypto": {}}
     skipped: Dict[str, str] = {}
     for i, symbol in enumerate(symbols, 1):
         print(f"[{i}/{len(symbols)}] {symbol} ...", file=sys.stderr, flush=True)
@@ -171,6 +244,7 @@ def run(symbols: List[str], days: int, cost_bps: float) -> Dict:
                 skipped[symbol] = f"not enough history ({0 if df is None else len(df)} days)"
                 continue
             per_symbol[group_of(symbol)][symbol] = symbol_returns(df, cost_bps)
+            frames[group_of(symbol)][symbol] = df
         except Exception as exc:  # one bad symbol must not stop the run
             skipped[symbol] = f"{type(exc).__name__}: {exc}"
 
@@ -188,6 +262,7 @@ def run(symbols: List[str], days: int, cost_bps: float) -> Dict:
             series = portfolio(members, name)
             m = metrics(series, ppy)
             m.update(timing_value(series, bench_series, ppy))
+            m.update(same_vol_comparison(series, bench_series, ppy))
             m["time_in_market_pct"] = round(float(np.mean(
                 [(r[name]["position"] > 0).mean() for r in members.values()])) * 100, 1)
             m["trades_per_symbol_year"] = round(float(np.mean(
@@ -195,6 +270,11 @@ def run(symbols: List[str], days: int, cost_bps: float) -> Dict:
             m["verdict"] = verdict(m, bench)
             rows[name] = m
         report["groups"][group] = {"symbols": len(members), "strategies": rows}
+        if placebo_runs > 0:
+            report["groups"][group]["placebo"] = [
+                placebo_test(frames[group], name, cost_bps, ppy, placebo_runs)
+                for name in ("sma_50", "majority") if name in RULES
+            ]
         for symbol, r in members.items():
             report["symbols"][symbol] = {name: metrics(frame["net"], ppy) for name, frame in r.items()}
     return report
@@ -216,6 +296,19 @@ def print_report(report: Dict, per_symbol: bool) -> None:
                   f"{m['sharpe_second_half']:>7}{str(m.get('excess_annual_return_pct', '')):>9}"
                   f"{str(m.get('excess_t_stat', '')):>6}{str(m.get('time_in_market_pct', '')):>8}"
                   f"{str(m.get('trades_per_symbol_year', '')):>7}  {m['verdict']}")
+        print(f"\n--- {group}: against holding de-risked to the same volatility ---")
+        print(f"{'strategy':<16}{'ann%':>7}{'hold%':>7}{'diff%':>7}{'t':>6}{'maxDD%':>8}{'holdDD%':>9}")
+        for name, m in block["strategies"].items():
+            if "same_vol_excess_annual_pct" not in m:
+                continue
+            print(f"{name:<16}{m['annual_return_pct']:>7}{m['hold_same_vol_annual_pct']:>7}"
+                  f"{m['same_vol_excess_annual_pct']:>7}{m['same_vol_excess_t_stat']:>6}"
+                  f"{m['max_drawdown_pct']:>8}{m['hold_same_vol_max_drawdown_pct']:>9}")
+        for p in block.get("placebo", []):
+            if p:
+                print(f"placebo {p['rule']}: real sharpe {p['actual_sharpe']} | same trades at random times: "
+                      f"mean {p['placebo_sharpe_mean']}, 95th pct {p['placebo_sharpe_95th']} "
+                      f"({p['runs']} runs) | p = {p['p_value']}")
     if per_symbol:
         print("\n=== per symbol: sharpe by strategy ===")
         names = [BENCHMARK] + list(RULES)
@@ -235,6 +328,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--days", type=int, default=3000, help="History to fetch per symbol")
     parser.add_argument("--cost-bps", type=float, default=10.0, help="Cost per side in basis points")
     parser.add_argument("--per-symbol", action="store_true", help="Also print a per-symbol table")
+    parser.add_argument("--placebo", type=int, default=0, metavar="RUNS",
+                        help="Placebo test: rotate signals in time RUNS times (e.g. 300)")
     parser.add_argument("--out", help="Write full results as JSON to this path")
     args = parser.parse_args(argv)
 
@@ -249,7 +344,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         parser.error("pass --symbols, --crypto or --all")
 
-    report = run(symbols, args.days, args.cost_bps)
+    report = run(symbols, args.days, args.cost_bps, placebo_runs=args.placebo)
     print_report(report, args.per_symbol)
     if args.out:
         with open(args.out, "w") as fh:
