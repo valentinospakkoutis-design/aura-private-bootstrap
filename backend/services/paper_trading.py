@@ -301,10 +301,12 @@ class PaperTradingService:
             Portfolio information
         """
         positions = []
-        total_value = self.cash
         total_pnl = 0.0
-        
+
         state = self._get_state(user_id)
+        # Start from THIS user's cash. `self.cash` is the shared default-state value
+        # and made total_value / portfolio_value wrong for per-user portfolios.
+        total_value = state["cash"]
 
         for symbol, position in state["portfolio"].items():
             quantity = position["quantity"]

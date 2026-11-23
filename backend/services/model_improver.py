@@ -75,11 +75,11 @@ def save_trade_feedback(
                 INSERT INTO trade_feedback (
                     symbol, action, confidence_at_entry,
                     entry_price, exit_price, pnl_pct,
-                    outcome, features_snapshot
+                    outcome, features_snapshot, created_at
                 ) VALUES (
                     :symbol, :action, :confidence_at_entry,
                     :entry_price, :exit_price, :pnl_pct,
-                    :outcome, CAST(:features_snapshot AS JSONB)
+                    :outcome, CAST(:features_snapshot AS JSONB), :created_at
                 )
                 """
             ),
@@ -92,6 +92,9 @@ def save_trade_feedback(
                 "pnl_pct": float(round(pnl_pct, 6)),
                 "outcome": outcome,
                 "features_snapshot": json.dumps(features_snapshot or {}),
+                # Set explicitly: the live table has no column default, so rows
+                # were being stored with a NULL timestamp.
+                "created_at": datetime.utcnow(),
             },
         )
         db.commit()
