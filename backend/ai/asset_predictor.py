@@ -661,6 +661,8 @@ class AssetPredictor:
         self.scalers = {}
         self.model_features: Dict[str, List[str]] = {}  # XGBoost feature columns
         self.model_target_type: Dict[str, str] = {}  # "return" or "price" (default "price" if missing)
+        # Out-of-sample metrics saved by the trainer; the only basis for confidence.
+        self.model_metrics: Dict[str, Dict[str, Any]] = {}
         self.ensemble_models: Dict[str, Dict[str, Any]] = {}
         self.lstm_symbols_loaded = set()
         self._load_models()
@@ -692,6 +694,7 @@ class AssetPredictor:
                     self.scalers[symbol] = model_data["scaler"]
                     self.model_features[symbol] = model_data.get("feature_cols", [])
                     self.model_target_type[symbol] = model_data.get("target_type", "price")
+                    self.model_metrics[symbol] = model_data.get("metrics") or {}
 
                 print(f"[+] Loaded XGBoost model for {symbol}")
             except Exception as e:
@@ -900,7 +903,11 @@ class AssetPredictor:
         price_change = predicted_price - current_price
         price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
         trend_score = float(np.clip(price_change_pct / 5.0, -1, 1))
-        confidence = min(95.0, 85.0 + abs(trend_score) * 8)
+        # Confidence = how often this model was right out of sample (shrunk toward
+        # 50% by test-set size). It used to be `85 + |trend| * 8`, i.e. >= 85% for
+        # every prediction regardless of whether the model had any skill.
+        from ml.calibration import calibrated_confidence
+        confidence = calibrated_confidence(self.model_metrics.get(symbol))
 
         return predicted_price, trend_score, confidence, shap_explanation
 
@@ -1034,6 +1041,9 @@ class AssetPredictor:
         mtf: Dict[str, Any] = {}
         onchain: Optional[Dict[str, Any]] = None
         shap_explanation: Dict[str, float] = {}
+        # Upper bound for confidence; set to the measured out-of-sample value once
+        # a model has produced one. Unvalidated runtime bonuses cannot exceed it.
+        confidence_ceiling = 100.0
         ensemble = {
             "xgboost": None,
             "random_forest": None,
@@ -1054,6 +1064,9 @@ class AssetPredictor:
                         recent_df=recent_df,
                     )
 
+                    # Measured out-of-sample confidence is a ceiling: the blending and
+                    # runtime layers below are unvalidated, so they may only lower it.
+                    confidence_ceiling = confidence
                     xgb_prob = max(0.0, min(1.0, confidence / 100.0))
                     rf_prob = self._predict_rf_sidecar(symbol, recent_df)
                     lstm_prob = None
@@ -1082,7 +1095,7 @@ class AssetPredictor:
                             final_prob = xgb_prob
                             ensemble["method"] = "2-model"
 
-                        confidence = max(0.0, min(100.0, final_prob * 100.0))
+                        confidence = max(0.0, min(confidence_ceiling, final_prob * 100.0))
 
                     # Multi-timeframe runtime layer (no model retraining, additive only)
                     try:
@@ -1093,7 +1106,7 @@ class AssetPredictor:
 
                         if mtf:
                             if mtf.get("mtf_confluence") and mtf.get("trend_1h", 0) > 0:
-                                confidence = min(confidence + 8.0, 100.0)
+                                confidence = min(confidence + 8.0, confidence_ceiling)
                             elif not mtf.get("mtf_confluence"):
                                 confidence = max(confidence - 12.0, 0.0)
                     except Exception as e:
@@ -1134,8 +1147,10 @@ class AssetPredictor:
                     price_change = predicted_price - current_price
                     price_change_pct = (price_change / current_price) * 100 if current_price > 0 else 0
                     trend_score = np.clip(price_change_pct / 5.0, -1, 1)
-                    base_confidence = 88.8
-                    confidence = min(95, base_confidence + abs(trend_score) * 5)
+                    # Legacy 8-feature model has no stored out-of-sample accuracy.
+                    from ml.calibration import NO_EDGE_CONFIDENCE
+                    confidence = NO_EDGE_CONFIDENCE
+                    confidence_ceiling = confidence
                     ensemble["random_forest"] = round(max(0.0, min(1.0, confidence / 100.0)), 4)
 
                 daily_change = trend_score * 0.005
@@ -1145,11 +1160,13 @@ class AssetPredictor:
                 use_ml_model = False
         
         if not use_ml_model:
-            # Fallback: Simulate prediction
-            trend_score = random.uniform(-1, 1)
-            daily_change = trend_score * 0.005
-            predicted_price = current_price * (1 + daily_change * days)
-            confidence = min(85, 65 + abs(trend_score) * 20)
+            # No usable model: report "no view" (flat forecast -> HOLD). This used to
+            # draw a random trend and report 65-85% confidence on it.
+            trend_score = 0.0
+            daily_change = 0.0
+            predicted_price = current_price
+            confidence = 0.0
+            confidence_ceiling = 0.0
             price_change = predicted_price - current_price
             price_change_pct = ((predicted_price - current_price) / current_price) * 100 if current_price > 0 else 0
         else:
@@ -1203,7 +1220,7 @@ class AssetPredictor:
                     score = float(onchain.get("onchain_score", 0.5) or 0.5)
 
                     if score >= 0.75:
-                        confidence = min(confidence + 5.0, 100.0)
+                        confidence = min(confidence + 5.0, confidence_ceiling)
                     elif score <= 0.25:
                         confidence = max(confidence - 10.0, 0.0)
 

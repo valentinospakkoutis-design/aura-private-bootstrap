@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class PaperBroker:
+    # The paper portfolio is long-only: a SELL can only reduce a holding.
+    supports_short = False
+
     def __init__(self, user_id: Optional[int] = None, starting_balance: float = 10000.0):
         self.connected = True          # always "connected" — no real API
         self.testnet = True
@@ -94,6 +97,18 @@ class PaperBroker:
             "executed_at": datetime.now().isoformat(),
             "timestamp": datetime.now().isoformat(),
         }
+
+    def get_positions(self) -> list:
+        """Current holdings as [{symbol, quantity, avg_price}] — the source of truth
+        the engine reconciles its in-memory positions against."""
+        from services.paper_trading import paper_trading_service
+        state = paper_trading_service._get_state(self.user_id)
+        return [
+            {"symbol": str(sym).upper(), "quantity": float(pos.get("quantity", 0) or 0),
+             "avg_price": float(pos.get("avg_price", 0) or 0)}
+            for sym, pos in (state.get("portfolio") or {}).items()
+            if float(pos.get("quantity", 0) or 0) > 0
+        ]
 
     # Stubs the engine may touch (no-ops for paper)
     def get_lot_size(self, symbol: str) -> Dict:

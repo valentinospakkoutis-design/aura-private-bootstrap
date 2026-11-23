@@ -446,6 +446,7 @@ class AutoTradingEngine:
                     "smart_score": position.get("smart_score"),
                     "smart_score_signals": position.get("smart_score_signals", {}),
                     "reason": reason,
+                    "adopted": bool(position.get("adopted", False)),
                 },
             )
 
@@ -469,6 +470,10 @@ class AutoTradingEngine:
                 logger.debug("[RL_ONLINE] schedule skipped for %s: %s", symbol, rl_online_err)
 
             self._log_event("POSITION_CLOSED", f"{symbol} closed ({reason}) PnL=${pnl:.2f}", closed_trade)
+            # The event log above lives in memory only; without this line a full
+            # close leaves no trace in the container logs.
+            logger.info(f"[auto-trader] Position closed: {symbol} {side} {quantity} @ ${exit_price:.4f} "
+                        f"({reason}) PnL=${pnl:.2f}")
             self._notify_user(
                 user_id,
                 title="Position Closed",
@@ -498,6 +503,151 @@ class AutoTradingEngine:
         except Exception as e:
             self._log_event("CLOSE_ERROR", f"{symbol}: {type(e).__name__}: {e}")
             return None
+
+    def _reduce_position(self, symbol: str, close_qty: float, current_price: float,
+                         user_id: Optional[int], reason: str) -> Optional[dict]:
+        """Sell part of a position for real and book it. Returns the trade, or None.
+
+        The tracked quantity only changes after the broker has filled the order,
+        so the engine's books can never claim a sale that did not happen.
+        """
+        position = self.open_positions.get(symbol)
+        if not position or not self.broker or not self.broker.connected:
+            return None
+        quantity = float(position.get("quantity") or 0.0)
+        close_qty = min(float(close_qty or 0.0), quantity)
+        if close_qty <= 0:
+            return None
+
+        side = "SELL" if position.get("side") == "BUY" else "BUY"
+        try:
+            result = self.broker.place_live_order(
+                symbol=symbol, side=side, quantity=close_qty, order_type="MARKET",
+            )
+        except Exception as e:
+            self._log_event("CLOSE_ERROR", f"{symbol}: {type(e).__name__}: {e}")
+            return None
+        if not isinstance(result, dict) or "error" in result:
+            err = result.get("error") if isinstance(result, dict) else "no result"
+            self._log_event("CLOSE_FAILED", f"{symbol} ({reason}): {err}")
+            return None
+
+        exit_price = float(result.get("price") or current_price or 0.0)
+        entry_price = float(position.get("entry_price") or 0.0)
+        if position.get("side") == "BUY":
+            pnl = (exit_price - entry_price) * close_qty
+        else:
+            pnl = (entry_price - exit_price) * close_qty
+
+        closed_trade = {
+            "symbol": symbol,
+            "entry_side": position.get("side"),
+            "exit_side": side,
+            "quantity": close_qty,
+            "entry_price": entry_price,
+            "exit_price": exit_price,
+            "pnl": round(pnl, 8),
+            "reason": reason,
+            "partial": True,
+            "opened_at": position.get("opened_at"),
+            "closed_at": datetime.utcnow().isoformat(),
+            "order_id": result.get("order_id"),
+        }
+        self.closed_trades.append(closed_trade)
+        position["quantity"] = round(quantity - close_qty, 8)
+        self.open_positions[symbol] = position
+
+        save_trade_feedback(
+            symbol=symbol,
+            action=position.get("side", "BUY"),
+            entry=entry_price,
+            exit_price=exit_price,
+            confidence=position.get("confidence", 0.0),
+            features={
+                "smart_score": position.get("smart_score"),
+                "smart_score_signals": position.get("smart_score_signals", {}),
+                "reason": reason,
+                "partial": True,
+                "adopted": bool(position.get("adopted", False)),
+            },
+        )
+        logger.info(f"[auto-trader] Position reduced: {symbol} {side} {close_qty} @ ${exit_price:.4f} ({reason})")
+        return closed_trade
+
+    def _reconcile_positions(self, user_id: Optional[int]) -> None:
+        """Make the engine's view of open positions match what the broker holds.
+
+        Open positions live in memory, so a restart used to leave every holding
+        in the broker's books with nobody managing it. For brokers that can list
+        their holdings, this adopts untracked ones (so stops apply again), drops
+        tracked ones the broker no longer has, and corrects quantities. The
+        broker is the source of truth for what is actually held.
+        """
+        list_positions = getattr(self.broker, "get_positions", None)
+        if not callable(list_positions):
+            return
+        try:
+            held = {
+                str(p.get("symbol") or "").upper(): p
+                for p in (list_positions() or [])
+                if float(p.get("quantity") or 0.0) > 0
+            }
+        except Exception as e:
+            self._log_event("RECONCILE_ERROR", f"user={user_id}: {type(e).__name__}: {e}")
+            return
+
+        for symbol in list(self.open_positions):
+            tracked = self.open_positions[symbol]
+            if symbol not in held:
+                self.open_positions.pop(symbol, None)
+                self._log_event("RECONCILE", f"{symbol}: tracked but not held by broker — dropped")
+                logger.warning(f"[auto-trader] Reconcile: {symbol} tracked but not held — dropped")
+                continue
+            held_qty = float(held[symbol].get("quantity") or 0.0)
+            tracked_qty = float(tracked.get("quantity") or 0.0)
+            if abs(held_qty - tracked_qty) > max(1e-8, 1e-6 * held_qty):
+                tracked["quantity"] = held_qty
+                self.open_positions[symbol] = tracked
+                self._log_event("RECONCILE", f"{symbol}: quantity {tracked_qty} -> {held_qty} (broker)")
+                logger.warning(f"[auto-trader] Reconcile: {symbol} quantity {tracked_qty} -> {held_qty}")
+
+        for symbol, p in held.items():
+            if symbol in self.open_positions:
+                continue
+            entry_price = float(p.get("avg_price") or 0.0)
+            if entry_price <= 0:
+                continue
+            stop_loss = entry_price * (1 - float(self.config.get("stop_loss_pct", 0.03)))
+            position = {
+                "symbol": symbol,
+                "side": "BUY",
+                "quantity": float(p.get("quantity") or 0.0),
+                "entry_price": entry_price,
+                "target_price": entry_price * (1 + float(self.config.get("take_profit_pct", 0.05))),
+                "stop_loss": round(stop_loss, 8),
+                "trailing_stop": None,
+                "trailing_last_move": "none",
+                "trailing_move_count": 0,
+                "confidence": 0.0,
+                "smart_score": None,
+                "smart_score_signals": {},
+                "order_id": None,
+                "opened_at": None,
+                "status": "open",
+                "adopted": True,
+            }
+            try:
+                from services.trailing_stop import trailing_stop_service
+                position["trailing_stop"] = trailing_stop_service.initialize_stop(
+                    side="BUY", entry_price=entry_price,
+                    trail_pct=float(self.config.get("trail_pct", 2.0)),
+                )
+            except Exception:
+                position["trailing_stop"] = round(stop_loss, 8)
+            self.open_positions[symbol] = position
+            self._log_event("RECONCILE", f"{symbol}: held by broker but untracked — adopted")
+            logger.warning(f"[auto-trader] Reconcile: adopted untracked position {symbol} "
+                           f"qty={position['quantity']} entry=${entry_price:.6g}")
 
     def _update_trailing_stops(self, user_id: Optional[int]):
         if not self.open_positions:
@@ -562,35 +712,38 @@ class AutoTradingEngine:
 
                 tp1_taken = bool(position.get("tp1_taken", False))
                 tp2_taken = bool(position.get("tp2_taken", False))
+                # Each step sells 40% of the ORIGINAL size; remember it before the first sale.
+                original_qty = float(position.get("original_quantity") or quantity)
 
-                # TP1: close 40% of original quantity
+                # TP1: sell 40% of the original quantity
                 if not tp1_taken:
                     hit = (side == "BUY" and current_price >= tp1_price) or (side == "SELL" and current_price <= tp1_price)
                     if hit:
-                        close_qty = round(quantity * 0.40, 8)
-                        remaining_qty = round(quantity - close_qty, 8)
-                        if remaining_qty > 0:
-                            position["quantity"] = remaining_qty
-                            position["tp1_taken"] = True
-                            self.open_positions[symbol] = position
-                            self._log_event("PARTIAL_TP", f"{symbol}: TP1 hit @ ${current_price:.4f} — closed 40% ({close_qty}), remaining {remaining_qty}")
+                        close_qty = round(original_qty * 0.40, 8)
+                        if round(quantity - close_qty, 8) > 0:
+                            trade = self._reduce_position(symbol, close_qty, current_price, user_id, "tp1_partial")
+                            if trade:   # flag only once the sale really happened; else retry next scan
+                                position = self.open_positions[symbol]
+                                position["original_quantity"] = original_qty
+                                position["tp1_taken"] = True
+                                self.open_positions[symbol] = position
+                                self._log_event("PARTIAL_TP", f"{symbol}: TP1 hit @ ${current_price:.4f} — sold {close_qty}, remaining {position['quantity']}")
                         else:
                             self._close_position(symbol, current_price=current_price, user_id=user_id, reason="tp1_full")
                         continue
 
-                # TP2: close 40% more (of original), leaving 20%
+                # TP2: sell another 40% of the original quantity, leaving 20% to trail
                 if tp1_taken and not tp2_taken:
                     hit = (side == "BUY" and current_price >= tp2_price) or (side == "SELL" and current_price <= tp2_price)
                     if hit:
-                        # At TP1 we already closed 40%, so remaining is 60% of original
-                        # Now close 40% of original = 2/3 of current remaining
-                        close_qty = round(quantity * 0.40, 8)
-                        remaining_qty = round(position.get("quantity", 0) - close_qty, 8)
-                        if remaining_qty > 0:
-                            position["quantity"] = remaining_qty
-                            position["tp2_taken"] = True
-                            self.open_positions[symbol] = position
-                            self._log_event("PARTIAL_TP", f"{symbol}: TP2 hit @ ${current_price:.4f} — closed 40% more ({close_qty}), trailing 20% ({remaining_qty})")
+                        close_qty = round(original_qty * 0.40, 8)
+                        if round(quantity - close_qty, 8) > 0:
+                            trade = self._reduce_position(symbol, close_qty, current_price, user_id, "tp2_partial")
+                            if trade:
+                                position = self.open_positions[symbol]
+                                position["tp2_taken"] = True
+                                self.open_positions[symbol] = position
+                                self._log_event("PARTIAL_TP", f"{symbol}: TP2 hit @ ${current_price:.4f} — sold {close_qty}, trailing {position['quantity']}")
                         else:
                             self._close_position(symbol, current_price=current_price, user_id=user_id, reason="tp2_full")
             except Exception as _ptp_err:
@@ -982,6 +1135,12 @@ class AutoTradingEngine:
             return None
 
         side = "BUY" if action == "buy" else "SELL"
+
+        # A SELL signal here would OPEN a short. Brokers that cannot short reject it
+        # ("Insufficient quantity"), on every scan. Skip instead of failing.
+        if side == "SELL" and not getattr(self.broker, "supports_short", True):
+            self._log_event("SKIP", f"{symbol}: SELL signal ignored — broker cannot open short positions")
+            return None
 
         # Ensemble consensus gate: require >=3/4 model agreement on the same direction
         try:
@@ -1625,6 +1784,10 @@ class AutoTradingEngine:
                         except Exception as e:
                             self._log_event("DCA_CHECK_ERROR", f"user={uid}: {type(e).__name__}: {e}")
                         self._last_dca_check_by_user[uid] = now
+
+                    # Positions live in memory: after a restart, pick up what the broker still holds
+                    # so stops and take-profits apply to it again.
+                    self._reconcile_positions(uid)
 
                     # Always maintain trailing stops and partial TP on each scan before opening new positions.
                     self._check_partial_tp(uid)
