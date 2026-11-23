@@ -146,13 +146,21 @@ def _sharpe(daily: pd.Series, periods_per_year: int) -> float:
 
 
 def placebo_test(frames: Dict[str, pd.DataFrame], rule_name: str, cost_bps: float,
-                 periods_per_year: int, runs: int, seed: int = 7) -> Dict:
+                 periods_per_year: int, runs: int, seed: int = 7,
+                 synchronized: bool = True) -> Dict:
     """Is the timing better than the same trading pattern applied at the wrong time?
 
-    Each symbol's real signal is rotated in time by a random offset. That keeps
-    how often and how long the rule holds, but breaks its link to the prices.
-    The share of rotated portfolios that match or beat the real Sharpe is the
-    chance of seeing this result from timing that carries no information.
+    Each symbol's real signal is rotated in time. That keeps how often and how
+    long the rule holds, but breaks its link to the prices. The share of rotated
+    portfolios that match or beat the real Sharpe is the chance of seeing this
+    result from timing that carries no information.
+
+    synchronized=True rotates every symbol by the SAME number of days. Crypto
+    assets move together, so the real signals switch on and off together; a
+    fair placebo must keep that, otherwise each rotated portfolio is quietly
+    diversified across time, the placebo results bunch tightly around the
+    market's own Sharpe, and the real result looks far more surprising than it
+    is. synchronized=False (independent offsets) is kept only to show that gap.
     """
     rule = RULES[rule_name]
     signals = {s: rule(df) for s, df in frames.items()}
@@ -162,14 +170,17 @@ def placebo_test(frames: Dict[str, pd.DataFrame], rule_name: str, cost_bps: floa
 
     rng = np.random.default_rng(seed)
     placebo = []
+    longest = max((int(sig.notna().sum()) for sig in signals.values()), default=0)
     for _ in range(runs):
         cols = {}
+        common = int(rng.integers(250, max(251, longest - 250)))
         for s, df in frames.items():
             sig = signals[s]
             valid = sig.dropna()
             if len(valid) < 600:
                 continue
-            offset = int(rng.integers(250, len(valid) - 250))
+            # Arrays share their end date, so an equal shift keeps symbols aligned.
+            offset = common % len(valid) if synchronized else int(rng.integers(250, len(valid) - 250))
             rotated = pd.Series(np.roll(valid.values, offset), index=valid.index).reindex(sig.index)
             cols[s] = strategy_returns(df, rotated, cost_bps)["net"]
         if cols:
@@ -179,6 +190,7 @@ def placebo_test(frames: Dict[str, pd.DataFrame], rule_name: str, cost_bps: floa
     placebo_arr = np.array(placebo)
     return {
         "rule": rule_name,
+        "synchronized": synchronized,
         "actual_sharpe": round(actual, 2),
         "placebo_sharpe_mean": round(float(placebo_arr.mean()), 2),
         "placebo_sharpe_95th": round(float(np.percentile(placebo_arr, 95)), 2),
@@ -272,8 +284,9 @@ def run(symbols: List[str], days: int, cost_bps: float, placebo_runs: int = 0) -
         report["groups"][group] = {"symbols": len(members), "strategies": rows}
         if placebo_runs > 0:
             report["groups"][group]["placebo"] = [
-                placebo_test(frames[group], name, cost_bps, ppy, placebo_runs)
+                placebo_test(frames[group], name, cost_bps, ppy, placebo_runs, synchronized=sync)
                 for name in ("sma_50", "majority") if name in RULES
+                for sync in (True, False)
             ]
         for symbol, r in members.items():
             report["symbols"][symbol] = {name: metrics(frame["net"], ppy) for name, frame in r.items()}
@@ -306,7 +319,8 @@ def print_report(report: Dict, per_symbol: bool) -> None:
                   f"{m['max_drawdown_pct']:>8}{m['hold_same_vol_max_drawdown_pct']:>9}")
         for p in block.get("placebo", []):
             if p:
-                print(f"placebo {p['rule']}: real sharpe {p['actual_sharpe']} | same trades at random times: "
+                kind = "same shift for all symbols" if p["synchronized"] else "independent shifts (too lenient)"
+                print(f"placebo {p['rule']} [{kind}]: real sharpe {p['actual_sharpe']} | rotated: "
                       f"mean {p['placebo_sharpe_mean']}, 95th pct {p['placebo_sharpe_95th']} "
                       f"({p['runs']} runs) | p = {p['p_value']}")
     if per_symbol:
