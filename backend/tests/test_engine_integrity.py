@@ -152,3 +152,13 @@ def test_brokers_that_cannot_list_holdings_are_left_alone():
     engine = _engine(Opaque(), {"AAA": _long("AAA", 10.0, 100.0, 105.0)})
     engine._reconcile_positions(user_id=1)
     assert engine.open_positions["AAA"]["quantity"] == 10.0
+
+
+def test_full_close_is_written_to_the_log(caplog):
+    import logging
+    broker = FakeBroker({"AAA": {"quantity": 3.0, "avg_price": 50.0}}, {"AAA": 45.0})
+    engine = _engine(broker, {"AAA": _long("AAA", 3.0, 50.0, 52.5)})
+    with caplog.at_level(logging.INFO, logger="services.auto_trading_engine"):
+        engine._close_position("AAA", current_price=45.0, user_id=1, reason="trailing_stop")
+    assert any("Position closed: AAA" in r.getMessage() and "trailing_stop" in r.getMessage()
+               for r in caplog.records)

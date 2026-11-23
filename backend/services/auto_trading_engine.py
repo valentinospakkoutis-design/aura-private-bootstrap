@@ -470,6 +470,10 @@ class AutoTradingEngine:
                 logger.debug("[RL_ONLINE] schedule skipped for %s: %s", symbol, rl_online_err)
 
             self._log_event("POSITION_CLOSED", f"{symbol} closed ({reason}) PnL=${pnl:.2f}", closed_trade)
+            # The event log above lives in memory only; without this line a full
+            # close leaves no trace in the container logs.
+            logger.info(f"[auto-trader] Position closed: {symbol} {side} {quantity} @ ${exit_price:.4f} "
+                        f"({reason}) PnL=${pnl:.2f}")
             self._notify_user(
                 user_id,
                 title="Position Closed",
