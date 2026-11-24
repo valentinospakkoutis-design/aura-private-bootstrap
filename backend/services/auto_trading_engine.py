@@ -123,15 +123,42 @@ class AutoTradingEngine:
 
     def _ensure_user_runtime(self, user_id: int) -> dict:
         if user_id not in self.user_runtime:
+            # First time this user is seen since the process started: restore what the
+            # engine knew about each open position (trailed stops, take-profit steps
+            # done, entry details). _reconcile_positions then checks it against the broker.
+            restored = self._restore_positions(user_id)
             self.user_runtime[user_id] = {
                 "config": dict(self.config),
-                "open_positions": {},
+                "open_positions": restored,
                 "closed_trades": [],
                 "trade_log": [],
                 "total_auto_trades": 0,
                 "last_run": None,
             }
         return self.user_runtime[user_id]
+
+    def _restore_positions(self, user_id: int) -> Dict[str, dict]:
+        try:
+            from services.position_store import position_store
+            restored = position_store.load(user_id)
+        except Exception as e:
+            logger.warning(f"[auto-trader] Could not restore positions for user={user_id}: {e}")
+            return {}
+        if restored:
+            logger.info(f"[auto-trader] Restored {len(restored)} saved position(s) for user={user_id}: "
+                        f"{', '.join(sorted(restored))}")
+        return restored
+
+    def _persist_positions(self, user_id: Optional[int]) -> None:
+        """Save right after anything that changes a position, not only at the end of a scan:
+        a crash between a partial sale and the next save would otherwise forget the sale."""
+        if user_id is None:
+            return
+        try:
+            from services.position_store import position_store
+            position_store.save(user_id, self.open_positions)
+        except Exception as e:
+            logger.warning(f"[auto-trader] Could not save positions for user={user_id}: {e}")
 
     def _load_user_context(self, user_id: int):
         ctx = self._ensure_user_runtime(user_id)
@@ -151,6 +178,7 @@ class AutoTradingEngine:
             "total_auto_trades": int(self.total_auto_trades),
             "last_run": self.last_run,
         }
+        self._persist_positions(user_id)
 
     def get_user_status(self, user_id: int) -> dict:
         ctx = self._ensure_user_runtime(user_id)
@@ -435,6 +463,7 @@ class AutoTradingEngine:
             }
             self.closed_trades.append(closed_trade)
             self.open_positions.pop(symbol, None)
+            self._persist_positions(user_id)
 
             save_trade_feedback(
                 symbol=symbol,
@@ -727,6 +756,7 @@ class AutoTradingEngine:
                                 position["original_quantity"] = original_qty
                                 position["tp1_taken"] = True
                                 self.open_positions[symbol] = position
+                                self._persist_positions(user_id)
                                 self._log_event("PARTIAL_TP", f"{symbol}: TP1 hit @ ${current_price:.4f} — sold {close_qty}, remaining {position['quantity']}")
                         else:
                             self._close_position(symbol, current_price=current_price, user_id=user_id, reason="tp1_full")
@@ -743,6 +773,7 @@ class AutoTradingEngine:
                                 position = self.open_positions[symbol]
                                 position["tp2_taken"] = True
                                 self.open_positions[symbol] = position
+                                self._persist_positions(user_id)
                                 self._log_event("PARTIAL_TP", f"{symbol}: TP2 hit @ ${current_price:.4f} — sold {close_qty}, trailing {position['quantity']}")
                         else:
                             self._close_position(symbol, current_price=current_price, user_id=user_id, reason="tp2_full")
@@ -1435,6 +1466,7 @@ class AutoTradingEngine:
                         position["trailing_stop"] = round(stop_loss_price, 2)
 
                     self.open_positions[symbol] = position
+                    self._persist_positions(user_id)
                     self._log_event("DCA_PLAN", f"{symbol}: staged entries created", {"symbol": symbol, "plan": plan, "total_usd": total_amount_usd})
                     self._log_event("ORDER_FILLED", f"DCA entry1 BUY {qty_first} {symbol} @ ${entry_price:.2f}", position)
                     return position
@@ -1599,6 +1631,7 @@ class AutoTradingEngine:
                 position["trailing_stop"] = round(stop_loss_price, 2)
 
             self.open_positions[symbol] = position
+            self._persist_positions(user_id)
 
             # ── Settle reservation as filled ──────────────────────────────────
             if _res_id is not None:
