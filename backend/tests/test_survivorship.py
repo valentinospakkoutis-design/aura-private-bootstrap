@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from scripts.survivorship_backtest import (
-    build_membership, evaluate, is_candidate, parse_kline_csv, synthetic_frames, verdict,
+    build_membership, evaluate, is_candidate, parse_kline_csv, split_on_gaps, synthetic_frames, verdict,
 )
 
 
@@ -64,3 +64,18 @@ def test_random_walks_are_not_declared_an_edge():
         row = report["strategies"][name]
         assert np.isfinite(row["sharpe"])
         assert row["verdict"] in {"REJECTED", "UNCERTAIN", "HOLDS"}
+
+
+def test_reused_ticker_is_two_instruments_and_fakes_no_gain():
+    frames = synthetic_frames(days=1500, coins=6)
+    old = frames["C1USDT"]
+    dead = old.iloc[:700].copy()
+    dead.iloc[-30:, :4] *= 1e-4                      # goes to almost zero
+    reborn = old.iloc[720:].copy()                   # back 20 days later at the old price level
+    frames["C1USDT"] = pd.concat([dead, reborn])
+    parts = split_on_gaps(frames)
+    assert "C1USDT#2" in parts and parts["C1USDT#2"].index[0] == reborn.index[0]
+    report = evaluate(frames, cost_bps=30.0, placebo_runs=0, top_n=6)
+    assert "C1USDT#2" in report["universe"]["reused_tickers"]
+    assert max(abs(r["return_pct"]) for r in report["universe"]["largest_one_day_moves"]) < 500
+    assert abs(report["strategies"]["always_long"]["annual_return_pct"]) < 200

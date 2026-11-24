@@ -38,6 +38,7 @@ import math
 import os
 import re
 import sys
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
@@ -153,10 +154,14 @@ def load_archive(cache_dir: str, workers: int, limit: int = 0) -> Dict[str, pd.D
     failed: Dict[str, str] = {}
 
     def fetch(sym: str):
-        try:
-            return sym, load_symbol(session, sym, cache_dir), None
-        except Exception as exc:  # one bad pair must not stop the run
-            return sym, None, f"{type(exc).__name__}: {exc}"
+        error = ""
+        for attempt in range(4):
+            try:
+                return sym, load_symbol(session, sym, cache_dir), None
+            except Exception as exc:  # one bad pair must not stop the run
+                error = f"{type(exc).__name__}: {exc}"
+                time.sleep(2 * (attempt + 1))
+        return sym, None, error
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for i, (sym, df, err) in enumerate(pool.map(fetch, symbols), 1):
@@ -167,8 +172,41 @@ def load_archive(cache_dir: str, workers: int, limit: int = 0) -> Dict[str, pd.D
             if i % 50 == 0:
                 print(f"  {i}/{len(symbols)} loaded", file=sys.stderr, flush=True)
     if failed:
-        print(f"failed to load {len(failed)} pairs, e.g. {dict(list(failed.items())[:3])}", file=sys.stderr)
+        print(f"failed to load {len(failed)} pairs: {sorted(failed)}", file=sys.stderr)
     return frames
+
+
+# ── Data integrity ─────────────────────────────────────────────────────────────
+
+MAX_GAP_DAYS = 7
+
+
+def split_on_gaps(frames: Dict[str, pd.DataFrame], max_gap_days: int = MAX_GAP_DAYS) -> Dict[str, pd.DataFrame]:
+    """Treat a ticker that stopped trading and later came back as a new instrument.
+
+    Binance reuses tickers: LUNAUSDT is the coin that went to zero in May 2022
+    and, from two weeks later, a different coin at a different price. Read as
+    one series, that is a one-day gain of many thousand percent that nobody
+    could have earned. Each stretch of continuous trading becomes its own
+    instrument (LUNAUSDT, LUNAUSDT#2) and must build its own history again.
+    """
+    out: Dict[str, pd.DataFrame] = {}
+    for symbol, df in frames.items():
+        gaps = df.index.to_series().diff().dt.days.fillna(1) > max_gap_days
+        part = gaps.cumsum()
+        for n, (_, segment) in enumerate(df.groupby(part.values), 1):
+            out[symbol if n == 1 else f"{symbol}#{n}"] = segment
+    return out
+
+
+def largest_moves(frames: Dict[str, pd.DataFrame], member: pd.DataFrame, top: int = 8) -> List[Dict]:
+    """Biggest one-day price changes inside the universe — a check for bad data."""
+    rows = []
+    for symbol, df in frames.items():
+        ret = df["close"].pct_change().reindex(member.index).where(member[symbol])
+        for day, value in ret.abs().nlargest(3).dropna().items():
+            rows.append({"symbol": symbol, "day": str(day)[:10], "return_pct": round(float(ret[day]) * 100, 1)})
+    return sorted(rows, key=lambda r: -abs(r["return_pct"]))[:top]
 
 
 # ── Point-in-time universe ─────────────────────────────────────────────────────
@@ -247,6 +285,7 @@ def verdict(excess_pct: float, p_value: float) -> str:
 
 def evaluate(frames: Dict[str, pd.DataFrame], cost_bps: float, placebo_runs: int,
              top_n: int = TOP_N) -> Dict:
+    frames = split_on_gaps(frames)
     frames = {s: df for s, df in frames.items() if len(df) > MIN_HISTORY_DAYS + VOLUME_WINDOW}
     member = build_membership(frames, top_n)
     used = [s for s in frames if member[s].any()]
@@ -268,6 +307,8 @@ def evaluate(frames: Dict[str, pd.DataFrame], cost_bps: float, placebo_runs: int
             "to": str(member.index[-1])[:10],
             "average_members_per_day": round(float(member.sum(axis=1).mean()), 1),
             "top_n": top_n,
+            "reused_tickers": sorted(s for s in used if "#" in s),
+            "largest_one_day_moves": largest_moves(frames, member),
         },
         "settings": {"cost_bps": cost_bps, "placebo_runs": placebo_runs},
         "strategies": {BENCHMARK: metrics(bench, PERIODS_PER_YEAR)},
@@ -290,6 +331,10 @@ def print_report(title: str, report: Dict) -> None:
     print(f"{u['from']} to {u['to']} | {u['symbols_ever_included']} coins ever included, "
           f"{u['no_longer_trading']} no longer trading | "
           f"about {u['average_members_per_day']} held in the universe per day")
+    if u.get("reused_tickers"):
+        print("tickers reused after a trading halt (treated as new coins):", ", ".join(u["reused_tickers"]))
+    print("largest one-day moves in the universe:",
+          "; ".join(f"{r['symbol']} {r['day']} {r['return_pct']:+}%" for r in u["largest_one_day_moves"]))
     print(f"{'strategy':<16}{'ann%':>7}{'sharpe':>8}{'maxDD%':>8}{'S_1st':>7}{'S_2nd':>7}"
           f"{'xs%@vol':>9}{'t':>6}{'p':>8}  verdict")
     for name, m in report["strategies"].items():
@@ -347,6 +392,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                   f"last close {df['close'].iloc[-1]:.6g}")
         return 0
 
+    frames = split_on_gaps(frames)   # before deciding which coins are still alive
     full = evaluate(frames, args.cost_bps, args.placebo, args.top_n)
     print_report("All coins, including those that later died", full)
     if full["universe"]["no_longer_trading_names"]:
