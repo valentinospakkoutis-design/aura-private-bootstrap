@@ -28,6 +28,7 @@ import pandas as pd
 from services.trend_signal import (
     BASE_RULES,
     MIN_HISTORY_DAYS,
+    annual_vol_weight,
     majority_signal,
     vol_weight,
 )
@@ -39,11 +40,52 @@ PAPER_COST_BPS = 20.0
 # The two candidates run side by side so the choice between them is made on new
 # data, not on the backtest. "always_long" holds everything with the same sizing:
 # it is the yardstick, not a candidate.
-STRATEGIES: Dict[str, Callable[[pd.DataFrame], pd.Series]] = {
-    "sma_50": BASE_RULES["sma_50"],
-    "majority": majority_signal,
-    "always_long": lambda df: pd.Series(1.0, index=df.index),
+def _always(df: pd.DataFrame) -> pd.Series:
+    return pd.Series(1.0, index=df.index)
+
+
+BTC_TARGET_ANNUAL_VOL = 0.10
+
+
+def _btc_weight(returns: pd.Series) -> pd.Series:
+    return annual_vol_weight(returns, BTC_TARGET_ANNUAL_VOL)
+
+
+@dataclass(frozen=True)
+class Spec:
+    rule: Callable[[pd.DataFrame], pd.Series]
+    weight: Callable[[pd.Series], pd.Series] = vol_weight
+    only_base: Optional[str] = None        # restrict the universe to one coin, e.g. "BTC"
+
+
+# The first three are unchanged since 22 Nov 2026 and must stay that way: their
+# forward record is the only out-of-sample evidence the project has.
+#
+# The two BTC lines were added on 25 Nov 2026 as the benchmark the project never
+# had (project doc aura_btc_benchmark_criteria.md): BTC aimed at 10% yearly
+# volatility with no leverage, with and without the same 50-day rule. They have
+# their own start date and are reported separately.
+SPECS: Dict[str, Spec] = {
+    "sma_50": Spec(BASE_RULES["sma_50"]),
+    "majority": Spec(majority_signal),
+    "always_long": Spec(_always),
+    "btc_voltarget": Spec(_always, _btc_weight, "BTC"),
+    "btc_voltarget_trend50": Spec(BASE_RULES["sma_50"], _btc_weight, "BTC"),
 }
+STRATEGIES: Dict[str, Callable[[pd.DataFrame], pd.Series]] = {name: spec.rule for name, spec in SPECS.items()}
+BENCHMARKS = ("always_long", "btc_voltarget")
+
+
+def base_asset(symbol: str) -> str:
+    for quote in ("USDC", "USDT"):
+        if symbol.upper().endswith(quote):
+            return symbol.upper()[: -len(quote)]
+    return symbol.upper()
+
+
+def universe_for(strategy: str, frames: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    only = SPECS[strategy].only_base
+    return frames if only is None else {s: df for s, df in frames.items() if base_asset(s) == only}
 
 
 # ── Pure ledger arithmetic ─────────────────────────────────────────────────────
@@ -104,7 +146,8 @@ def rebalance(ledger: Ledger, prices: Dict[str, float], target_weights: Dict[str
 # ── Signals for one day ────────────────────────────────────────────────────────
 
 def signals_for_day(frames: Dict[str, pd.DataFrame], as_of: pd.Timestamp,
-                    rule: Callable[[pd.DataFrame], pd.Series]) -> Dict[str, Dict]:
+                    rule: Callable[[pd.DataFrame], pd.Series],
+                    weight_fn: Callable[[pd.Series], pd.Series] = vol_weight) -> Dict[str, Dict]:
     """Per symbol: close, hold flag and volatility weight using bars up to `as_of` only."""
     out: Dict[str, Dict] = {}
     for symbol, df in frames.items():
@@ -112,7 +155,7 @@ def signals_for_day(frames: Dict[str, pd.DataFrame], as_of: pd.Timestamp,
         if len(past) < MIN_HISTORY_DAYS or past.index[-1] != as_of:
             continue   # not enough history, or no bar for this day
         hold = rule(past).iloc[-1]
-        weight = vol_weight(past["close"].pct_change()).iloc[-1]
+        weight = weight_fn(past["close"].pct_change()).iloc[-1]
         if pd.isna(hold) or pd.isna(weight):
             continue
         out[symbol] = {"close": float(past["close"].iloc[-1]), "hold": bool(hold > 0),
@@ -135,6 +178,10 @@ _DDL = [
         strategy TEXT NOT NULL, as_of TEXT NOT NULL, symbol TEXT NOT NULL, side TEXT NOT NULL,
         quantity FLOAT NOT NULL, price FLOAT NOT NULL, notional FLOAT NOT NULL, cost FLOAT NOT NULL,
         PRIMARY KEY (strategy, as_of, symbol))""",
+    """CREATE TABLE IF NOT EXISTS trend_paper_spreads (
+        recorded_at TEXT NOT NULL, symbol TEXT NOT NULL, bid FLOAT NOT NULL, ask FLOAT NOT NULL,
+        half_spread_bps FLOAT NOT NULL, after_close INTEGER NOT NULL,
+        PRIMARY KEY (recorded_at, symbol))""",
     """CREATE TABLE IF NOT EXISTS trend_paper_signals (
         strategy TEXT NOT NULL, as_of TEXT NOT NULL, symbol TEXT NOT NULL, hold INTEGER NOT NULL,
         weight FLOAT NOT NULL, close FLOAT NOT NULL,
@@ -199,6 +246,30 @@ class SqlStore:
                             "w": sig["weight"], "c": sig["close"]})
             db.commit()   # equity row has a primary key: a repeated day fails as a whole
 
+    def save_spreads(self, recorded_at: str, quotes: Dict[str, Dict[str, float]], after_close: bool) -> int:
+        """Best bid and ask per symbol at one moment. A measurement only: it changes no ledger."""
+        rows = 0
+        with self._session_factory() as db:
+            for symbol, q in sorted(quotes.items()):
+                bid, ask = float(q["bid"]), float(q["ask"])
+                if bid <= 0 or ask <= 0 or ask < bid:
+                    continue
+                mid = (bid + ask) / 2.0
+                db.execute(self._text(
+                    "INSERT INTO trend_paper_spreads (recorded_at, symbol, bid, ask, half_spread_bps, after_close) "
+                    "VALUES (:t, :y, :b, :a, :h, :c)"),
+                    {"t": recorded_at, "y": symbol, "b": bid, "a": ask,
+                     "h": (ask - bid) / 2.0 / mid * 10000.0, "c": int(after_close)})
+                rows += 1
+            db.commit()
+        return rows
+
+    def spreads(self) -> pd.DataFrame:
+        with self._session_factory() as db:
+            rows = db.execute(self._text(
+                "SELECT recorded_at, symbol, half_spread_bps, after_close FROM trend_paper_spreads")).all()
+        return pd.DataFrame(rows, columns=["recorded_at", "symbol", "half_spread_bps", "after_close"])
+
     def equity_history(self, strategy: str) -> pd.DataFrame:
         with self._session_factory() as db:
             rows = db.execute(self._text(
@@ -239,7 +310,8 @@ def step_strategy(store: SqlStore, strategy: str, frames: Dict[str, pd.DataFrame
     if last and last["as_of"] >= day:
         return None   # already recorded — never rewrite history
 
-    signals = signals_for_day(frames, as_of, STRATEGIES[strategy])
+    frames = universe_for(strategy, frames)
+    signals = signals_for_day(frames, as_of, SPECS[strategy].rule, SPECS[strategy].weight)
     if not signals:
         return None   # no symbol has a completed bar for this day
 
@@ -306,5 +378,28 @@ def summary(store: SqlStore, capital: float = INITIAL_CAPITAL) -> List[Dict]:
             "universe": int(hist["universe"].iloc[-1]),
             "costs_total": round(float(hist["costs"].sum()), 2),
             "trades": store.trade_count(strategy),
+        })
+    return out
+
+
+def spread_summary(store: SqlStore) -> List[Dict]:
+    """Measured half-spread per quote currency, from the snapshots taken just after the close."""
+    data = store.spreads()
+    if data.empty:
+        return []
+    data = data[data["after_close"] == 1] if (data["after_close"] == 1).any() else data
+    out = []
+    for quote in ("USDC", "USDT"):
+        part = data[data["symbol"].str.endswith(quote)]
+        if part.empty:
+            continue
+        per_symbol = part.groupby("symbol")["half_spread_bps"].median()
+        btc = per_symbol.get("BTC" + quote)
+        out.append({
+            "quote": quote, "snapshots": int(part["recorded_at"].nunique()), "symbols": int(len(per_symbol)),
+            "median_half_spread_bps": round(float(per_symbol.median()), 2),
+            "worst_symbol_half_spread_bps": round(float(per_symbol.max()), 2),
+            "worst_symbol": str(per_symbol.idxmax()),
+            "btc_half_spread_bps": None if btc is None else round(float(btc), 2),
         })
     return out

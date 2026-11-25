@@ -99,6 +99,13 @@ def vol_weight(returns: pd.Series) -> pd.Series:
     return (TARGET_DAILY_VOL / vol).clip(upper=MAX_WEIGHT).where(vol > 0)
 
 
+def annual_vol_weight(returns: pd.Series, target_annual_vol: float, days_per_year: int = 365) -> pd.Series:
+    """Weight that aims a single asset at a stated yearly volatility. Never above 100%: no leverage."""
+    vol = returns.rolling(VOL_WINDOW).std()
+    target_daily = target_annual_vol / (days_per_year ** 0.5)
+    return (target_daily / vol).clip(upper=MAX_WEIGHT).where(vol > 0)
+
+
 def current_view(df: pd.DataFrame) -> Dict:
     """What the signal says as of the last completed bar in `df`."""
     if df is None or len(df) < MIN_HISTORY_DAYS:
