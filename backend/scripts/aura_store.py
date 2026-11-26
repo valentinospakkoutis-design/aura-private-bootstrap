@@ -156,15 +156,13 @@ def build_btc_benchmark(
     # Gross returns, scaled
     gross = ret * scale
 
-    # Κόστος αναπροσαρμογής: μόνο όταν αλλάζει το scale (μηνιαία)
-    scale_chg = scale.diff().abs()
-    is_rebalance = scale_chg > 1e-6  # αλλαγή scale → rebalance
-    cost_rate = np.where(
-        is_rebalance,
-        costs.taker_bp / 10_000,  # πλήρες κόστος, μόνο στις εκτελεσμένες (οι παραλειφθείσες δεν αλλάζουν scale)
-        0.0,  # καμία χρέωση τις μέρες χωρίς αναπροσαρμογή
-    )
-    daily_cost = pd.Series(cost_rate, index=gross.index)
+    # Κόστος αναπροσαρμογής ανάλογο του τζίρου (trial #15), ίδια βάση με strategy_returns:
+    #   κόστος = |Δscale| × taker_bp — η αλλαγή θέσης, όχι όλο το κεφάλαιο.
+    # Το #12–#14 χρέωνε πλήρες taker_bp επί όλου του κεφαλαίου σε κάθε αναπροσαρμογή
+    # (~30 bp × 12 = ~3,6%/έτος ψεύτικη χρέωση). Η αρχική είσοδος (0 → scale) χρεώνεται.
+    turnover = scale.diff().abs()
+    turnover.iloc[0] = abs(scale.iloc[0])
+    daily_cost = turnover * (costs.taker_bp / 10_000)
 
     net = gross - daily_cost
     return net.reindex(member.index).fillna(0.0)
