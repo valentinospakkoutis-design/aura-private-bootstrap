@@ -126,25 +126,34 @@ def build_btc_benchmark(
     # Daily returns
     ret = close.pct_change().reindex(member.index).fillna(0.0)
 
-    # Rolling vol (63 days) για scaling
-    vol = ret.rolling(63, min_periods=21).std() * np.sqrt(PERIODS_PER_YEAR)
-    vol = vol.replace(0, np.nan).ffill().fillna(0.10)
-    scale = (vol_target / vol).clip(0.1, 2.0).shift(1).fillna(1.0)
+    # Rolling vol (63 days) — ετησιοποιημένη (σε ετήσιες μονάδες)
+    # BTC ημερήσιο std ~0.035 → ετήσιο ~0.035 * sqrt(365) ≈ 0.67
+    # Χρειαζόμαστε ετήσιο vol για να συγκρίνουμε με vol_target=0.10 (ετήσιο)
+    vol_ann = ret.rolling(63, min_periods=21).std() * np.sqrt(PERIODS_PER_YEAR)
+    vol_ann = vol_ann.replace(0, np.nan).ffill().fillna(vol_target)
+
+    # Scale: πόσο BTC κρατάμε για να έχουμε vol_target ετήσια
+    # Π.χ. vol_ann=0.67, vol_target=0.10 → scale=0.149 (όχι leverage)
+    raw_scale = vol_target / vol_ann
+
+    # Μηνιαία αναπροσαρμογή: κρατάμε το scale σταθερό εντός μήνα
+    # για να αποφύγουμε καθημερινό κόστος αναπροσαρμογής
+    # Reindex: παίρνουμε την τιμή στην αρχή κάθε μήνα και την κρατάμε για ολόκληρο τον μήνα
+    monthly_scale = raw_scale.resample("MS").first().reindex(raw_scale.index, method="ffill")
+    scale = monthly_scale.clip(0.05, 1.5).shift(1).fillna(raw_scale.iloc[0])
 
     # Gross returns, scaled
     gross = ret * scale
 
-    # Transactions: scale changes → rebalance
-    # Κόστος = taker_bp όταν αλλάζει το scale >1%, αλλιώς maker_bp
-    scale_chg = scale.diff().abs() / scale.shift(1).abs()
-    is_rebalance = scale_chg > 0.01
+    # Κόστος αναπροσαρμογής: μόνο όταν αλλάζει το scale (μηνιαία)
+    scale_chg = scale.diff().abs()
+    is_rebalance = scale_chg > 1e-6  # αλλαγή scale → rebalance
     cost_rate = np.where(
         is_rebalance,
         costs.taker_bp / 10_000,
-        costs.maker_bp / 10_000,
+        0.0,  # καμία χρέωση τις μέρες χωρίς αναπροσαρμογή
     )
-    # Μόνο μέρες που γίνεται rebalance χρεώνουμε
-    daily_cost = pd.Series(cost_rate, index=member.index) * is_rebalance
+    daily_cost = pd.Series(cost_rate, index=gross.index)
 
     net = gross - daily_cost
     return net.reindex(member.index).fillna(0.0)

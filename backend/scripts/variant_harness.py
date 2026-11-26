@@ -24,7 +24,7 @@ Promotion criteria (δηλώθηκαν ΠΡΙΝ από εκτέλεση):
     - annual > BASE annual
     - max_dd > BASE max_dd (λιγότερο drawdown)
 
-DSR: Bailey & López de Prado (2014), n_trials=5
+DSR: Bailey & López de Prado (2014) — sigma από std των trial Sharpes
 """
 
 import argparse
@@ -103,7 +103,6 @@ VARIANTS: Dict[str, Variant] = {
 }
 
 PERIODS_PER_YEAR = 365
-N_TRIALS_DSR = 5
 
 
 # ── Signal generation με variant modifiers ──────────────────────────────────────
@@ -209,25 +208,61 @@ def compute_signal(df: pd.DataFrame, variant: Variant) -> pd.Series:
 
 # ── DSR (Deflated Sharpe Ratio) ──────────────────────────────────────────────────
 
-def dsr(sharpe: float, t: float, n_trials: int = N_TRIALS_DSR) -> float:
+def dsr(r: pd.Series, trial_srs: list) -> float:
     """
-    Bailey & López de Prado (2014):
-    DSR = Φ[(√(T-1) * (SR - SR*)) / √(1 - γ3*SR + γ4/4*(SR^2 - 1))]
+    Bailey & López de Prado (2014) — Deflated Sharpe Ratio.
 
-    Απλοποιημένη: DSR > 0.95 → αξιόπιστο
-    SR* = benchmark Sharpe (εδώ: BTC)
+    Παράμετροι:
+        r          : ημερήσια net returns της στρατηγικής
+        trial_srs  : list[float] — Sharpe ratios ΟΛΩΝ των variants που δοκιμάστηκαν
+                     (ίδια κλίμακα με r.mean()/r.std(), δηλ. ημερήσιο SR)
+                     Χρειάζεται ≥2 τιμές για υπολογισμό sigma.
+
+    Επιστρέφει:
+        DSR ∈ [0,1]. DSR > 0.95 → αξιόπιστο (στατιστικά σημαντικό μετά correction)
     """
-    if t <= 1:
+    from statistics import NormalDist
+    import math
+
+    if len(r) < 30:
         return 0.0
-    # Bonferroni correction για n_trials
-    expected_max = (1 - 0.5772) * np.sqrt(2 * np.log(n_trials))  # Euler-Mascheroni
-    sr_star = expected_max / np.sqrt(t) if t > 0 else 0.0
 
-    # Approximate DSR
-    se = 1.0 / np.sqrt(t - 1) if t > 1 else 1.0
-    z = (sharpe - sr_star) / se
-    from scipy.special import ndtr
-    return float(ndtr(z))
+    # Sharpe σε ημερήσια κλίμακα (ίδια κλίμακα με trial_srs)
+    sr = float(r.mean() / r.std()) if r.std() > 0 else 0.0
+
+    # Sigma: τυπική απόκλιση των trial Sharpes — η κρίσιμη παράμετρος
+    # Αν έχουμε μόνο 1 trial, χρησιμοποιούμε θεωρητικό SE
+    if len(trial_srs) >= 2:
+        sigma = float(np.std(trial_srs, ddof=1))
+    else:
+        sigma = abs(sr) * 0.1 if sr != 0 else 0.1  # fallback
+
+    if sigma <= 0:
+        sigma = 1e-6
+
+    n = max(len(trial_srs), 2)
+    t = len(r)  # αριθμός παρατηρήσεων
+
+    # SR* = αναμενόμενο μέγιστο SR από n trials
+    # (Bailey & LP eq. 10)
+    e = 0.5772156649  # Euler-Mascheroni constant
+    nd = NormalDist()
+    sr0 = sigma * (
+        (1 - e) * nd.inv_cdf(1 - 1 / n)
+        + e * nd.inv_cdf(1 - 1 / (n * math.e))
+    )
+
+    # Skewness και excess kurtosis για correction
+    if t >= 4:
+        g3 = float(r.skew())
+        g4 = float(r.kurt() + 3.0)  # excess kurtosis → kurtosis
+    else:
+        g3, g4 = 0.0, 3.0
+
+    denom = np.sqrt(max(1 - g3 * sr + (g4 - 1) / 4 * sr ** 2, 1e-12))
+
+    z = (sr - sr0) * np.sqrt(t - 1) / denom
+    return float(nd.cdf(z))
 
 
 # ── Backtest engine ──────────────────────────────────────────────────────────────
@@ -336,18 +371,39 @@ def evaluate_variants(
     base_ret = run_variant(frames, member, VARIANTS["BASE"], costs)
     base_m = metrics(base_ret)
 
-    rows = []
+    # Πρώτο πέρασμα: τρέχουμε ΟΛΕΣ τις variants για να μαζέψουμε τα Sharpe
+    # (χρειάζονται για το DSR — sigma = std των trial SR)
+    # BASE αποκλείεται από variants_to_run αν υπάρχει ήδη
+    non_base = [v for v in variants_to_run if v != "BASE"]
+    all_returns = {"BASE": base_ret}
+    all_metrics = {"BASE": base_m}
 
-    for vname in variants_to_run:
+    for vname in non_base:
         v = VARIANTS[vname]
         print(f"Τρέχω {vname}...", file=sys.stderr)
+        ret = run_variant(frames, member, v, costs)
+        all_returns[vname] = ret
+        all_metrics[vname] = metrics(ret)
 
-        if vname == "BASE":
-            ret = base_ret
-            m = base_m
-        else:
-            ret = run_variant(frames, member, v, costs)
-            m = metrics(ret)
+    # Trial Sharpes σε ημερήσια κλίμακα (για DSR)
+    # Χρησιμοποιούμε ΜΟΝΟ τις non-BASE variants (αυτές που "δοκιμάζουμε")
+    trial_daily_srs = []
+    for vname in non_base:
+        r = all_returns[vname]
+        if r.std() > 0:
+            trial_daily_srs.append(float(r.mean() / r.std()))
+    # Αν δεν έχουμε αρκετά (πρώτη εκτέλεση), χρησιμοποιούμε θεωρητικό fallback
+    if len(trial_daily_srs) < 2:
+        trial_daily_srs = trial_daily_srs + [0.0] * (2 - len(trial_daily_srs))
+
+    rows = []
+
+    # Εμφάνιση BASE πρώτα (αλλά μόνο μία φορά)
+    ordered = ["BASE"] + non_base
+
+    for vname in ordered:
+        m = all_metrics[vname]
+        ret = all_returns[vname]
 
         # Declared expectations
         decl = DECLARED.get(vname, (0, 0, -1, ""))
@@ -357,9 +413,8 @@ def evaluate_variants(
         t_btc = t_stat_excess(ret, btc)
         excess_btc = m["annual"] - btc_m["annual"]
 
-        # DSR
-        n_days = len(ret.dropna())
-        dsr_val = dsr(m["sharpe"], n_days, n_trials=N_TRIALS_DSR)
+        # DSR — τώρα με σωστή κλίμακα
+        dsr_val = dsr(ret, trial_daily_srs)
 
         # Promotion (κριτήρια ΠΡΙΝ από εκτέλεση)
         promote = (
