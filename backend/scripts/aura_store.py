@@ -103,10 +103,14 @@ def build_btc_benchmark(
     member: pd.DataFrame,
     costs: "Costs",  # noqa: F821  # forward ref
     vol_target: float = BTC_VOL_TARGET,
+    btc_fill: float = 0.8,
 ) -> pd.Series:
     """
     BTC vol-targeted benchmark: κρατά μόνο BTCUSDT, vol-scaled σε vol_target ετήσια.
-    Χρεώνει το ίδιο cost structure με τις variants.
+
+    Κόστος: cost × btc_fill (default 0.8) — δηλωμένη ασυμμετρία.
+    Λόγος: το BTC έχει βαθύτερο βιβλίο από καλάθι 30 alt (fill_prob=0.4).
+    Το 0.8 είναι δηλωμένη παραδοχή, όχι 1.0 (ανύπαρκτο κόστος).
 
     Επιστρέφει ημερήσιες net returns ευθυγραμμισμένες με το member index.
     """
@@ -150,7 +154,7 @@ def build_btc_benchmark(
     is_rebalance = scale_chg > 1e-6  # αλλαγή scale → rebalance
     cost_rate = np.where(
         is_rebalance,
-        costs.taker_bp / 10_000,
+        costs.taker_bp / 10_000 * btc_fill,  # fill_prob για BTC (0.8, δηλωμένο)
         0.0,  # καμία χρέωση τις μέρες χωρίς αναπροσαρμογή
     )
     daily_cost = pd.Series(cost_rate, index=gross.index)

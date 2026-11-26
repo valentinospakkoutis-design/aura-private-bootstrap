@@ -373,9 +373,10 @@ def evaluate_variants(
     Τρέχει τις δηλωμένες variants και επιστρέφει DataFrame αποτελεσμάτων.
     Δεν αλλάζει κριτήρια ΜΕΤΑ από εκτέλεση.
     """
-    # BTC benchmark
-    print("\nΥπολογισμός BTC benchmark...", file=sys.stderr)
-    btc = build_btc_benchmark(frames, member, costs)
+    # BTC benchmark — fill_prob=0.8 (δηλωμένο: BTC έχει βαθύτερο βιβλίο από alt basket)
+    BTC_FILL = 0.8
+    print(f"\nΥπολογισμός BTC benchmark (btc_fill={BTC_FILL}, strategy fill={costs.fill_prob})...", file=sys.stderr)
+    btc = build_btc_benchmark(frames, member, costs, btc_fill=BTC_FILL)
     btc_m = metrics(btc)
     print(f"BTC benchmark: annual={btc_m['annual']:.3f}, sharpe={btc_m['sharpe']:.3f}", file=sys.stderr)
 
