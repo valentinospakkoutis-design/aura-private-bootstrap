@@ -276,6 +276,15 @@ def run_variant(
     """
     Τρέχει τη variant σε όλα τα coins του universe.
     Επιστρέφει ημερήσια net portfolio returns (equal-weight, masked).
+
+    fill_prob: κλάσμα orders που εκτελείται.
+    Εφαρμόζεται ΜΕΤΑ το masked_portfolio (που κανονικοποιεί σε 1.0):
+        portfolio_ret × fill_prob
+    Χωρίς δεύτερη κανονικοποίηση — αλλιώς το 0.4 απορροφάται από το mean().
+
+    Γνωστός περιορισμός: το equal-weight mean() αντιμετωπίζει την έκθεση ως
+    πάντα 100% (όταν υπάρχει έστω ένα σήμα). Το 9,26% vol δεν ελέγχεται —
+    είναι αποτέλεσμα, όχι στόχος.
     """
     cost_bp = costs.taker_bp  # simplified: χρησιμοποιούμε taker για όλες τις συναλλαγές
 
@@ -292,7 +301,11 @@ def run_variant(
     if not nets:
         return pd.Series(dtype=float)
 
-    return masked_portfolio(nets, member)
+    # equal-weight portfolio (κανονικοποιεί αυτόματα σε 1.0 μέσω mean())
+    port = masked_portfolio(nets, member)
+
+    # fill_prob: η μόνη σωστή θέση — μετά την κανονικοποίηση, χωρίς δεύτερη
+    return port * costs.fill_prob
 
 
 # ── Conformance check ────────────────────────────────────────────────────────────
