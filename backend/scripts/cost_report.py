@@ -150,21 +150,44 @@ def per_symbol_spread(spreads: pd.DataFrame, sleeve: str = "USDC") -> pd.DataFra
     )
 
 
+PAPER_CAPITAL = 10_000.0      # εικονικό κεφάλαιο ανά στρατηγική στο λογιστικό
+MIN_DAYS_FOR_TURNOVER = 30    # κάτω από αυτό ο τζίρος κυριαρχείται από την αρχική είσοδο
+FALLBACK_TURNOVER = 7.7       # πλευρές/έτος σε πλήρες κεφάλαιο, από btc_trend_test
+TURNOVER_STRATEGY = "sma_50"  # η στρατηγική που κρίνεται τον Ιανουάριο
+
+
+def turnover_per_year(trades: pd.DataFrame, strategy: str = TURNOVER_STRATEGY) -> Dict:
+    """
+    Ετήσιος τζίρος ως πολλαπλάσιο του κεφαλαίου, για μία στρατηγική.
+
+    Κάθε γραμμή του trend_paper_trades είναι ΜΙΑ πλευρά (αγορά ή πώληση) με δικό της notional.
+    τζίρος = Σ notional / κεφάλαιο, ανά έτος. Το κόστος σε % = τζίρος × κόστος ανά πλευρά.
+
+    Το παλιό υπολόγιζε len(trades)×2 από ΟΛΕΣ τις στρατηγικές και κάθε πλευρά ως πλήρες
+    κεφάλαιο, σε 3 μέρες ιστορικού → ~27.000 «πλευρές»/έτος → 3.222%/έτος. Λάθος.
+    """
+    fallback = {"turnover": FALLBACK_TURNOVER, "source": "fallback btc_trend_test", "days": 0}
+    if trades.empty or "strategy" not in trades:
+        return fallback
+    t = trades[trades["strategy"] == strategy].dropna(subset=["as_of"])
+    if t.empty:
+        return fallback
+    days = (t["as_of"].max() - t["as_of"].min()).days
+    if days < MIN_DAYS_FOR_TURNOVER:
+        fallback["source"] = f"fallback (μόνο {days} ημέρες {strategy}, χρειάζονται ≥{MIN_DAYS_FOR_TURNOVER})"
+        fallback["days"] = days
+        return fallback
+    notional = pd.to_numeric(t["notional"], errors="coerce").abs().sum()
+    return {"turnover": notional / PAPER_CAPITAL / days * 365,
+            "source": f"μετρημένο {strategy}, {days} ημέρες", "days": days}
+
+
 def annual_cost_estimate(dist: pd.DataFrame, trades: pd.DataFrame) -> Dict:
     """
-    Εκτιμά ετήσιο κόστος σε % (μονάδες/έτος).
-
-    Χρησιμοποιεί:
-      - p50 half-spread ανά πλευρά
-      - αριθμό πλευρών ανά έτος (από trades ή fallback 7.7 από btc_trend_test)
+    Εκτιμά ετήσιο κόστος σε % του κεφαλαίου: τζίρος/έτος × (half-spread + fee) ανά πλευρά.
     """
-    if trades.empty:
-        trades_per_year = 7.7  # από btc_trend_test output
-    else:
-        # Εκτίμηση ετήσιων trades από ό,τι έχουμε
-        days_observed = max(1, (trades["as_of"].max() - trades["as_of"].min()).days)
-        total_sides = len(trades) * 2  # entry + exit per trade
-        trades_per_year = total_sides / days_observed * 365
+    to = turnover_per_year(trades)
+    trades_per_year = to["turnover"]
 
     result = {}
     for sleeve in dist.index:
@@ -178,6 +201,7 @@ def annual_cost_estimate(dist: pd.DataFrame, trades: pd.DataFrame) -> Dict:
 
         result[sleeve] = {
             "trades_per_year":          round(trades_per_year, 1),
+            "turnover_source":          to["source"],
             "half_spread_p50_bps":      p50,
             "half_spread_p90_bps":      p90,
             "fee_estimate_bps":         fee_estimate_bps,
@@ -259,7 +283,7 @@ def build_report(spreads: pd.DataFrame, trades: pd.DataFrame,
             lines += [
                 f"### {sleeve}",
                 "",
-                f"- Trades/πλευρές ανά έτος: **{r['trades_per_year']}**",
+                f"- Τζίρος/έτος (× κεφάλαιο): **{r['trades_per_year']}** ({r['turnover_source']})",
                 f"- Half-spread p50: {r['half_spread_p50_bps']} bp  |  p90: {r['half_spread_p90_bps']} bp",
                 f"- Exchange fee (εκτίμηση με BNB): ~{r['fee_estimate_bps']} bp",
                 f"- Συνολικό p50: **{r['total_cost_p50_bps']} bp**  |  p90: **{r['total_cost_p90_bps']} bp**",
@@ -362,7 +386,8 @@ def main(argv=None) -> int:
         annual = annual_cost_estimate(dist, trades)
         for sleeve, r in annual.items():
             print(f"  {sleeve} ετήσιο κόστος (p50): {r['annual_cost_p50_pct']}%  "
-                  f"gap vs ledger: {r['gap_annual_pct']}%")
+                  f"gap vs ledger: {r['gap_annual_pct']}%  "
+                  f"[τζίρος {r['trades_per_year']}×/έτος, {r['turnover_source']}]")
 
         print(f"\n{verdict(dist)}")
     else:
