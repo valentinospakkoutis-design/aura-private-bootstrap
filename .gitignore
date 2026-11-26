@@ -84,3 +84,6 @@ backend/training_history.json
 backend/*.bak
 backend/**/*.bak
 backend/templates/*.bak2
+
+# Secrets (server: /root/aura-secrets.env)
+*secrets*.env

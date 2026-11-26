@@ -108,9 +108,10 @@ def build_btc_benchmark(
     """
     BTC vol-targeted benchmark: κρατά μόνο BTCUSDT, vol-scaled σε vol_target ετήσια.
 
-    Κόστος: cost × btc_fill (default 0.8) — δηλωμένη ασυμμετρία.
-    Λόγος: το BTC έχει βαθύτερο βιβλίο από καλάθι 30 alt (fill_prob=0.4).
-    Το 0.8 είναι δηλωμένη παραδοχή, όχι 1.0 (ανύπαρκτο κόστος).
+    Fill 0.8 μοντελοποιείται ως ΑΠΟΤΥΧΙΑ εκτέλεσης, όχι ως έκπτωση κόστους (trial #14):
+    κάθε 5η μηνιαία αναπροσαρμογή παραλείπεται (το βάρος μένει στο προηγούμενο) και το
+    κόστος χρεώνεται πλήρες, μόνο στις αναπροσαρμογές που εκτελέστηκαν.
+    Το παλιό (trial #13) πολλαπλασίαζε το κόστος × 0.8 — ανάποδο: λιγότερο fill → φθηνότερο benchmark.
 
     Επιστρέφει ημερήσιες net returns ευθυγραμμισμένες με το member index.
     """
@@ -143,7 +144,13 @@ def build_btc_benchmark(
     # Μηνιαία αναπροσαρμογή: κρατάμε το scale σταθερό εντός μήνα
     # για να αποφύγουμε καθημερινό κόστος αναπροσαρμογής
     # Reindex: παίρνουμε την τιμή στην αρχή κάθε μήνα και την κρατάμε για ολόκληρο τον μήνα
-    monthly_scale = raw_scale.resample("MS").first().reindex(raw_scale.index, method="ffill")
+    monthly = raw_scale.resample("MS").first()
+    skip_every = int(round(1.0 / (1.0 - btc_fill))) if btc_fill < 1.0 else 0   # 0.8 → 5
+    if skip_every:
+        # κάθε skip_every-οστή αναπροσαρμογή δεν εκτελείται → μένει το προηγούμενο βάρος
+        skipped = (np.arange(len(monthly)) + 1) % skip_every == 0
+        monthly = monthly.mask(skipped).ffill()
+    monthly_scale = monthly.reindex(raw_scale.index, method="ffill")
     scale = monthly_scale.clip(0.05, 1.5).shift(1).fillna(raw_scale.iloc[0])
 
     # Gross returns, scaled
@@ -154,7 +161,7 @@ def build_btc_benchmark(
     is_rebalance = scale_chg > 1e-6  # αλλαγή scale → rebalance
     cost_rate = np.where(
         is_rebalance,
-        costs.taker_bp / 10_000 * btc_fill,  # fill_prob για BTC (0.8, δηλωμένο)
+        costs.taker_bp / 10_000,  # πλήρες κόστος, μόνο στις εκτελεσμένες (οι παραλειφθείσες δεν αλλάζουν scale)
         0.0,  # καμία χρέωση τις μέρες χωρίς αναπροσαρμογή
     )
     daily_cost = pd.Series(cost_rate, index=gross.index)
