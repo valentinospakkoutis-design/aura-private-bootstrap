@@ -113,6 +113,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             for step in steps:
                 print(f"recorded {step['strategy']:<22} {step['as_of']}  equity {step['equity']:.2f}  "
                       f"trades {step['trades']}  held {step['held']}/{step['universe']}")
+            # Snapshot κόστους: μετράει spread μόνο — ΚΑΜΙΑ εντολή δεν στέλνεται
+            try:
+                from services.cost_telemetry import snapshot_all_sync
+                n = snapshot_all_sync(list(CRYPTO_SYMBOLS))
+                print(f"cost snapshot: {n} pairs recorded")
+            except Exception as exc:
+                print(f"  cost snapshot skipped ({type(exc).__name__}: {exc})", file=sys.stderr)
         else:
             print("nothing new to record (already up to date)")
         _record_spreads(store, list(CRYPTO_SYMBOLS), after_close=bool(steps))
