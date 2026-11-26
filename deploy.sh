@@ -117,6 +117,20 @@ for f in xag.py xag_auth.py xag_orders.py xag_positions.py xag_healthz.py xag_lo
 done
 echo "✅ XAG files copied"
 
+# Post-deploy: κλειδωμένα gates (smart_score 85/75/75). Το image μπορεί να έχει παλιά τιμή (30, "relaxed for demo").
+# Επαλήθευση με hash — αλλιώς "έγινε" σημαίνει "νομίζω ότι έγινε". Θέλει restart για να φορτωθεί.
+echo "--- [8b] Copying autopilot_config.py (locked smart_score gates)..."
+AP=/root/aura-private-bootstrap/backend/services/autopilot_config.py
+docker cp "$AP" aura-backend:/app/services/autopilot_config.py
+if [ "$(md5sum < "$AP")" = "$(docker exec aura-backend sh -c 'md5sum < /app/services/autopilot_config.py')" ]; then
+  echo "✅ autopilot_config.py hash matches"
+else
+  echo "❌ autopilot_config.py hash MISMATCH — gates may be wrong"; exit 1
+fi
+docker restart aura-backend
+until curl -sf --max-time 5 http://localhost:8080/api/xag/healthz >/dev/null; do sleep 10; done
+echo "✅ backend up after restart"
+
 # 9. Enable paper trading (idempotent — persists across restarts)
 echo "--- [9/9] Enabling paper trading..."
 PAPER_TOKEN=$(docker exec aura-backend python3 -c "

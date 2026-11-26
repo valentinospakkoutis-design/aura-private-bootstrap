@@ -195,7 +195,7 @@ def annual_cost_estimate(dist: pd.DataFrame, trades: pd.DataFrame) -> Dict:
         p90 = dist.loc[sleeve, "p90_bps"]
         # + fee assumption: exchange fee η επόμενη μεγάλη άγνωστη
         # Με BNB discount: ~7.5bp maker, ~10bp taker
-        fee_estimate_bps = 8.75  # midpoint 7.5–10
+        fee_estimate_bps = FEE_ASSUMED_BPS
         total_p50 = p50 + fee_estimate_bps
         total_p90 = p90 + fee_estimate_bps
 
@@ -217,27 +217,55 @@ def annual_cost_estimate(dist: pd.DataFrame, trades: pd.DataFrame) -> Dict:
     return result
 
 
+FEE_ASSUMED_BPS = 8.75      # ΥΠΟΘΕΣΗ: μέσος 7,5 (maker+BNB) και 10 (taker) → υποθέτει 50% maker, ΜΗ μετρημένο
+CONFIRM_P50_TOTAL_BPS = 13.0
+REFUTE_P90_TOTAL_BPS = 8.0
+
+
+def caveats(dist: pd.DataFrame) -> List[str]:
+    """Τι από το «ολικό κόστος» είναι μέτρηση και τι υπόθεση. Τυπώνεται ΔΙΠΛΑ σε κάθε νούμερο."""
+    out = []
+    for sleeve, r in dist.iterrows():
+        total = r["p50_bps"] + FEE_ASSUMED_BPS
+        out.append(f"{sleeve}: ολικό p50 {total:.1f} bp = {r['p50_bps']} μετρημένο + {FEE_ASSUMED_BPS} υπόθεση "
+                   f"→ {100 * r['p50_bps'] / total:.0f}% μέτρηση, {100 * FEE_ASSUMED_BPS / total:.0f}% υπόθεση")
+    out += [
+        f"Fee {FEE_ASSUMED_BPS} bp: υπόθεση 50% maker, όχι μετρημένο· εύρος 7,5–10 bp.",
+        "Spread: ένα στιγμιότυπο αμέσως μετά το κλείσιμο — ευνοϊκή ώρα· σε αναταραχή είναι ευρύτερο.",
+        "Τζίρος: δανεισμένος από backtest μέχρι να υπάρξουν ≥30 ημέρες sma_50 στο λογιστικό.",
+    ]
+    return out
+
+
 def verdict(dist: pd.DataFrame) -> str:
     """
-    Verdict: αν p90 < THRESHOLD_BPS (13bp) για το trading sleeve (USDC),
-    το +1.1% vs BTC ήταν κόστος-σφάλμα, όχι αδυναμία σήματος.
+    Δίπλευρο κριτήριο σε ΟΛΙΚΟ κόστος (half-spread + fee), ανά sleeve:
+      ολικό p50 > 13 bp → επιβεβαιώνεται
+      ολικό p90 < 8 bp  → διαψεύδεται
+      αλλιώς            → ανάμεσα (καμία απόφαση)
+    Προσοχή: με fee υποθετικό 8,75 bp το ολικό είναι πάντα ≥ 8,75, άρα το «διαψεύδεται»
+    δεν μπορεί να πυροδοτήσει μέχρι να μετρηθεί πραγματική fee κάτω από 8 bp.
     """
-    if dist.empty or "USDC" not in dist.index:
+    if dist.empty:
         return "PENDING — ανεπαρκή δεδομένα"
-
-    n = int(dist.loc["USDC", "n_records"])
+    n = int(dist["n_records"].min())
     if n < MIN_TRADES_FOR_INTERPRETATION:
         return f"PENDING — {n}/{MIN_TRADES_FOR_INTERPRETATION} records (χρειάζονται ≥{MIN_TRADES_FOR_INTERPRETATION})"
-
-    p90 = dist.loc["USDC", "p90_bps"]
-    if p90 < THRESHOLD_BPS:
-        gap = round(LEDGER_COST_BPS - (p90 + 8.75), 1)
-        return (f"ΚΟΣΤΟΣ ΣΦΑΛΜΑ — το πραγματικό κόστος (p90 half-spread {p90}bp + ~8.75bp fee ≈ "
-                f"{p90+8.75:.1f}bp) είναι κάτω από {THRESHOLD_BPS}bp. "
-                f"Διαφορά vs ledger {gap}bp × trades/έτος = ετήσια επίπτωση.")
-    else:
-        return (f"LEDGER ΟΚ — το πραγματικό κόστος (p90 {p90}bp + fee) ≈ {p90+8.75:.1f}bp "
-                f"≥ {THRESHOLD_BPS}bp. Η υπόθεση 20bp δεν κολακεύει.")
+    lines = []
+    for sleeve, r in dist.iterrows():
+        p50 = r["p50_bps"] + FEE_ASSUMED_BPS
+        p90 = r["p90_bps"] + FEE_ASSUMED_BPS
+        if p50 > CONFIRM_P50_TOTAL_BPS:
+            v = "ΕΠΙΒΕΒΑΙΩΝΕΤΑΙ"
+        elif p90 < REFUTE_P90_TOTAL_BPS:
+            v = "ΔΙΑΨΕΥΔΕΤΑΙ"
+        else:
+            v = "ΑΝΑΜΕΣΑ — κανένα άκρο δεν πυροδοτεί"
+        lines.append(f"{sleeve}: {v} (ολικό p50 {p50:.1f} bp vs >{CONFIRM_P50_TOTAL_BPS}, "
+                     f"p90 {p90:.1f} bp vs <{REFUTE_P90_TOTAL_BPS})")
+    if FEE_ASSUMED_BPS >= REFUTE_P90_TOTAL_BPS:
+        lines.append(f"Το «διαψεύδεται» είναι απρόσιτο όσο η fee είναι υπόθεση {FEE_ASSUMED_BPS} ≥ {REFUTE_P90_TOTAL_BPS} bp.")
+    return "\n".join(lines)
 
 
 # ── Report generation ─────────────────────────────────────────────────────────────
@@ -298,9 +326,14 @@ def build_report(spreads: pd.DataFrame, trades: pd.DataFrame,
         lines += [
             "## Verdict",
             "",
-            f"Κατώφλι: αν p90 half-spread USDC < {THRESHOLD_BPS} bp → το +1.1% vs BTC ήταν σφάλμα κόστους.",
+            f"Κριτήριο (ολικό = half-spread + fee): p50 > {CONFIRM_P50_TOTAL_BPS} bp → επιβεβαιώνεται· "
+            f"p90 < {REFUTE_P90_TOTAL_BPS} bp → διαψεύδεται· αλλιώς ανάμεσα.",
             "",
-            f"**{v}**",
+            *[f"- **{line}**" for line in v.split("\n")],
+            "",
+            "### Τι είναι μέτρηση και τι υπόθεση",
+            "",
+            *[f"- {c}" for c in caveats(dist)],
             "",
         ]
 
@@ -389,6 +422,9 @@ def main(argv=None) -> int:
                   f"gap vs ledger: {r['gap_annual_pct']}%  "
                   f"[τζίρος {r['trades_per_year']}×/έτος, {r['turnover_source']}]")
 
+        print("\n── Τι είναι μέτρηση και τι υπόθεση ──")
+        for c in caveats(dist):
+            print(f"  {c}")
         print(f"\n{verdict(dist)}")
     else:
         print("Κανένα spread data ακόμα.")
