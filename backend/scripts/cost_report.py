@@ -195,7 +195,7 @@ def annual_cost_estimate(dist: pd.DataFrame, trades: pd.DataFrame) -> Dict:
         p90 = dist.loc[sleeve, "p90_bps"]
         # + fee assumption: exchange fee η επόμενη μεγάλη άγνωστη
         # Με BNB discount: ~7.5bp maker, ~10bp taker
-        fee_estimate_bps = FEE_ASSUMED_BPS
+        fee_estimate_bps = fee_for(sleeve)
         total_p50 = p50 + fee_estimate_bps
         total_p90 = p90 + fee_estimate_bps
 
@@ -217,7 +217,15 @@ def annual_cost_estimate(dist: pd.DataFrame, trades: pd.DataFrame) -> Dict:
     return result
 
 
-FEE_ASSUMED_BPS = 8.75      # ΥΠΟΘΕΣΗ: μέσος 7,5 (maker+BNB) και 10 (taker) → υποθέτει 50% maker, ΜΗ μετρημένο
+# ΜΕΤΡΗΜΕΝΟ 27/11/2026 (probe_fees.py, /sapi/v1/asset/tradeFee + bnbBurn): Regular, spotBNBBurn=true.
+# Effective (×0,75): USDC maker 7,50 / taker 7,125· USDT 7,50 / 7,50. Χρεώνεται taker (εντολές αγοράς).
+# Προϋπόθεση της έκπτωσης: υπόλοιπο BNB στο spot wallet.
+FEE_BPS = {"USDC": 7.125, "USDT": 7.5}
+FEE_ASSUMED_BPS = 7.5  # fallback για άγνωστο sleeve
+
+
+def fee_for(sleeve: str) -> float:
+    return FEE_BPS.get(sleeve, FEE_ASSUMED_BPS)
 CONFIRM_P50_TOTAL_BPS = 13.0
 REFUTE_P90_TOTAL_BPS = 8.0
 
@@ -226,11 +234,11 @@ def caveats(dist: pd.DataFrame) -> List[str]:
     """Τι από το «ολικό κόστος» είναι μέτρηση και τι υπόθεση. Τυπώνεται ΔΙΠΛΑ σε κάθε νούμερο."""
     out = []
     for sleeve, r in dist.iterrows():
-        total = r["p50_bps"] + FEE_ASSUMED_BPS
-        out.append(f"{sleeve}: ολικό p50 {total:.1f} bp = {r['p50_bps']} μετρημένο + {FEE_ASSUMED_BPS} υπόθεση "
-                   f"→ {100 * r['p50_bps'] / total:.0f}% μέτρηση, {100 * FEE_ASSUMED_BPS / total:.0f}% υπόθεση")
+        f = fee_for(sleeve)
+        total = r["p50_bps"] + f
+        out.append(f"{sleeve}: ολικό p50 {total:.1f} bp = {r['p50_bps']} half-spread + {f} fee — και τα δύο μετρημένα")
     out += [
-        f"Fee {FEE_ASSUMED_BPS} bp: υπόθεση 50% maker, όχι μετρημένο· εύρος 7,5–10 bp.",
+        "Fee: μετρημένη 27/11 από λογαριασμό (Regular, BNB burn ενεργό)· ισχύει όσο υπάρχει υπόλοιπο BNB. Χωρίς BNB: USDC 9,5, USDT 10.",
         "Spread: ένα στιγμιότυπο αμέσως μετά το κλείσιμο — ευνοϊκή ώρα· σε αναταραχή είναι ευρύτερο.",
         "Τζίρος: δανεισμένος από backtest μέχρι να υπάρξουν ≥30 ημέρες sma_50 στο λογιστικό.",
     ]
@@ -253,8 +261,8 @@ def verdict(dist: pd.DataFrame) -> str:
         return f"PENDING — {n}/{MIN_TRADES_FOR_INTERPRETATION} records (χρειάζονται ≥{MIN_TRADES_FOR_INTERPRETATION})"
     lines = []
     for sleeve, r in dist.iterrows():
-        p50 = r["p50_bps"] + FEE_ASSUMED_BPS
-        p90 = r["p90_bps"] + FEE_ASSUMED_BPS
+        p50 = r["p50_bps"] + fee_for(sleeve)
+        p90 = r["p90_bps"] + fee_for(sleeve)
         if p50 > CONFIRM_P50_TOTAL_BPS:
             v = "ΕΠΙΒΕΒΑΙΩΝΕΤΑΙ"
         elif p90 < REFUTE_P90_TOTAL_BPS:
@@ -263,8 +271,8 @@ def verdict(dist: pd.DataFrame) -> str:
             v = "ΑΝΑΜΕΣΑ — κανένα άκρο δεν πυροδοτεί"
         lines.append(f"{sleeve}: {v} (ολικό p50 {p50:.1f} bp vs >{CONFIRM_P50_TOTAL_BPS}, "
                      f"p90 {p90:.1f} bp vs <{REFUTE_P90_TOTAL_BPS})")
-    if FEE_ASSUMED_BPS >= REFUTE_P90_TOTAL_BPS:
-        lines.append(f"Το «διαψεύδεται» είναι απρόσιτο όσο η fee είναι υπόθεση {FEE_ASSUMED_BPS} ≥ {REFUTE_P90_TOTAL_BPS} bp.")
+    if min(FEE_BPS.values()) >= REFUTE_P90_TOTAL_BPS:
+        lines.append(f"Το «διαψεύδεται» είναι απρόσιτο: η μετρημένη fee ({min(FEE_BPS.values())} bp) ήδη ≥ {REFUTE_P90_TOTAL_BPS} bp.")
     return "\n".join(lines)
 
 
@@ -313,7 +321,7 @@ def build_report(spreads: pd.DataFrame, trades: pd.DataFrame,
                 "",
                 f"- Τζίρος/έτος (× κεφάλαιο): **{r['trades_per_year']}** ({r['turnover_source']})",
                 f"- Half-spread p50: {r['half_spread_p50_bps']} bp  |  p90: {r['half_spread_p90_bps']} bp",
-                f"- Exchange fee (εκτίμηση με BNB): ~{r['fee_estimate_bps']} bp",
+                f"- Exchange fee (μετρημένη, BNB): {r['fee_estimate_bps']} bp",
                 f"- Συνολικό p50: **{r['total_cost_p50_bps']} bp**  |  p90: **{r['total_cost_p90_bps']} bp**",
                 f"- Ετήσιο κόστος p50: {r['annual_cost_p50_pct']}%  |  p90: {r['annual_cost_p90_pct']}%",
                 f"- Ledger υπόθεση: {r['ledger_assumption_bps']} bp × {r['trades_per_year']} = **{r['ledger_annual_pct']}%/έτος**",
